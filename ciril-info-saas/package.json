@@ -1,0 +1,19 @@
+{
+  "name": "cirilinfo-saas",
+  "private": true,
+  "description": "CirilInfo SaaS platform: public website, customer portal, admin portal, API and worker.",
+  "scripts": {
+    "install:all": "npm --prefix apps/api ci && npm --prefix apps/web ci && npm --prefix e2e ci",
+    "services:up": "docker compose -f docker-compose.dev.yml --env-file .env up -d",
+    "services:down": "docker compose -f docker-compose.dev.yml --env-file .env down",
+    "db:migrate": "npm --prefix apps/api run db:migrate",
+    "db:seed": "npm --prefix apps/api run db:seed",
+    "dev:api": "npm --prefix apps/api run start:dev",
+    "dev:worker": "npm --prefix apps/api run build && npm --prefix apps/api run start:worker",
+    "dev:web": "npm --prefix apps/web start",
+    "test": "npm --prefix apps/api test && npm --prefix apps/web test -- --watch=false",
+    "test:integration": "npm --prefix apps/api run test:e2e",
+    "test:e2e": "npm --prefix e2e test",
+    "build": "npm --prefix apps/api run build && npm --prefix apps/web run build"
+  }
+}

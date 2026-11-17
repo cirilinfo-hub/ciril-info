@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+**/.angular
+**/coverage
+apps/api/src/generated
+e2e/test-results
+e2e/playwright-report
+storage
+backups
+.env
+.env.*
+!.env.example
+**/*.log
+.git

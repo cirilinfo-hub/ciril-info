@@ -1,0 +1,66 @@
+import { randomUUID } from 'node:crypto';
+import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { LoggerModule } from 'nestjs-pino';
+import { ApiExceptionFilter } from './common/http/api-exception.filter.js';
+import { type Env, validateEnv } from './config/env.js';
+import { DatabaseModule } from './database/database.module.js';
+import { HealthModule } from './modules/health/health.module.js';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      cache: true,
+      // One .env at the repo root; apps/api/.env may override locally. Real
+      // environment variables (Docker/production) always take precedence.
+      envFilePath: ['.env', '../../.env'],
+      validate: validateEnv,
+    }),
+    LoggerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>) => ({
+        pinoHttp: {
+          level: config.get('LOG_LEVEL', { infer: true }),
+          genReqId: (req, res) => {
+            const incoming = req.headers['x-request-id'];
+            const id = typeof incoming === 'string' && /^[\w-]{8,64}$/.test(incoming) ? incoming : randomUUID();
+            res.setHeader('X-Request-Id', id);
+            return id;
+          },
+          // Never log credentials, tokens or cookies.
+          redact: {
+            paths: [
+              'req.headers.authorization',
+              'req.headers.cookie',
+              'res.headers["set-cookie"]',
+              '*.password',
+              '*.passwordHash',
+              '*.token',
+              '*.refreshToken',
+            ],
+            censor: '[redacted]',
+          },
+          customProps: () => ({ service: 'api' }),
+          autoLogging: { ignore: (req) => req.url?.startsWith('/health') ?? false },
+          transport:
+            config.get('NODE_ENV', { infer: true }) === 'development'
+              ? { target: 'pino-pretty', options: { singleLine: true, translateTime: 'SYS:HH:MM:ss' } }
+              : undefined,
+        },
+      }),
+    }),
+    ThrottlerModule.forRoot({
+      throttlers: [{ name: 'default', ttl: 60_000, limit: 120 }],
+    }),
+    DatabaseModule,
+    HealthModule,
+  ],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_FILTER, useClass: ApiExceptionFilter },
+  ],
+})
+export class AppModule {}
