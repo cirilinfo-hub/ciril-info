@@ -29,15 +29,31 @@ npm run db:seed                 # roles, permissions, Super Admin, catalogue (id
 **Every day, in separate terminals**
 ```bash
 npm run dev:api                 # http://localhost:3000   API docs: http://localhost:3000/api/docs
-npm run dev:web                 # http://localhost:4200   (/ public site, /portal customer, /admin admin)
+npm run dev:worker              # sends queued email (read it in Mailpit: http://localhost:8025)
+npm run dev:web                 # http://localhost:4200
 ```
+
+| Local URL | Site |
+|---|---|
+| http://localhost:4200 | Public website |
+| http://localhost:4200/portal | Customer portal: register, sign in, organisation, team, security |
+| http://localhost:4200/admin | Admin portal: staff sign-in with mandatory two-step verification |
+
+The seeded Super Admin signs in with `SEED_SUPERADMIN_EMAIL` and `SEED_SUPERADMIN_PASSWORD` from `.env`. The first sign-in forces a new password and two-step set-up.
 
 **Tests**
 ```bash
 npm test                        # unit tests (API + web)
-npm run test:integration        # API + tenant-isolation tests against the dev database
-npm run test:e2e                # Playwright; starts the web dev server automatically
+npm run test:integration        # API integration: auth, tenants, RBAC, tenant isolation (dev database)
+npm --prefix apps/api run build # then:
+npm run test:e2e                # Playwright: starts API, worker and web; reads real emails from Mailpit
 ```
+
+## Conventions
+
+- **One Angular component per file.** With Angular 21's build, a file declaring several `@Component`s made `ng build` finish but never exit, which would stall CI. CI jobs also have time limits.
+- **Authorisation lives in the API.** Angular guards only choose which screen to show. Every endpoint is checked by `AuthGuard` / `TenantGuard`, and again by PostgreSQL RLS.
+- **No placeholder business data in production.** Prices, testimonials, FAQs and website claims come from the admin portal. Sample data is for development only (`SEED_SAMPLE_DATA`).
 
 ## Multi-tenant security model (short version)
 
@@ -57,5 +73,6 @@ See `HOSTING_ASSESSMENT.md` for the hosting decision: a Hostinger KVM 2 VPS, to 
 |---|---|
 | 0 Inspection | ✅ Approved; developing locally first |
 | 1 Foundation | ✅ Done and verified locally against PostgreSQL 16 + Redis 7 in Docker (migrations, RLS, idempotent seed, tenant-isolation tests, production images, worker outbox relay) |
-| 2 Auth, tenants, RBAC, audit | ⏭ Next |
-| 3–7 | Pending |
+| 2 Auth, tenants, RBAC, audit | ✅ API + customer/admin sign-in, organisation, team and security screens. 38 unit, 50 integration and 26 browser tests |
+| 3 Public website | ⏭ Next |
+| 4–7 | Pending |

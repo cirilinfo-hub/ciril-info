@@ -20,6 +20,7 @@ jobs:
   api:
     name: API · typecheck, unit tests, migrations, seed
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16.10-alpine
@@ -106,6 +107,9 @@ jobs:
   web:
     name: Web · build, unit tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      NG_CLI_ANALYTICS: 'false'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -123,12 +127,60 @@ jobs:
   e2e:
     name: E2E · Playwright (desktop, tablet, mobile)
     runs-on: ubuntu-24.04
-    needs: web
+    timeout-minutes: 20
+    needs: [api, web]
+    services:
+      postgres:
+        image: postgres:16.10-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cirilinfo
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cirilinfo" --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+      mailpit:
+        image: axllent/mailpit:v1.27
+        ports: ["1025:1025", "8025:8025"]
+    env:
+      NODE_ENV: test
+      NG_CLI_ANALYTICS: "false"
+      PUBLIC_WEB_URL: http://localhost:4200
+      CUSTOMER_PORTAL_URL: http://localhost:4200/portal
+      ADMIN_PORTAL_URL: http://localhost:4200/admin
+      API_URL: http://localhost:3000
+      CORS_ORIGINS: http://localhost:4200
+      DATABASE_URL: postgresql://cirilinfo_owner:ci_owner@localhost:5432/cirilinfo?schema=public
+      DATABASE_URL_APP: postgresql://cirilinfo_app:ci_app@localhost:5432/cirilinfo?schema=public
+      DATABASE_URL_PLATFORM: postgresql://cirilinfo_platform:ci_platform@localhost:5432/cirilinfo?schema=public
+      REDIS_PASSWORD: unused-in-ci
+      JWT_ACCESS_SECRET: ci-only-secret-0123456789abcdef0123456789abcdef
+      DATA_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      EMAIL_PROVIDER: mailpit
+      SMTP_HOST: localhost
+      SMTP_PORT: "1025"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - name: Create database roles
+        env:
+          PGPASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: cirilinfo
+          DB_OWNER_PASSWORD: ci_owner
+          DB_APP_PASSWORD: ci_app
+          DB_PLATFORM_PASSWORD: ci_platform
+        run: |
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+          sed 's/psql -v ON_ERROR_STOP=1/psql -h localhost -v ON_ERROR_STOP=1/' infra/postgres/init/01-roles.sh | bash
+      - name: API (migrate, seed, build)
+        working-directory: ciril-info-saas/apps/api
+        run: npm ci && npx prisma migrate deploy && npm run db:seed && npx nest build
       - run: npm ci
         working-directory: ciril-info-saas/apps/web
       - run: npm ci && npx playwright install --with-deps chromium
@@ -146,6 +198,7 @@ jobs:
   security:
     name: Security · dependency audit
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -159,6 +212,7 @@ jobs:
   docker:
     name: Docker · images build
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     needs: [api, web]
     steps:
       - uses: actions/checkout@v4

@@ -36,3 +36,18 @@ main:focus {
     background-position: -200% 0;
   }
 }
+
+// Portal pages: the design spaces sections with `.hx-content > * + *`. In Angular the
+// routed page is a component element inside <main>, so apply the same rhythm one level down.
+.hx-content > :not(router-outlet) {
+  display: block;
+
+  > * + * {
+    margin-top: var(--space-6);
+  }
+}
+
+// <router-outlet> is an empty marker element; it must not push the page down.
+.hx-content > router-outlet + * {
+  margin-top: 0;
+}
