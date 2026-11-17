@@ -7,7 +7,12 @@ import { LoggerModule } from 'nestjs-pino';
 import { ApiExceptionFilter } from './common/http/api-exception.filter.js';
 import { type Env, validateEnv } from './config/env.js';
 import { DatabaseModule } from './database/database.module.js';
+import { AuditModule } from './modules/audit/audit.module.js';
+import { AuthModule } from './modules/auth/auth.module.js';
 import { HealthModule } from './modules/health/health.module.js';
+import { MailModule } from './modules/mail/mail.module.js';
+import { TenantsModule } from './modules/tenants/tenants.module.js';
+import { UsersModule } from './modules/users/users.module.js';
 
 @Module({
   imports: [
@@ -52,11 +57,20 @@ import { HealthModule } from './modules/health/health.module.js';
         },
       }),
     }),
-    ThrottlerModule.forRoot({
-      throttlers: [{ name: 'default', ttl: 60_000, limit: 120 }],
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>) => ({
+        throttlers: [{ name: 'default', ttl: 60_000, limit: 120 }],
+        skipIf: () => config.get('THROTTLE_DISABLED', { infer: true }),
+      }),
     }),
     DatabaseModule,
+    AuditModule,
+    MailModule,
+    AuthModule,
     HealthModule,
+    TenantsModule,
+    UsersModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

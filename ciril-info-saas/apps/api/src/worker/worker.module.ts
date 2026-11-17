@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 import { type Env, validateEnv } from '../config/env.js';
 import { DatabaseModule } from '../database/database.module.js';
+import { EventsProcessor } from './email.processor.js';
 import { EVENTS_QUEUE, OutboxRelayService } from './outbox-relay.service.js';
 
 /**
@@ -41,6 +42,6 @@ import { EVENTS_QUEUE, OutboxRelayService } from './outbox-relay.service.js';
     BullModule.registerQueue({ name: EVENTS_QUEUE }),
     DatabaseModule,
   ],
-  providers: [OutboxRelayService],
+  providers: [OutboxRelayService, EventsProcessor],
 })
 export class WorkerModule {}

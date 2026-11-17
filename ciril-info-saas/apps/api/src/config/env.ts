@@ -62,6 +62,8 @@ export const envSchema = z
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
     SENTRY_DSN: z.string().optional().default(''),
     SWAGGER_ENABLED: bool,
+    /** Integration tests only: turn off per-IP rate limiting (account lockout still applies). */
+    THROTTLE_DISABLED: bool,
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== 'production') return;
@@ -70,6 +72,9 @@ export const envSchema = z
       if (env[key] === 'mock') {
         ctx.addIssue({ code: 'custom', path: [key], message: 'mock adapters are not allowed in production' });
       }
+    }
+    if (env.THROTTLE_DISABLED) {
+      ctx.addIssue({ code: 'custom', path: ['THROTTLE_DISABLED'], message: 'rate limiting cannot be disabled in production' });
     }
     if (env.EMAIL_PROVIDER === 'mailpit') {
       ctx.addIssue({ code: 'custom', path: ['EMAIL_PROVIDER'], message: 'mailpit is for local development only' });

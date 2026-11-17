@@ -2,9 +2,11 @@ import { Controller, Get, HttpCode, ServiceUnavailableException, VERSION_NEUTRAL
 import { ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { PlatformPrisma } from '../../database/prisma-clients.js';
+import { Public } from '../auth/decorators.js';
 import { RedisHealth } from './redis.health.js';
 
 @ApiTags('health')
+@Public()
 @SkipThrottle()
 @Controller({ path: 'health', version: VERSION_NEUTRAL })
 export class HealthController {

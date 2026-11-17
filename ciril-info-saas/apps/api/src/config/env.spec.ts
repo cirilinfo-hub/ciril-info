@@ -56,3 +56,14 @@ describe('validateEnv', () => {
     }
   });
 });
+
+describe('validateEnv: test-only switches', () => {
+  it('refuses to disable rate limiting in production', () => {
+    expect(() =>
+      validateEnv({
+        ...base, NODE_ENV: 'production', PAYMENT_PROVIDER: 'razorpay', HOSTING_PROVIDER: 'cpanel',
+        REGISTRAR_PROVIDER: 'resellerclub', EMAIL_PROVIDER: 'resend', THROTTLE_DISABLED: 'true',
+      }),
+    ).toThrow(/rate limiting cannot be disabled/);
+  });
+});
