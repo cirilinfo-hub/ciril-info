@@ -1,0 +1,12 @@
+<!-- @dsCard group="Navigation" height=130 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Tabs — preview</title></head>
+<body>
+<div id="root" class="cf-root"></div>
+<script>
+  var C = window.Cirilinfo, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{padding:16}},h(C.Tabs,{label:'Tasks',items:[{value:'today',label:'Today',count:8,content:h('span',{className:'cf-help'},'Showing today tasks.')},{value:'up',label:'Upcoming',count:24,content:h('span',{className:'cf-help'},'Showing upcoming tasks.')},{value:'done',label:'Completed',count:132},{value:'arch',label:'Archived'}]})));
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+<!-- @dsCard group="Data display" height=200 width=900 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Table — preview</title></head>
+<body>
+<div id="root" class="cf-root"></div>
+<script>
+  var C = window.Cirilinfo, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{padding:16}},h(C.Table,{columns:[{key:'task',label:'Task'},{key:'project',label:'Project'},{key:'who',label:'Assignee',render:function(r){return h('span',{className:'cf-assignee'},h(C.Avatar,{size:24,initials:r.who}),r.name)}},{key:'status',label:'Status',render:function(r){return h(C.Badge,{tone:r.tone,dot:true},r.status)}},{key:'due',label:'Due'},{key:'hours',label:'Hours',align:'right'}],rows:[{task:'Create Brand Style Guide',project:'Website Design',who:'KA',name:'[Name]',status:'Done',tone:'success',due:'10 Aug',hours:'12:30'},{task:'Product Launch page',project:'Marketing',who:'AW',name:'[Name]',status:'In progress',tone:'brand',due:'14 Aug',hours:'08:15'}]})));
+</script>
+</body>
+</html>

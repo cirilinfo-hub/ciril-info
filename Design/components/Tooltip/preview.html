@@ -1,0 +1,12 @@
+<!-- @dsCard group="Overlays" height=110 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Tooltip — preview</title></head>
+<body>
+<div id="root" class="cf-root"></div>
+<script>
+  var C = window.Cirilinfo, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'cf-row',style:{paddingTop:56,paddingLeft:110,gap:140}},h(C.Tooltip,{content:'Synced across 3 devices',open:true},h(C.Button,{variant:'secondary',size:'sm'},'Dark')),h(C.Tooltip,{content:'Total working hours this sprint',light:true,open:true},h(C.Button,{variant:'secondary',size:'sm'},'Light'))));
+</script>
+</body>
+</html>

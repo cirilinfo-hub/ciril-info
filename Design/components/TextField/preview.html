@@ -1,0 +1,15 @@
+<!-- @dsCard group="Forms" height=300 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>TextField — preview</title></head>
+<body>
+<div id="root" class="cf-root"></div>
+<script>
+  var C = window.Cirilinfo, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'cf-stack',style:{maxWidth:420}},
+ h(C.TextField,{label:'Task name',placeholder:'e.g. Create brand style guide',hint:'Give the task a short, clear name.'}),
+ h(C.TextField,{label:'Email',defaultValue:'hello@',error:'Enter a valid email address.'}),
+ h(C.TextField,{label:'Search',icon:'search',placeholder:'Search tasks'})));
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+<!-- @dsCard group="Cards" height=230 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>TaskList — preview</title></head>
+<body>
+<div id="root" class="cf-root"></div>
+<script>
+  var C = window.Cirilinfo, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{padding:24,background:'var(--violet-50)'}},h(C.TaskList,{tasks:[{label:'Create Brand Style Guide for New Website',done:true},{label:'Design onboarding screens for mobile'},{label:'Review sprint backlog with team'}]})));
+</script>
+</body>
+</html>

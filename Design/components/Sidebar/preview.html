@@ -1,0 +1,12 @@
+<!-- @dsCard group="Navigation" height=640 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Sidebar — preview</title></head>
+<body>
+<div id="root" class="cf-root"></div>
+<script>
+  var C = window.Cirilinfo, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{padding:16,background:'var(--violet-50)'}},h(C.Sidebar,{sections:[{label:'Workspace',items:[{label:'Dashboard',icon:'grid',current:true},{label:'My Tasks',icon:'tasks',count:8},{label:'Projects',icon:'folder'},{label:'Calendar',icon:'calendar'},{label:'Team',icon:'team'}]},{label:'Account',items:[{label:'Settings',icon:'settings'}]}],promo:{title:'Unlock multi-team projects',text:'Shared boards and workflows for every team.'}})));
+</script>
+</body>
+</html>

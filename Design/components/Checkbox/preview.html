@@ -1,0 +1,16 @@
+<!-- @dsCard group="Forms" height=170 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Checkbox — preview</title></head>
+<body>
+<div id="root" class="cf-root"></div>
+<script>
+  var C = window.Cirilinfo, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'cf-stack',style:{gap:0}},
+ h(C.Checkbox,{label:'Create Brand Style Guide for New Website',defaultChecked:true,strikeWhenChecked:true}),
+ h(C.Checkbox,{label:'Design onboarding screens for mobile',strikeWhenChecked:true}),
+ h(C.Checkbox,{label:'Review sprint backlog with team',strikeWhenChecked:true}),
+ h(C.Checkbox,{label:'Disabled',disabled:true})));
+</script>
+</body>
+</html>

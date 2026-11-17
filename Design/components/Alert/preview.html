@@ -1,0 +1,12 @@
+<!-- @dsCard group="Feedback" height=300 width=560 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Alert — preview</title></head>
+<body>
+<div id="root" class="cf-root"></div>
+<script>
+  var C = window.Cirilinfo, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'cf-stack'},h(C.Alert,{tone:'success',title:'Task completed'},'Create Brand Style Guide was moved to Done.'),h(C.Alert,{tone:'info',title:'Sync in progress'},'Your tasks will be available on all devices shortly.'),h(C.Alert,{tone:'warning',title:'3 tasks due tomorrow'},'Review them before the sprint ends.'),h(C.Alert,{tone:'error',title:'Attachment failed to upload'},'The file is too large. ',h('a',{href:'#'},'Try again'))));
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+<!-- @dsCard group="Feedback" height=100 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Toast — preview</title></head>
+<body>
+<div id="root" class="cf-root"></div>
+<script>
+  var C = window.Cirilinfo, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'cf-row',style:{background:'var(--violet-50)'}},h(C.Toast,{avatar:'KA',time:'2 min ago',action:'View'},h('b',null,'[Name]'),' mentioned you in ',h('b',null,'App Design'))));
+</script>
+</body>
+</html>

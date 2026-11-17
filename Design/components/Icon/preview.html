@@ -1,0 +1,15 @@
+<!-- @dsCard group="Foundations" height=90 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Icon — preview</title></head>
+<body>
+<div id="root" class="cf-root"></div>
+<script>
+  var C = window.Cirilinfo, h = React.createElement;
+  var names = ['arrow-right','chevron-right','chevron-down','plus','close','check','check-circle','info','warning','error','mail','search','grid','tasks','folder','calendar','team','settings','database','sliders','menu','user','clock'];
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    h('div', { className: 'cf-row', style: { color: 'var(--violet-600)', gap: 20 } },
+      names.map(function (n) { return h('span', { key: n, className: 'cf-tile', title: n }, h(C.Icon, { name: n })); })));
+</script>
+</body>
+</html>

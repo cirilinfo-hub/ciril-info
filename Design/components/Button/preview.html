@@ -1,0 +1,14 @@
+<!-- @dsCard group="Actions" height=150 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Button — preview</title></head>
+<body>
+<div id="root" class="cf-root"></div>
+<script>
+  var C = window.Cirilinfo, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div',{className:'cf-stack'},
+ h('div',{className:'cf-row',style:{padding:0}},h(C.Button,{variant:'accent'},'Learn More'),h(C.Button,null,'Get Started'),h(C.Button,{variant:'secondary'},'View Projects'),h(C.Button,{variant:'tertiary'},'See All'),h(C.Button,{disabled:true},'Disabled')),
+ h('div',{className:'cf-row',style:{padding:0}},h(C.Button,{size:'sm'},'Small · 36'),h(C.Button,null,'Medium · 44'),h(C.Button,{size:'lg'},'Large · 52'),h(C.Button,{variant:'secondary',leadingIcon:'plus'},'Add Task'))));
+</script>
+</body>
+</html>

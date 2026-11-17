@@ -1,0 +1,40 @@
+<!-- @dsCard height=300 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Cover</title>
+<style>
+  html, body { margin: 0; background: var(--color-bg-page); }
+  .cover { position: relative; width: 960px; height: 300px; overflow: hidden; background: var(--color-bg-page); font-family: var(--font-sans); }
+  .cover svg { position: absolute; left: 0; top: 0; }
+  .violet { fill: var(--violet-500); } .orchid { fill: var(--orchid-600); } .ink { fill: var(--ink-900); }
+  .tint { fill: var(--violet-100); } .card { fill: var(--ink-0); } .dot { fill: var(--violet-300); } .dot-on { fill: var(--violet-600); }
+  .slab { rx: var(--radius-3xl); } .sq { rx: var(--radius-2xl); } .soft { rx: var(--radius-xl); }
+  .name { position: absolute; left: 40px; top: 168px; max-width: 900px; margin: 0; font: 700 60px/0.95 var(--font-sans); letter-spacing: -0.02em; color: var(--color-text-primary); white-space: nowrap; }
+  .tag { position: absolute; left: 40px; top: 244px; max-width: 440px; margin: 0; font: 400 14px/20px var(--font-sans); color: var(--color-text-secondary); }
+</style>
+</head>
+<body>
+<div class="cover">
+  <svg width="960" height="300" viewBox="0 0 960 300" aria-hidden="true">
+    <!--
+      blocks: violet-500 slab 440×112 (radius-3xl), orchid-600 stadium 176×112, ink-900 112×112 (radius-2xl), violet-100 184×112 bleeding right (radius-xl)
+      arrangement: top-band skeleton (name too wide for the side zone): one strip of unequal bands, gaps space-4, like the rounded violet bands
+      pattern: discs + pills (soft, large radii, pill controls) as three white floating task rows over the violet slab, "floating cards over bands"
+      scales: space-4 16 gaps, space-6 24 row pitch, discs 16 (checkbox), pills 16 tall rx 8, radius-3xl 40, radius-2xl 32, radius-xl 24
+    -->
+    <rect class="violet slab" x="40" y="24" width="440" height="112"/>
+    <rect class="card" x="72" y="44" width="248" height="20" rx="10"/>
+    <rect class="card" x="96" y="70" width="248" height="20" rx="10"/>
+    <rect class="card" x="120" y="96" width="248" height="20" rx="10"/>
+    <circle class="dot-on" cx="84" cy="54" r="6"/>
+    <circle class="dot" cx="108" cy="80" r="6"/>
+    <circle class="dot" cx="132" cy="106" r="6"/>
+    <rect class="orchid" x="496" y="24" width="176" height="112" rx="56"/>
+    <rect class="ink sq" x="688" y="24" width="112" height="112"/>
+    <rect class="tint soft" x="816" y="24" width="184" height="112"/>
+  </svg>
+  <h1 class="name">cirilinfo-design-system</h1>
+  <p class="tag">Calm, violet-led productivity: soft geometry, one violet voice.</p>
+</div>
+</body>
+</html>

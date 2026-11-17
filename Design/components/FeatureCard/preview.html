@@ -1,0 +1,12 @@
+<!-- @dsCard group="Cards" height=230 width=720 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>FeatureCard — preview</title></head>
+<body>
+<div id="root" class="cf-root"></div>
+<script>
+  var C = window.Cirilinfo, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:24,padding:16}},h(C.FeatureCard,{icon:'database',title:'Data Sync and Backup'},'Users’ tasks and app settings are synchronised across multiple devices.'),h(C.FeatureCard,{icon:'sliders',title:'Custom Workflow',onBrand:true},'Define the steps, rules and actions that make up your workflow.')));
+</script>
+</body>
+</html>
