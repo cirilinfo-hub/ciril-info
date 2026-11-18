@@ -22,9 +22,18 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
-    { name: 'tablet', use: { ...devices['Desktop Chrome'], viewport: { width: 1024, height: 768 } } },
-    { name: 'mobile', use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } } },
+    { name: 'desktop', testIgnore: /admin-content/, use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
+    { name: 'tablet', testIgnore: /admin-content/, use: { ...devices['Desktop Chrome'], viewport: { width: 1024, height: 768 } } },
+    { name: 'mobile', testIgnore: /admin-content/, use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } } },
+    // Edits live website content (publishes a product, FAQ…), so it runs alone, after the read-only suites above.
+    {
+      name: 'content',
+      testMatch: /admin-content/,
+      dependencies: ['desktop', 'tablet', 'mobile'],
+      fullyParallel: false,
+      workers: 1,
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
+    },
   ],
   webServer: process.env['E2E_WEB_URL']
     ? undefined

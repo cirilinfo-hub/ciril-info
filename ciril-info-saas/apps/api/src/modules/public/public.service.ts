@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PlatformPrisma } from '../../database/prisma-clients.js';
 import { LEGAL_SLUGS, LEGAL_TITLES, legalKey, readLegalDocument, type LegalSlug } from '../settings/legal-documents.js';
 import { SITE_CLAIMS_KEY, readSiteClaims } from '../settings/site-claims.js';
+import { ConfigService } from '@nestjs/config';
+import type { Env } from '../../config/env.js';
 import type { CreateInquiryDto } from './public.dto.js';
 
 const num = (d: { toString(): string } | null | undefined) => (d == null ? null : Number(d.toString()));
@@ -10,7 +12,19 @@ const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null
 /** Public, unauthenticated reads. Only PUBLISHED content is ever returned. */
 @Injectable()
 export class PublicService {
-  constructor(private readonly db: PlatformPrisma) {}
+  private readonly apiUrl: string;
+
+  constructor(
+    private readonly db: PlatformPrisma,
+    config: ConfigService<Env, true>,
+  ) {
+    this.apiUrl = config.get('API_URL', { infer: true }).replace(/\/$/, '');
+  }
+
+  /** Uploaded images are stored as "/uploads/images/…"; the website needs a full address. */
+  private imageUrl(ref: string | null): string | null {
+    return ref?.startsWith('/uploads/') ? `${this.apiUrl}/api/v1${ref}` : ref;
+  }
 
   /** Company contact details and website claims. Null means "not set": the site shows "to be added". */
   async site() {
@@ -146,7 +160,7 @@ export class PublicService {
         description: p.description,
         scope: p.scope,
         tags: p.tags,
-        imageUrl: p.imageUrl,
+        imageUrl: this.imageUrl(p.imageUrl),
         projectUrl: p.projectUrl,
         isSample: p.isSample,
       })),

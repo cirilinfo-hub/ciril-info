@@ -21,10 +21,14 @@ export function toApiError(err: unknown): ApiError {
     const body = (err.error as { error?: Partial<ApiError> } | null)?.error;
     const fieldErrors: Record<string, string> = {};
     if (body?.code === 'VALIDATION_FAILED' && Array.isArray(body.details)) {
-      for (const msg of body.details as string[]) {
-        // class-validator messages start with the property name, unless we wrote a custom message.
-        const [field] = msg.split(' ');
-        if (field) fieldErrors[field] ??= msg;
+      for (const item of body.details as (string | { field?: string; message?: string })[]) {
+        if (typeof item === 'string') {
+          // class-validator messages start with the property name, unless we wrote a custom message.
+          const [field] = item.split(' ');
+          if (field) fieldErrors[field] ??= item;
+        } else if (item?.field && item.message) {
+          fieldErrors[item.field] ??= item.message;
+        }
       }
     }
     return {

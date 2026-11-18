@@ -5,6 +5,8 @@ import { redirectIfSignedIn, requireAnySession, requirePermission, requireSessio
 import { PORTAL, PORTAL_BASE, type Portal } from '../core/auth/auth.models';
 import { AuthService } from '../core/auth/auth.service';
 import type { NavSection } from '../layouts/portal-shell/portal-shell';
+import { AdminContentApi } from './admin/admin-content.api';
+import { AdminOpsApi } from './admin/admin-ops.api';
 import { OrganisationApi } from './customer/organisation.api';
 
 const CUSTOMER_NAV: NavSection[] = [
@@ -21,7 +23,33 @@ const CUSTOMER_NAV: NavSection[] = [
 
 const ADMIN_NAV: NavSection[] = [
   { label: 'Overview', items: [{ path: '/', label: 'Dashboard', icon: 'grid', exact: true }] },
-  { label: 'Account', items: [{ path: '/security', label: 'Security', icon: 'shield' }] },
+  {
+    label: 'Website',
+    items: [
+      { path: '/products', label: 'Products & Pricing', icon: 'tag', permission: 'products:read' },
+      { path: '/projects', label: 'Projects', icon: 'layers', permission: 'content:read' },
+      { path: '/testimonials', label: 'Testimonials', icon: 'star', permission: 'content:read' },
+      { path: '/faqs', label: 'FAQs', icon: 'life-buoy', permission: 'content:read' },
+      { path: '/legal', label: 'Legal pages', icon: 'file', permission: 'content:read' },
+      { path: '/claims', label: 'Website claims', icon: 'percent', permission: 'content:read' },
+    ],
+  },
+  {
+    label: 'Operations',
+    items: [
+      { path: '/customers', label: 'Customers', icon: 'building', permission: 'tenants:read' },
+      { path: '/inquiries', label: 'Enquiries', icon: 'inbox', permission: 'inquiries:read' },
+      { path: '/staff', label: 'Staff', icon: 'users', permission: 'users:read' },
+      { path: '/audit', label: 'Audit log', icon: 'activity', permission: 'audit:read' },
+    ],
+  },
+  {
+    label: 'Settings',
+    items: [
+      { path: '/company', label: 'Company profile', icon: 'home', permission: 'content:read' },
+      { path: '/security', label: 'Security', icon: 'shield' },
+    ],
+  },
 ];
 
 /** Providers that give each portal its own session, HttpClient and interceptor. */
@@ -73,7 +101,7 @@ export function adminRoutes(base: string): Routes {
   return [
     {
       path: '',
-      providers: portalProviders('admin', base),
+      providers: [...portalProviders('admin', base), AdminContentApi, AdminOpsApi],
       children: [
         ...authPages('admin'),
         { path: 'setup-account', title: 'Set Up Account · Ciril Info Admin', data: { mode: 'setup' }, loadComponent: () => import('./auth/new-password.page').then((m) => m.NewPasswordPage) },
@@ -84,6 +112,18 @@ export function adminRoutes(base: string): Routes {
           data: { nav: ADMIN_NAV, title: 'Admin' },
           children: [
             { path: '', title: 'Dashboard · Ciril Info Admin', loadComponent: () => import('./admin/admin-overview.page').then((m) => m.AdminOverviewPage) },
+            { path: 'products', title: 'Products & Pricing · Ciril Info Admin', canActivate: [requirePermission('products:read')], loadComponent: () => import('./admin/content/products.page').then((m) => m.ProductsPage) },
+            { path: 'projects', title: 'Projects · Ciril Info Admin', canActivate: [requirePermission('content:read')], loadComponent: () => import('./admin/content/projects.page').then((m) => m.ProjectsPage) },
+            { path: 'testimonials', title: 'Testimonials · Ciril Info Admin', canActivate: [requirePermission('content:read')], loadComponent: () => import('./admin/content/testimonials.page').then((m) => m.TestimonialsPage) },
+            { path: 'faqs', title: 'FAQs · Ciril Info Admin', canActivate: [requirePermission('content:read')], loadComponent: () => import('./admin/content/faqs.page').then((m) => m.FaqsPage) },
+            { path: 'legal', title: 'Legal pages · Ciril Info Admin', canActivate: [requirePermission('content:read')], loadComponent: () => import('./admin/content/legal-list.page').then((m) => m.LegalListPage) },
+            { path: 'legal/:slug', title: 'Legal page · Ciril Info Admin', canActivate: [requirePermission('content:read')], loadComponent: () => import('./admin/content/legal-edit.page').then((m) => m.LegalEditPage) },
+            { path: 'claims', title: 'Website claims · Ciril Info Admin', canActivate: [requirePermission('content:read')], loadComponent: () => import('./admin/content/claims.page').then((m) => m.ClaimsPage) },
+            { path: 'company', title: 'Company profile · Ciril Info Admin', canActivate: [requirePermission('content:read')], loadComponent: () => import('./admin/content/company.page').then((m) => m.CompanyPage) },
+            { path: 'inquiries', title: 'Enquiries · Ciril Info Admin', canActivate: [requirePermission('inquiries:read')], loadComponent: () => import('./admin/content/inquiries.page').then((m) => m.InquiriesPage) },
+            { path: 'customers', title: 'Customers · Ciril Info Admin', canActivate: [requirePermission('tenants:read')], loadComponent: () => import('./admin/ops/customers.page').then((m) => m.CustomersPage) },
+            { path: 'staff', title: 'Staff · Ciril Info Admin', canActivate: [requirePermission('users:read')], loadComponent: () => import('./admin/ops/staff.page').then((m) => m.StaffPage) },
+            { path: 'audit', title: 'Audit log · Ciril Info Admin', canActivate: [requirePermission('audit:read')], loadComponent: () => import('./admin/ops/audit.page').then((m) => m.AuditPage) },
             { path: 'security', title: 'Security · Ciril Info Admin', loadComponent: () => import('./account/security-settings.page').then((m) => m.SecuritySettingsPage) },
           ],
         },

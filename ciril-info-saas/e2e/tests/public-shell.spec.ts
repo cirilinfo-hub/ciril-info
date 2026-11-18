@@ -74,4 +74,27 @@ test.describe('Public website shell', () => {
     await page.waitForTimeout(1500); // let the headline line-reveal animation finish
     await page.screenshot({ path: `test-results/home-${info.project.name}.png`, fullPage: false });
   });
+
+  test('visitors can reach the customer and admin sign-in pages', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+    // Wide screens show the header menu; narrow ones the hamburger sheet.
+    if (await page.getByRole('button', { name: 'Sign In' }).isVisible()) {
+      await page.getByRole('button', { name: 'Sign In' }).click();
+      await expect(page.getByRole('menuitem', { name: /Customer Login/ })).toHaveAttribute('href', /\/portal\/login$/);
+      await expect(page.getByRole('menuitem', { name: /Admin Login/ })).toHaveAttribute('href', /\/admin\/login$/);
+      await page.screenshot({ path: 'screenshots/public-signin-menu.png', clip: { x: 800, y: 0, width: 640, height: 260 } });
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('menuitem', { name: /Customer Login/ })).toHaveCount(0);
+      await page.getByRole('button', { name: 'Sign In' }).click();
+      await page.getByRole('menuitem', { name: /Customer Login/ }).click();
+      await expect(page).toHaveURL(/\/portal\/login/);
+      await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
+    } else {
+      await page.getByRole('button', { name: 'Open menu' }).click();
+      await expect(page.getByRole('link', { name: 'Customer Login' }).first()).toHaveAttribute('href', /\/portal\/login$/);
+      await page.getByRole('link', { name: 'Admin Login' }).first().click();
+      await expect(page).toHaveURL(/\/admin\/login/);
+    }
+  });
 });

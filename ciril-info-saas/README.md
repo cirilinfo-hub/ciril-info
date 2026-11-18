@@ -68,7 +68,7 @@ npm run test:e2e                # Playwright: starts API, worker and web; reads 
 | Phone, email, address, hours, WhatsApp | `system_settings` key `company.profile` | "… to be added" |
 | Privacy, Terms, Refund, Cancellation, SLA | `system_settings` keys `legal.<slug>`; only `PUBLISHED` is public | "This page is being prepared"; footer link hidden |
 
-Starter Privacy/Terms drafts are seeded as **DRAFT**. Refund, Cancellation and SLA are not drafted: those are business commitments only CirilInfo can decide. With `SEED_SAMPLE_DATA=true` (development only) sample plans, testimonials, FAQs, projects and the draft legal pages are shown, each labelled as a sample; `npm run db:purge-samples` removes them. The admin editors for all of this arrive in Phase 5.
+Starter Privacy/Terms drafts are seeded as **DRAFT**. Refund, Cancellation and SLA are not drafted: those are business commitments only CirilInfo can decide. With `SEED_SAMPLE_DATA=true` (development only) sample plans, testimonials, FAQs, projects and the draft legal pages are shown, each labelled as a sample; `npm run db:purge-samples` removes them. These are now edited in the admin portal (Phase 5, first part): Products & Pricing, Projects, Testimonials, FAQs, Legal pages, Website claims, Company profile, and Enquiries. Changes are audited, and a testimonial cannot be published without recorded consent. Project cover images are uploaded from the admin form (PNG, JPEG or WebP, up to 3 MB) and stored under `STORAGE_LOCAL_DIR` (default `apps/api/storage/images`); in production that folder must be a persistent volume that is backed up.
 
 "Choose Plan" does not fake a checkout: it opens customer sign-up with the plan attached. Domain search needs the registrar integration (Phase 6), so it is not shown.
 

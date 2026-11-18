@@ -7,12 +7,14 @@ import { LoggerModule } from 'nestjs-pino';
 import { ApiExceptionFilter } from './common/http/api-exception.filter.js';
 import { type Env, validateEnv } from './config/env.js';
 import { DatabaseModule } from './database/database.module.js';
+import { AdminContentModule } from './modules/admin-content/admin-content.module.js';
 import { AuditModule } from './modules/audit/audit.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { MailModule } from './modules/mail/mail.module.js';
 import { PublicModule } from './modules/public/public.module.js';
 import { TenantsModule } from './modules/tenants/tenants.module.js';
+import { UploadsModule } from './modules/uploads/uploads.module.js';
 import { UsersModule } from './modules/users/users.module.js';
 
 @Module({
@@ -71,6 +73,8 @@ import { UsersModule } from './modules/users/users.module.js';
     AuthModule,
     HealthModule,
     PublicModule,
+    AdminContentModule,
+    UploadsModule,
     TenantsModule,
     UsersModule,
   ],

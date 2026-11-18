@@ -69,7 +69,8 @@ import { FOOTER_HOSTING, FOOTER_LEGAL, FOOTER_SERVICES, MAIN_NAV } from './site-
           <span>© {{ year }} Ciril Info. All rights reserved.</span>
           <ul>
             @for (l of legal(); track l.path) { <li><a [routerLink]="l.path">{{ l.label }}</a></li> }
-            <li><a [href]="customerPortalUrl">Client Login</a></li>
+            <li><a [href]="customerPortalUrl + '/login'">Customer Login</a></li>
+            <li><a [href]="adminPortalUrl + '/login'">Admin Login</a></li>
           </ul>
         </div>
       </div>
@@ -89,6 +90,7 @@ export class SiteFooter {
     return FOOTER_LEGAL.filter((l) => published.has(l.path.slice(1)));
   });
   protected readonly customerPortalUrl = RUNTIME_CONFIG.customerPortalUrl;
+  protected readonly adminPortalUrl = RUNTIME_CONFIG.adminPortalUrl;
 
   protected readonly socials = [
     { key: 'linkedin', label: 'LinkedIn', paths: ['M3 7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z', 'M8 11v5M8 8v.01M12 16v-5M12 13a2.5 2.5 0 0 1 5 0v3'] },

@@ -58,11 +58,13 @@ test.describe('Admin portal', () => {
     await page.getByLabel('I have saved my recovery codes').check();
     await cont.click();
 
-    // 4. Admin dashboard (no placeholder metrics; shows the staff member's access)
+    // 4. Admin dashboard: real counts, limited to what this role may see (a Support Agent has no staff or audit access)
     await expect(page.getByRole('heading', { name: 'Welcome, E2E' })).toBeVisible();
     await expect(page.getByText('Signed in as Support Agent.')).toBeVisible();
-    await expect(page.getByText('support:write')).toBeVisible();
-    await expect(page.getByText('billing:refund')).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Key figures' })).toBeVisible();
+    await expect(page.getByText('Latest enquiries')).toBeVisible();
+    await expect(page.getByText('Active staff')).toHaveCount(0);
+    await expect(page.getByText('Recent activity')).toHaveCount(0);
     await page.screenshot({ path: 'screenshots/admin-dashboard.png', fullPage: true });
 
     // 5. Sign out, sign in again: authenticator code required (wait for the next 30 s step so the code isn't a replay)

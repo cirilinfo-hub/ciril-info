@@ -34,6 +34,8 @@ export const PLATFORM_PERMISSIONS = {
   'settings:read': 'View system settings',
   'settings:write': 'Change system settings and provider credentials',
   'audit:read': 'View audit logs',
+  'content:read': 'View website content (testimonials, FAQs, projects, claims, legal pages, company profile)',
+  'content:write': 'Edit and publish website content',
   'inquiries:read': 'View website contact inquiries',
   'inquiries:write': 'Update contact inquiry status',
 } as const;

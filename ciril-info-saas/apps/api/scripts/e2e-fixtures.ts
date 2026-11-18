@@ -1,6 +1,7 @@
 /**
  * Test fixtures for the Playwright suite (development/test databases only).
  *   tsx scripts/e2e-fixtures.ts create-staff <email> <password> <ROLE_KEY>
+ *   tsx scripts/e2e-fixtures.ts create-staff-ready <email> <password> <ROLE_KEY>   (password set, two-step on; prints the secret)
  *   tsx scripts/e2e-fixtures.ts cleanup <email-prefix>
  *   tsx scripts/e2e-fixtures.ts seed-public | cleanup-public   (website content used by the public-page tests)
  * Refuses to run when NODE_ENV=production and only touches @example.test addresses.
@@ -8,7 +9,11 @@
 import { config } from 'dotenv';
 import { PrismaPg } from '@prisma/adapter-pg';
 import argon2 from 'argon2';
+import { rm } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { PrismaClient } from '../src/generated/prisma/client.js';
+import { SecretBox } from '../src/common/security/crypto.js';
+import { generateTotpSecret } from '../src/common/security/totp.js';
 
 config({ path: ['.env', '../../.env'], quiet: true });
 if (process.env['NODE_ENV'] === 'production') throw new Error('e2e fixtures are not allowed in production');
@@ -30,6 +35,12 @@ async function cleanupPublic() {
   await db.planFeature.deleteMany({ where: { planId: { in: planIds } } });
   await db.plan.deleteMany({ where: { id: { in: planIds } } });
   await db.product.deleteMany({ where: { slug: { startsWith: 'pw-' } } });
+  // Images uploaded through the admin form by the browser tests.
+  const withImages = await db.portfolioProject.findMany({ where: { slug: { startsWith: 'pw-' }, imageUrl: { startsWith: '/uploads/images/' } }, select: { imageUrl: true } });
+  for (const p of withImages) {
+    const file = p.imageUrl!.split('/').pop()!;
+    if (/^[0-9a-f-]{36}\.(png|jpg|webp)$/.test(file)) await rm(join(resolve(process.cwd(), process.env['STORAGE_LOCAL_DIR'] ?? './storage'), 'images', file), { force: true });
+  }
   await db.portfolioProject.deleteMany({ where: { slug: { startsWith: 'pw-' } } });
   await db.testimonial.deleteMany({ where: { quote: { startsWith: 'PW ' } } });
   await db.faq.deleteMany({ where: { question: { startsWith: 'PW ' } } });
@@ -50,10 +61,27 @@ async function main() {
       },
     });
     console.log(JSON.stringify({ id: user.id }));
+  } else if (cmd === 'create-staff-ready') {
+    const [email, password, roleKey] = args as [string, string, string];
+    testOnly(email);
+    const role = await db.role.findUniqueOrThrow({ where: { key: roleKey } });
+    const secret = generateTotpSecret();
+    const user = await db.user.create({
+      data: {
+        email, firstName: 'E2E', lastName: 'Staff', platformRoleId: role.id, emailVerifiedAt: new Date(), passwordChangedAt: new Date(),
+        passwordHash: await argon2.hash(password, { type: argon2.argon2id }), mfaEnabled: true,
+      },
+    });
+    const box = new SecretBox(process.env['DATA_ENCRYPTION_KEY']!);
+    await db.user.update({ where: { id: user.id }, data: { mfaSecretEnc: box.encrypt(secret, `mfa:${user.id}`) } });
+    console.log(JSON.stringify({ id: user.id, secret }));
   } else if (cmd === 'cleanup') {
     const [prefix] = args as [string];
     const users = await db.user.findMany({ where: { email: { startsWith: prefix, endsWith: '@example.test' } }, select: { id: true, memberships: { select: { tenantId: true } } } });
     const tenantIds = users.flatMap((u) => u.memberships.map((m) => m.tenantId));
+    // Customers created by staff in the browser tests exist only as an invitation to their owner.
+    const invited = await db.invitation.findMany({ where: { email: { startsWith: prefix, endsWith: '@example.test' } }, select: { tenantId: true } });
+    tenantIds.push(...invited.map((i) => i.tenantId).filter((t): t is string => !!t));
     await db.tenant.deleteMany({ where: { id: { in: tenantIds } } });
     await db.invitation.deleteMany({ where: { email: { startsWith: prefix, endsWith: '@example.test' } } });
     await db.user.deleteMany({ where: { id: { in: users.map((u) => u.id) } } });
