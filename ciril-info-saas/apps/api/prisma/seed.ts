@@ -29,6 +29,7 @@ import {
   resolvePermissions,
 } from '../src/modules/rbac/permissions.js';
 import { EMPTY_SITE_CLAIMS, SITE_CLAIMS_KEY, readSiteClaims } from '../src/modules/settings/site-claims.js';
+import { LEGAL_DRAFTS } from './seed-data/legal.js';
 import { PRODUCT_LINES } from './seed-data/product-lines.js';
 import {
   SAMPLE_EMAIL_PLANS,
@@ -36,6 +37,7 @@ import {
   SAMPLE_HOSTING,
   SAMPLE_SITE_CLAIMS,
   SAMPLE_TESTIMONIALS,
+  SAMPLE_PROJECTS,
   SAMPLE_TLD_PRICING,
 } from './seed-data/samples.js';
 
@@ -155,6 +157,8 @@ async function seedCatalogStructure() {
         brandName: 'Ciril Info',
         email: '',
         phone: '',
+        whatsapp: '',
+        businessHours: '',
         gstin: '',
         address: { line1: '', city: '', state: '', stateCode: '', postalCode: '', country: 'IN' },
         invoicePrefix: 'INV',
@@ -167,6 +171,17 @@ async function seedCatalogStructure() {
     update: {},
     create: { key: SITE_CLAIMS_KEY, value: EMPTY_SITE_CLAIMS },
   });
+  // Legal pages: starter drafts, NEVER public until an admin publishes them.
+  for (const d of LEGAL_DRAFTS) {
+    await prisma.systemSetting.upsert({
+      where: { key: `legal.${d.slug}` },
+      update: {},
+      create: {
+        key: `legal.${d.slug}`,
+        value: { title: d.title, intro: d.intro, sections: d.sections, status: 'DRAFT', showDraftNotice: true, updatedOn: null },
+      },
+    });
+  }
   console.log(`✓ Catalogue structure: ${created} new product lines (draft, no plans or prices); website claims empty`);
 }
 
@@ -254,6 +269,23 @@ async function seedSamples() {
     faqs = r.count;
   }
 
+  let projects = 0;
+  for (const [i, pr] of SAMPLE_PROJECTS.entries()) {
+    if (await prisma.portfolioProject.findUnique({ where: { slug: pr.slug } })) continue;
+    await prisma.portfolioProject.create({ data: { ...pr, isSample: true, isPublished: true, sortOrder: i } });
+    projects++;
+  }
+
+  // Show the draft legal pages in development (still labelled "Draft for review").
+  for (const d of LEGAL_DRAFTS) {
+    const key = `legal.${d.slug}`;
+    const row = await prisma.systemSetting.findUnique({ where: { key } });
+    const v = (row?.value ?? {}) as Record<string, unknown>;
+    if (v['status'] !== 'PUBLISHED') {
+      await prisma.systemSetting.update({ where: { key }, data: { value: { ...v, status: 'PUBLISHED', showDraftNotice: true, _sample: true } } });
+    }
+  }
+
   // Design placeholder claims, only if the admin has not set any real ones.
   const claims = await prisma.systemSetting.findUnique({ where: { key: SITE_CLAIMS_KEY } });
   const current = readSiteClaims(claims?.value);
@@ -280,7 +312,7 @@ async function seedSamples() {
       tldPricing: SAMPLE_TLD_PRICING.map(([tld, register, renew]) => ({ tld, register, renew, transfer: register })),
     },
   });
-  console.log(`✓ SAMPLE data (dev only): ${plans} plans, ${testimonials} testimonials, ${faqs} FAQs, mock server + registrar`);
+  console.log(`✓ SAMPLE data (dev only): ${plans} plans, ${testimonials} testimonials, ${faqs} FAQs, ${projects} projects, mock server + registrar`);
 }
 
 /** `npm run db:purge-samples`: removes every sample row. Run before entering real data. */
@@ -288,13 +320,21 @@ async function purgeSamples() {
   const used = await prisma.subscriptionItem.findMany({ where: { plan: { isSample: true } }, select: { planId: true } });
   const usedIds = [...new Set(used.map((x) => x.planId))];
   const ids = (await prisma.plan.findMany({ where: { isSample: true, id: { notIn: usedIds } }, select: { id: true } })).map((p) => p.id);
-  const [, , plans, t, f] = await prisma.$transaction([
+  const [, , plans, t, f, pj] = await prisma.$transaction([
     prisma.planFeature.deleteMany({ where: { planId: { in: ids } } }),
     prisma.pricingVersion.deleteMany({ where: { planId: { in: ids } } }),
     prisma.plan.deleteMany({ where: { id: { in: ids } } }),
     prisma.testimonial.deleteMany({ where: { isSample: true } }),
     prisma.faq.deleteMany({ where: { isSample: true } }),
+    prisma.portfolioProject.deleteMany({ where: { isSample: true } }),
   ]);
+  // Legal pages published only by the sample seed go back to draft.
+  for (const d of LEGAL_DRAFTS) {
+    const key = `legal.${d.slug}`;
+    const row = await prisma.systemSetting.findUnique({ where: { key } });
+    const { _sample, ...v } = (row?.value ?? {}) as Record<string, unknown>;
+    if (_sample) await prisma.systemSetting.update({ where: { key }, data: { value: { ...v, status: 'DRAFT' } } });
+  }
   // Sample website claims are reset to empty; real ones (no _sample marker) are kept.
   const claims = await prisma.systemSetting.findUnique({ where: { key: SITE_CLAIMS_KEY } });
   if ((claims?.value as Record<string, unknown> | null)?.['_sample']) {
@@ -303,7 +343,7 @@ async function purgeSamples() {
   // Products left without plans go back to draft so nothing empty is published.
   await prisma.product.updateMany({ where: { plans: { none: {} }, status: 'PUBLISHED' }, data: { status: 'DRAFT' } });
   console.log(
-    `✓ Purged samples: ${plans.count} plans, ${t.count} testimonials, ${f.count} FAQs` +
+    `✓ Purged samples: ${plans.count} plans, ${t.count} testimonials, ${f.count} FAQs, ${pj.count} projects` +
       (usedIds.length ? ` (${usedIds.length} sample plans kept because subscriptions reference them)` : ''),
   );
 }

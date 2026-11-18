@@ -32,7 +32,7 @@ export function visibleError(c: AbstractControl | null, label: string): string |
   host: { class: 'cf-field', style: 'min-width:0' },
   template: `
     <label class="cf-label" [attr.for]="for()"
-      >{{ label() }}@if (optional()) {<span class="cf-help"> (optional)</span>}</label
+      >{{ shownLabel() }}@if (optional()) {<span class="cf-help"> (optional)</span>}</label
     >
     <ng-content />
     @if (error(); as e) {
@@ -48,6 +48,11 @@ export class Field {
   readonly control = input<AbstractControl | null>(null);
   readonly hint = input<string>();
   readonly optional = input(false);
+  /** Marks the field as required with a visible " *" (error messages still use the plain label). */
+  readonly required = input(false);
+  /** Wording used inside error messages when the label reads badly there ("Enter a service."). */
+  readonly errorLabel = input<string>();
+  protected readonly shownLabel = computed(() => (this.required() ? `${this.label()} *` : this.label()));
 
   /** Emits whenever the control's value, status or touched state changes. */
   private readonly version = toSignal(
@@ -59,7 +64,7 @@ export class Field {
 
   protected readonly error = computed(() => {
     this.version();
-    return visibleError(this.control(), this.label());
+    return visibleError(this.control(), this.errorLabel() ?? this.label());
   });
 }
 

@@ -11,6 +11,7 @@ import { AuditModule } from './modules/audit/audit.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { MailModule } from './modules/mail/mail.module.js';
+import { PublicModule } from './modules/public/public.module.js';
 import { TenantsModule } from './modules/tenants/tenants.module.js';
 import { UsersModule } from './modules/users/users.module.js';
 
@@ -69,6 +70,7 @@ import { UsersModule } from './modules/users/users.module.js';
     MailModule,
     AuthModule,
     HealthModule,
+    PublicModule,
     TenantsModule,
     UsersModule,
   ],

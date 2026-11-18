@@ -31,7 +31,6 @@ export const FOOTER_HOSTING: NavLink[] = [
   { label: 'Business Email', path: '/hosting/business-email' },
   { label: 'VPS Hosting', path: '/hosting/vps-hosting' },
   { label: 'Cloud Hosting', path: '/hosting/cloud-hosting' },
-  { label: 'SSL Certificates', path: '/hosting/ssl-certificates' },
 ];
 
 export const FOOTER_LEGAL: NavLink[] = [

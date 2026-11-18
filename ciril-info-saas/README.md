@@ -35,7 +35,7 @@ npm run dev:web                 # http://localhost:4200
 
 | Local URL | Site |
 |---|---|
-| http://localhost:4200 | Public website |
+| http://localhost:4200 | Public website: Home, About, Services (+5 detail pages), Hosting (+ product pages), Pricing, Our Work, Contact, legal pages |
 | http://localhost:4200/portal | Customer portal: register, sign in, organisation, team, security |
 | http://localhost:4200/admin | Admin portal: staff sign-in with mandatory two-step verification |
 
@@ -54,6 +54,23 @@ npm run test:e2e                # Playwright: starts API, worker and web; reads 
 - **One Angular component per file.** With Angular 21's build, a file declaring several `@Component`s made `ng build` finish but never exit, which would stall CI. CI jobs also have time limits.
 - **Authorisation lives in the API.** Angular guards only choose which screen to show. Every endpoint is checked by `AuthGuard` / `TenantGuard`, and again by PostgreSQL RLS.
 - **No placeholder business data in production.** Prices, testimonials, FAQs and website claims come from the admin portal. Sample data is for development only (`SEED_SAMPLE_DATA`).
+
+## Where public website content comes from
+
+| Content | Source | When empty |
+|---|---|---|
+| Services, About, process, general copy | `apps/web/src/app/features/public/content/` (from the approved design) | n/a: general descriptions only, no prices, results or client claims |
+| Plans, prices, renewals, features | Published products/plans/pricing in the database (`GET /api/v1/public/catalog`) | Pages say plans are being finalised |
+| Testimonials | `testimonials`, shown only when published **and** consent is recorded (enforced by a DB CHECK) | Section hidden |
+| FAQs | `faqs`, per topic (`home`, `pricing`, `hosting`, `contact`, a product slug) | Section hidden |
+| Projects (Our Work) | `portfolio_projects` | "Projects are on their way" |
+| Uptime %, money-back days, data centres, support hours … | `system_settings` key `site.claims` | Not shown anywhere |
+| Phone, email, address, hours, WhatsApp | `system_settings` key `company.profile` | "… to be added" |
+| Privacy, Terms, Refund, Cancellation, SLA | `system_settings` keys `legal.<slug>`; only `PUBLISHED` is public | "This page is being prepared"; footer link hidden |
+
+Starter Privacy/Terms drafts are seeded as **DRAFT**. Refund, Cancellation and SLA are not drafted: those are business commitments only CirilInfo can decide. With `SEED_SAMPLE_DATA=true` (development only) sample plans, testimonials, FAQs, projects and the draft legal pages are shown, each labelled as a sample; `npm run db:purge-samples` removes them. The admin editors for all of this arrive in Phase 5.
+
+"Choose Plan" does not fake a checkout: it opens customer sign-up with the plan attached. Domain search needs the registrar integration (Phase 6), so it is not shown.
 
 ## Multi-tenant security model (short version)
 
@@ -74,5 +91,5 @@ See `HOSTING_ASSESSMENT.md` for the hosting decision: a Hostinger KVM 2 VPS, to 
 | 0 Inspection | ✅ Approved; developing locally first |
 | 1 Foundation | ✅ Done and verified locally against PostgreSQL 16 + Redis 7 in Docker (migrations, RLS, idempotent seed, tenant-isolation tests, production images, worker outbox relay) |
 | 2 Auth, tenants, RBAC, audit | ✅ API + customer/admin sign-in, organisation, team and security screens. 38 unit, 50 integration and 26 browser tests |
-| 3 Public website | ⏭ Next |
+| 3 Public website | ✅ All design pages built from the published catalogue, FAQs, testimonials, projects and website claims in the database; enquiry form stores to `contact_inquiries`. 38 unit + 61 integration (API), 14 web unit, browser tests at 3 widths |
 | 4–7 | Pending |

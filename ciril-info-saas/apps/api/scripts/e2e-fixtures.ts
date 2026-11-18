@@ -2,6 +2,7 @@
  * Test fixtures for the Playwright suite (development/test databases only).
  *   tsx scripts/e2e-fixtures.ts create-staff <email> <password> <ROLE_KEY>
  *   tsx scripts/e2e-fixtures.ts cleanup <email-prefix>
+ *   tsx scripts/e2e-fixtures.ts seed-public | cleanup-public   (website content used by the public-page tests)
  * Refuses to run when NODE_ENV=production and only touches @example.test addresses.
  */
 import { config } from 'dotenv';
@@ -17,6 +18,24 @@ const [cmd, ...args] = process.argv.slice(2);
 const testOnly = (email: string) => {
   if (!email.endsWith('@example.test')) throw new Error('fixtures only manage @example.test addresses');
 };
+
+const pwLegal = {
+  title: 'PW Refund Policy', intro: 'Test intro', status: 'PUBLISHED', showDraftNotice: false, updatedOn: null,
+  sections: [{ heading: 'PW heading', body: ['PW body paragraph.'], bullets: ['PW bullet'] }],
+};
+
+async function cleanupPublic() {
+  const planIds = (await db.plan.findMany({ where: { slug: { startsWith: 'pw-' } }, select: { id: true } })).map((p) => p.id);
+  await db.pricingVersion.deleteMany({ where: { planId: { in: planIds } } });
+  await db.planFeature.deleteMany({ where: { planId: { in: planIds } } });
+  await db.plan.deleteMany({ where: { id: { in: planIds } } });
+  await db.product.deleteMany({ where: { slug: { startsWith: 'pw-' } } });
+  await db.portfolioProject.deleteMany({ where: { slug: { startsWith: 'pw-' } } });
+  await db.testimonial.deleteMany({ where: { quote: { startsWith: 'PW ' } } });
+  await db.faq.deleteMany({ where: { question: { startsWith: 'PW ' } } });
+  await db.systemSetting.deleteMany({ where: { key: 'legal.refund-policy', value: { path: ['title'], equals: 'PW Refund Policy' } } });
+  await db.contactInquiry.deleteMany({ where: { email: { startsWith: 'pw-', endsWith: '@example.test' } } });
+}
 
 async function main() {
   if (cmd === 'create-staff') {
@@ -39,6 +58,54 @@ async function main() {
     await db.invitation.deleteMany({ where: { email: { startsWith: prefix, endsWith: '@example.test' } } });
     await db.user.deleteMany({ where: { id: { in: users.map((u) => u.id) } } });
     console.log(JSON.stringify({ removedUsers: users.length, removedTenants: tenantIds.length }));
+  } else if (cmd === 'seed-public') {
+    await cleanupPublic();
+    const category = await db.productCategory.upsert({ where: { slug: 'hosting' }, update: {}, create: { slug: 'hosting', name: 'Hosting' } });
+    const product = await db.product.create({
+      data: { categoryId: category.id, slug: 'pw-hosting', name: 'PW Hosting', type: 'WEB_HOSTING', tagline: 'Plans created by the browser tests', status: 'PUBLISHED' },
+    });
+    const prices = (monthly: number, yearly: number, list: number, renewal: number) => ({
+      create: [
+        { billingCycle: 'MONTHLY' as const, price: monthly, renewalPrice: monthly },
+        { billingCycle: 'YEARLY' as const, price: yearly, renewalPrice: renewal, listPrice: list },
+      ],
+    });
+    await db.plan.create({
+      data: {
+        productId: product.id, slug: 'pw-starter', name: 'PW Starter', description: 'First plan', status: 'PUBLISHED', sortOrder: 0,
+        features: { create: [{ label: '1 website', sortOrder: 0 }, { label: '10 GB storage', sortOrder: 1 }, { label: 'Email support', sortOrder: 2 }] },
+        pricingVersions: prices(100, 960, 1200, 1440),
+      },
+    });
+    await db.plan.create({
+      data: {
+        productId: product.id, slug: 'pw-pro', name: 'PW Pro', description: 'Second plan', status: 'PUBLISHED', isFeatured: true, sortOrder: 1,
+        features: { create: [{ label: '10 websites', sortOrder: 0 }, { label: '50 GB storage', sortOrder: 1 }, { label: 'Email support', sortOrder: 2 }, { label: 'Daily backups', sortOrder: 3 }] },
+        pricingVersions: prices(200, 1920, 2400, 2400),
+      },
+    });
+    await db.portfolioProject.create({
+      data: {
+        slug: 'pw-project', title: 'PW concept', clientName: 'PW Client', category: 'PW Design', summary: 'A project created by the browser tests.',
+        description: 'Overview text for the test project.', scope: ['Scope item one', 'Scope item two'], tags: ['Alpha', 'Beta'], isPublished: true, isSample: true, sortOrder: -10,
+      },
+    });
+    await db.portfolioProject.create({
+      data: { slug: 'pw-project-2', title: 'PW second', clientName: 'PW Other Client', category: 'PW Marketing', summary: 'Second test project.', isPublished: true, isSample: true, sortOrder: -9 },
+    });
+    await db.testimonial.create({
+      data: { quote: 'PW testimonial quote', authorName: 'PW Person', authorRole: 'PW Role', isPublished: true, consentConfirmed: true, consentNote: 'test', isSample: true, publishedAt: new Date(), sortOrder: -10 },
+    });
+    await db.faq.create({ data: { topic: 'pricing', question: 'PW pricing question?', answer: 'PW pricing answer.', isPublished: true, isSample: true, sortOrder: -10 } });
+    await db.systemSetting.upsert({
+      where: { key: 'legal.refund-policy' },
+      update: { value: pwLegal },
+      create: { key: 'legal.refund-policy', value: pwLegal },
+    });
+    console.log(JSON.stringify({ seeded: true }));
+  } else if (cmd === 'cleanup-public') {
+    await cleanupPublic();
+    console.log(JSON.stringify({ cleaned: true }));
   } else {
     throw new Error(`unknown command ${cmd}`);
   }

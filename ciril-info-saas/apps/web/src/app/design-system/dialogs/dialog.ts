@@ -27,7 +27,7 @@ let seq = 0;
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="cf-scrim" (mousedown)="onScrim($event)">
-      <div #panel class="cf-dialog" [class.cf-dialog-md]="size() === 'md'" role="dialog" aria-modal="true" [attr.aria-labelledby]="id + '-t'" [attr.aria-describedby]="description() ? id + '-d' : null">
+      <div #panel class="cf-dialog" [class.cf-dialog-md]="size() === 'md'" [class.cf-dialog-lg]="size() === 'lg'" role="dialog" aria-modal="true" [attr.aria-labelledby]="id + '-t'" [attr.aria-describedby]="description() ? id + '-d' : null">
         <div class="cf-dialog-head">
           @if (icon()) { <span class="cf-tile" [class.ci-danger-tile]="tone() === 'danger'"><ci-icon [name]="$any(icon())" /></span> }
           <div>
@@ -48,7 +48,7 @@ export class Dialog implements OnDestroy {
   readonly description = input<string>();
   readonly icon = input<string>();
   readonly tone = input<'default' | 'danger'>('default');
-  readonly size = input<'sm' | 'md'>('sm');
+  readonly size = input<'sm' | 'md' | 'lg'>('sm');
   /** Allow closing by clicking outside (off for forms with unsaved input). */
   readonly dismissable = input(true);
   readonly closed = output<void>();

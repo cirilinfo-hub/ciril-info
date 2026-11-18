@@ -9,6 +9,7 @@ import { fixture, PREFIX } from './helpers';
  */
 export default async function globalSetup() {
   fixture('cleanup', PREFIX);
+  fixture('seed-public');
   let worker: ChildProcess | undefined;
   if (!process.env['E2E_EXTERNAL_WORKER']) {
     worker = spawn(process.execPath, ['dist/worker.js'], {
@@ -20,5 +21,6 @@ export default async function globalSetup() {
   return async () => {
     worker?.kill();
     fixture('cleanup', PREFIX);
+    fixture('cleanup-public');
   };
 }

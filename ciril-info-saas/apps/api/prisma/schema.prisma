@@ -1262,6 +1262,8 @@ model ContactInquiry {
   message   String
   status    InquiryStatus @default(NEW)
   ipAddress String?       @map("ip_address") @db.Inet
+  /// When the visitor ticked "I agree that Ciril Info may contact me" (required to submit).
+  consentAt DateTime      @default(now()) @map("consent_at") @db.Timestamptz(3)
   createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -1313,4 +1315,30 @@ model Faq {
 
   @@index([topic, isPublished, sortOrder])
   @@map("faqs")
+}
+
+/// "Our Work" projects shown on the public website. Admin-managed; development
+/// samples are flagged is_sample and clearly labelled on the page.
+model PortfolioProject {
+  id          String   @id @default(uuid()) @db.Uuid
+  slug        String   @unique @db.VarChar(120)
+  title       String   @db.VarChar(160)
+  clientName  String   @map("client_name") @db.VarChar(160)
+  /// Filter group, e.g. "Web Design", "Web Development".
+  category    String   @db.VarChar(64)
+  summary     String   @db.VarChar(400)
+  description String?
+  /// What the project covered, shown as a list in the details dialog.
+  scope       String[] @default([])
+  tags        String[] @default([])
+  imageUrl    String?  @map("image_url") @db.VarChar(512)
+  projectUrl  String?  @map("project_url") @db.VarChar(512)
+  isPublished Boolean  @default(false) @map("is_published")
+  isSample    Boolean  @default(false) @map("is_sample")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([isPublished, category, sortOrder])
+  @@map("portfolio_projects")
 }

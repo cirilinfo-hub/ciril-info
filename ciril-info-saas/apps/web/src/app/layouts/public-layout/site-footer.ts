@@ -1,6 +1,8 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { RUNTIME_CONFIG } from '../../core/config/runtime-config';
+import { PublicApi } from '../../features/public/shared/public-api';
 import { FOOTER_HOSTING, FOOTER_LEGAL, FOOTER_SERVICES, MAIN_NAV } from './site-nav';
 
 /**
@@ -56,9 +58,9 @@ import { FOOTER_HOSTING, FOOTER_LEGAL, FOOTER_SERVICES, MAIN_NAV } from './site-
           <div>
             <h2>Contact</h2>
             <ul>
-              <li><span class="ph">Email address to be added</span></li>
-              <li><span class="ph">Phone number to be added</span></li>
-              <li><span class="ph">Business address to be added</span></li>
+              <li>@if (company()?.email; as v) { <a [href]="'mailto:' + v">{{ v }}</a> } @else { <span class="ph">Email address to be added</span> }</li>
+              <li>@if (company()?.phone; as v) { <a [href]="'tel:' + v.replace(' ', '')">{{ v }}</a> } @else { <span class="ph">Phone number to be added</span> }</li>
+              <li>@if (company()?.address; as v) { <span>{{ v }}</span> } @else { <span class="ph">Business address to be added</span> }</li>
             </ul>
           </div>
         </div>
@@ -66,7 +68,7 @@ import { FOOTER_HOSTING, FOOTER_LEGAL, FOOTER_SERVICES, MAIN_NAV } from './site-
         <div class="cx-footer-bottom">
           <span>© {{ year }} Ciril Info. All rights reserved.</span>
           <ul>
-            @for (l of legal; track l.path) { <li><a [routerLink]="l.path">{{ l.label }}</a></li> }
+            @for (l of legal(); track l.path) { <li><a [routerLink]="l.path">{{ l.label }}</a></li> }
             <li><a [href]="customerPortalUrl">Client Login</a></li>
           </ul>
         </div>
@@ -79,7 +81,13 @@ export class SiteFooter {
   protected readonly quick = MAIN_NAV;
   protected readonly services = FOOTER_SERVICES;
   protected readonly hosting = FOOTER_HOSTING;
-  protected readonly legal = FOOTER_LEGAL;
+  private readonly site = toSignal(inject(PublicApi).site());
+  protected readonly company = computed(() => this.site()?.company ?? null);
+  /** Only legal pages an admin has published are linked. */
+  protected readonly legal = computed(() => {
+    const published = new Set((this.site()?.legal ?? []).map((l) => l.slug));
+    return FOOTER_LEGAL.filter((l) => published.has(l.path.slice(1)));
+  });
   protected readonly customerPortalUrl = RUNTIME_CONFIG.customerPortalUrl;
 
   protected readonly socials = [

@@ -19,15 +19,21 @@ test.describe('Public website shell', () => {
     // body has overflow-x:hidden (design), so also check that content isn't silently clipped.
     const widest = await page.evaluate(() => {
       const vw = document.documentElement.clientWidth;
-      return Array.from(document.querySelectorAll('main *'))
-        .map((el) => el.getBoundingClientRect().right)
-        .filter((r) => r > vw + 1).length;
+      // The services marquee is deliberately wider than the screen, clipped by its own container.
+      const contained = (el: Element) => {
+        for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+          if (['auto', 'scroll', 'hidden', 'clip'].includes(getComputedStyle(p).overflowX) && p.getBoundingClientRect().right <= vw + 1) return true;
+        }
+        return false;
+      };
+      return Array.from(document.querySelectorAll('main *')).filter((el) => el.getBoundingClientRect().right > vw + 1 && !contained(el)).length;
     });
     expect(widest).toBe(0);
   });
 
   test('skip link moves focus to main content', async ({ page }) => {
     await page.goto('/');
+    await page.waitForLoadState('networkidle');
     await page.keyboard.press('Tab');
     const skip = page.getByRole('link', { name: 'Skip to main content' });
     await expect(skip).toBeFocused();

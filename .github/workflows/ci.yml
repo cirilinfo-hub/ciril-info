@@ -92,7 +92,7 @@ jobs:
           SEED_SAMPLE_DATA=true npm run db:seed && SEED_SAMPLE_DATA=true npm run db:seed
           npm run db:purge-samples
           left=$(psql "postgresql://postgres:postgres@localhost:5432/cirilinfo" -tAc \
-            "select (select count(*) from plans)+(select count(*) from testimonials)+(select count(*) from faqs)")
+            "select (select count(*) from plans)+(select count(*) from testimonials)+(select count(*) from faqs)+(select count(*) from portfolio_projects)")
           test "$left" = "0" || { echo "::error::$left sample rows left after purge"; exit 1; }
         working-directory: ciril-info-saas/apps/api
       - name: Migrations match schema (no drift)
