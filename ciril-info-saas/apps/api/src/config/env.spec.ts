@@ -16,6 +16,9 @@ const prodReal = {
   ...base,
   NODE_ENV: 'production',
   PAYMENT_PROVIDER: 'razorpay',
+  RAZORPAY_KEY_ID: 'rzp_live_example',
+  RAZORPAY_KEY_SECRET: 'secret',
+  RAZORPAY_WEBHOOK_SECRET: 'whsec',
   HOSTING_PROVIDER: 'cpanel',
   REGISTRAR_PROVIDER: 'resellerclub',
   EMAIL_PROVIDER: 'resend',
@@ -63,7 +66,27 @@ describe('validateEnv: test-only switches', () => {
       validateEnv({
         ...base, NODE_ENV: 'production', PAYMENT_PROVIDER: 'razorpay', HOSTING_PROVIDER: 'cpanel',
         REGISTRAR_PROVIDER: 'resellerclub', EMAIL_PROVIDER: 'resend', THROTTLE_DISABLED: 'true',
+        RAZORPAY_KEY_ID: 'rzp_live_abc', RAZORPAY_KEY_SECRET: 's', RAZORPAY_WEBHOOK_SECRET: 'w',
       }),
     ).toThrow(/rate limiting cannot be disabled/);
+  });
+});
+
+describe('validateEnv: payment provider', () => {
+  const dev = { ...base, NODE_ENV: 'development' };
+  it('needs all three Razorpay values', () => {
+    expect(() => validateEnv({ ...dev, PAYMENT_PROVIDER: 'razorpay' })).toThrow(/RAZORPAY_KEY_ID: required when PAYMENT_PROVIDER=razorpay/);
+    expect(() => validateEnv({ ...dev, PAYMENT_PROVIDER: 'razorpay', RAZORPAY_KEY_ID: 'rzp_test_a', RAZORPAY_KEY_SECRET: 's' })).toThrow(/RAZORPAY_WEBHOOK_SECRET/);
+    expect(validateEnv({ ...dev, PAYMENT_PROVIDER: 'razorpay', RAZORPAY_KEY_ID: 'rzp_test_a', RAZORPAY_KEY_SECRET: 's', RAZORPAY_WEBHOOK_SECRET: 'w' }).PAYMENT_PROVIDER).toBe('razorpay');
+  });
+
+  it('keeps live and test keys apart', () => {
+    const keys = { RAZORPAY_KEY_SECRET: 's', RAZORPAY_WEBHOOK_SECRET: 'w' };
+    expect(() => validateEnv({ ...dev, PAYMENT_PROVIDER: 'razorpay', RAZORPAY_KEY_ID: 'rzp_live_a', ...keys })).toThrow(/live key must not be used outside production/);
+    expect(() => validateEnv({ ...base, NODE_ENV: 'production', PAYMENT_PROVIDER: 'razorpay', HOSTING_PROVIDER: 'cpanel', REGISTRAR_PROVIDER: 'x', EMAIL_PROVIDER: 'resend', RAZORPAY_KEY_ID: 'rzp_test_a', ...keys })).toThrow(/production needs a live key/);
+  });
+
+  it('refuses Stripe until it is built', () => {
+    expect(() => validateEnv({ ...dev, PAYMENT_PROVIDER: 'stripe' })).toThrow(/Stripe is not supported yet/);
   });
 });

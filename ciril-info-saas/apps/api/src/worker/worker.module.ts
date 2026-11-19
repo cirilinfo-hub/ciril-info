@@ -6,6 +6,9 @@ import { type Env, validateEnv } from '../config/env.js';
 import { DatabaseModule } from '../database/database.module.js';
 import { AuditService } from '../modules/audit/audit.service.js';
 import { BillingLifecycleService } from '../modules/billing/billing-lifecycle.service.js';
+import { PaymentGateway } from '../modules/billing/payment-gateway.js';
+import { PaymentSettlementService } from '../modules/billing/payment-settlement.service.js';
+import { StaffNotifier } from '../modules/notifications/staff-notifier.service.js';
 import { MailService } from '../modules/mail/mail.service.js';
 import { BillingLifecycleRunner } from './billing-lifecycle.runner.js';
 import { EventsProcessor } from './email.processor.js';
@@ -46,6 +49,6 @@ import { EVENTS_QUEUE, OutboxRelayService } from './outbox-relay.service.js';
     BullModule.registerQueue({ name: EVENTS_QUEUE }),
     DatabaseModule,
   ],
-  providers: [OutboxRelayService, EventsProcessor, AuditService, MailService, BillingLifecycleService, BillingLifecycleRunner],
+  providers: [OutboxRelayService, EventsProcessor, AuditService, MailService, StaffNotifier, PaymentGateway, PaymentSettlementService, BillingLifecycleService, BillingLifecycleRunner],
 })
 export class WorkerModule {}

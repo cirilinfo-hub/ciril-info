@@ -5,7 +5,8 @@ import { toApiError } from '../../core/api/api-error';
 import { AuthService } from '../../core/auth/auth.service';
 import { Icon } from '../../design-system/icon/icon';
 import { PageHead } from '../../shared/components/page-head';
-import { BillingApi, INVOICE_BADGE, type InvoiceDetail, money } from './billing.api';
+import { BillingApi, INVOICE_BADGE, type InvoiceDetail, type PayResult, money } from './billing.api';
+import { openRazorpayCheckout } from './razorpay-checkout';
 
 @Component({
   selector: 'ci-invoice-detail',
@@ -88,6 +89,7 @@ import { BillingApi, INVOICE_BADGE, type InvoiceDetail, money } from './billing.
 
         @if (payable(i)) {
           @if (i.testMode) { <div class="cf-alert cf-alert-info no-print" style="margin-top:var(--space-4)"><ci-icon name="info" /><span><strong>Test mode.</strong> No real payment gateway is connected yet, so no money is taken.</span></div> }
+          @else { <p class="ts-body-sm no-print" style="margin-top:var(--space-4)">You pay in Razorpay's secure window with UPI, card or net banking. Ciril Info never sees your card or bank details.</p> }
           @if (auth.can('billing:pay')) {
             <div class="pay no-print">
               <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy()" (click)="pay()">{{ busy() ? 'Processing…' : (i.testMode ? 'Pay ' + fmt(i.total, i.currency) + ' (test)' : 'Pay ' + fmt(i.total, i.currency)) }}</button>
@@ -151,6 +153,29 @@ export class InvoiceDetailPage implements OnInit {
     return [a.line1, a.line2, a.city, [a.state, a.postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   }
 
+  private finish(r: PayResult) {
+    if (r.status === 'SUCCEEDED') this.notice.set('Payment received. Your service is being set up.');
+    else this.error.set(r.failureReason ?? 'The payment did not go through. Please try again.');
+  }
+
+  /** Bank confirmations can take a moment: look again every few seconds for up to two minutes. */
+  private async waitForPayment(id: string) {
+    for (let n = 0; n < 40; n++) {
+      await new Promise((r) => setTimeout(r, 3000));
+      try {
+        const latest = await this.api.invoice(id);
+        this.inv.set(latest);
+        if (latest.status === 'PAID') {
+          this.notice.set('Payment received. Your service is being set up.');
+          return;
+        }
+      } catch {
+        // Keep waiting; a brief network problem should not end the check.
+      }
+    }
+    this.notice.set('Your payment is still being confirmed. You do not need to pay again: this invoice will show as paid as soon as your bank confirms.');
+  }
+
   protected payable(i: InvoiceDetail) {
     return i.status === 'ISSUED' || i.status === 'OVERDUE' || i.status === 'PARTIALLY_PAID';
   }
@@ -169,9 +194,27 @@ export class InvoiceDetailPage implements OnInit {
     this.busy.set(true);
     this.error.set(null);
     try {
-      const r = await this.api.pay(i.id, { idempotencyKey: this.key });
-      if (r.status === 'SUCCEEDED') this.notice.set('Payment received. Your service is being set up.');
-      else this.error.set(r.failureReason ?? 'The payment did not go through. Please try again.');
+      let r = await this.api.pay(i.id, { idempotencyKey: this.key });
+      if (r.action === 'CHECKOUT' && r.checkout) {
+        const result = await openRazorpayCheckout(r.checkout);
+        if (result.kind === 'dismissed') {
+          this.notice.set('The payment window was closed. If your bank has already taken the money it will show here within a few minutes; otherwise you can try again.');
+          await this.load();
+          return;
+        }
+        if (result.kind === 'failed') {
+          this.error.set(result.reason);
+          return;
+        }
+        // The customer paid. Our server checks Razorpay's signature and the payment itself before anything is recorded.
+        r = await this.api.confirmPayment(i.id, { providerOrderId: result.payment.razorpay_order_id, providerPaymentId: result.payment.razorpay_payment_id, signature: result.payment.razorpay_signature });
+        if (r.status === 'PENDING') {
+          this.notice.set('Payment received. We are waiting for your bank to confirm it. This page updates by itself.');
+          await this.waitForPayment(i.id);
+          return;
+        }
+      }
+      this.finish(r);
       await this.load();
     } catch (e) {
       this.error.set(toApiError(e).message);

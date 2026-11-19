@@ -1,15 +1,20 @@
 import { Module } from '@nestjs/common';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 import { BillingLifecycleService } from './billing-lifecycle.service.js';
 import { AdminBillingService } from './admin-billing.service.js';
 import { AdminCouponsService } from './admin-coupons.service.js';
 import { AdminBillingController, AdminCouponsController, BillingController } from './billing.controller.js';
 import { BillingService } from './billing.service.js';
 import { PaymentGateway } from './payment-gateway.js';
+import { PaymentSettlementService } from './payment-settlement.service.js';
+import { PaymentWebhookService } from './payment-webhook.service.js';
 import { PlanChangeService } from './plan-change.service.js';
+import { WebhooksController } from './webhooks.controller.js';
 
 @Module({
-  controllers: [BillingController, AdminBillingController, AdminCouponsController],
-  providers: [BillingService, AdminBillingService, AdminCouponsService, BillingLifecycleService, PlanChangeService, PaymentGateway],
+  imports: [NotificationsModule],
+  controllers: [BillingController, AdminBillingController, AdminCouponsController, WebhooksController],
+  providers: [BillingService, AdminBillingService, AdminCouponsService, BillingLifecycleService, PlanChangeService, PaymentGateway, PaymentSettlementService, PaymentWebhookService],
   exports: [BillingLifecycleService],
 })
 export class BillingModule {}

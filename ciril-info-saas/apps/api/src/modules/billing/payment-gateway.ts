@@ -1,72 +1,89 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomUUID } from 'node:crypto';
 import type { Env } from '../../config/env.js';
+import { MockProvider } from './providers/mock.provider.js';
+import type {
+  ChargeRequest, ChargeResult, CheckoutConfirmation, OrderRequest, OrderResult, PaymentProvider, ProviderId, ProviderPayment, RefundRequest, RefundResult, WebhookEvent,
+} from './providers/payment-provider.js';
+import { RazorpayProvider } from './providers/razorpay.provider.js';
 
-export interface ChargeRequest {
-  amountPaise: number;
-  currency: string;
-  invoiceNumber: string;
-  idempotencyKey: string;
-  /** Test hook honoured by the mock adapter only. */
-  simulate?: 'fail';
-}
+export type { ChargeRequest, ChargeResult, RefundRequest, RefundResult } from './providers/payment-provider.js';
 
-export interface ChargeResult {
-  provider: 'MOCK' | 'RAZORPAY' | 'STRIPE';
-  ok: boolean;
-  providerOrderId: string;
-  providerPaymentId: string | null;
-  method: string | null;
-  failureReason: string | null;
-}
-
-export interface RefundRequest {
-  providerPaymentId: string | null;
-  amountPaise: number;
-  currency: string;
-  idempotencyKey: string;
-}
-
-export interface RefundResult {
-  ok: boolean;
-  providerRefundId: string | null;
-  failureReason: string | null;
-}
+const notAvailable = () => new ServiceUnavailableException({ code: 'PAYMENTS_NOT_CONFIGURED', message: 'Online payments are not available right now.' });
 
 /**
- * Payment provider boundary. Real Razorpay/Stripe adapters arrive in Phase 6, where card/UPI
- * capture happens on the provider's hosted page and success is confirmed by a signed webhook.
- * Until then only the clearly-labelled mock exists, and env validation refuses it in production.
+ * The one place billing talks to a payment company. It picks the provider from PAYMENT_PROVIDER (env validation has
+ * already checked the keys it needs) and exposes the same few operations whichever one is behind it.
  */
 @Injectable()
 export class PaymentGateway {
-  readonly provider: Env['PAYMENT_PROVIDER'];
+  readonly provider: PaymentProvider;
 
   constructor(config: ConfigService<Env, true>) {
-    this.provider = config.get('PAYMENT_PROVIDER', { infer: true });
+    const which = config.get('PAYMENT_PROVIDER', { infer: true });
+    if (which === 'razorpay') {
+      this.provider = new RazorpayProvider({
+        keyId: config.get('RAZORPAY_KEY_ID', { infer: true }),
+        keySecret: config.get('RAZORPAY_KEY_SECRET', { infer: true }),
+        webhookSecret: config.get('RAZORPAY_WEBHOOK_SECRET', { infer: true }),
+        apiBase: config.get('RAZORPAY_API_BASE', { infer: true }),
+      });
+    } else if (which === 'mock') {
+      this.provider = new MockProvider();
+    } else {
+      // Stripe is planned behind the same interface; env validation already refuses it with a clear message.
+      throw new Error(`Payment provider "${which}" is not available yet. Use "razorpay" or "mock".`);
+    }
   }
 
+  get id(): ProviderId {
+    return this.provider.id;
+  }
   get isMock() {
-    return this.provider === 'mock';
+    return this.provider.id === 'MOCK';
+  }
+  /** "instant" settles inside the request (test mode); "hosted" needs the customer's checkout and a signed confirmation. */
+  get mode() {
+    return this.provider.mode;
   }
 
   async charge(req: ChargeRequest): Promise<ChargeResult> {
-    if (this.provider !== 'mock') {
-      throw new ServiceUnavailableException({ code: 'PAYMENTS_NOT_CONFIGURED', message: 'Online payments are not available yet.' });
-    }
-    const orderId = `mock_order_${randomUUID().slice(0, 12)}`;
-    if (req.simulate === 'fail') {
-      return { provider: 'MOCK', ok: false, providerOrderId: orderId, providerPaymentId: null, method: 'mock', failureReason: 'Simulated payment failure (test mode).' };
-    }
-    return { provider: 'MOCK', ok: true, providerOrderId: orderId, providerPaymentId: `mock_pay_${randomUUID().slice(0, 12)}`, method: 'mock', failureReason: null };
+    if (!this.provider.charge) throw notAvailable();
+    return this.provider.charge(req);
   }
 
-  /** Returns money for a captured payment. The mock only pretends to; a real adapter calls the provider and may fail. */
+  async createOrder(req: OrderRequest): Promise<OrderResult> {
+    if (!this.provider.createOrder) throw notAvailable();
+    return this.provider.createOrder(req);
+  }
+
+  checkoutParams(orderId: string): Record<string, string | number> {
+    return this.provider.checkoutParams?.(orderId) ?? {};
+  }
+
+  verifyCheckout(c: CheckoutConfirmation): boolean {
+    return this.provider.verifyCheckout?.(c) ?? false;
+  }
+
+  async fetchPayment(id: string): Promise<ProviderPayment> {
+    if (!this.provider.fetchPayment) throw notAvailable();
+    return this.provider.fetchPayment(id);
+  }
+
+  async capture(id: string, amountPaise: number, currency: string): Promise<ProviderPayment> {
+    if (!this.provider.capture) throw notAvailable();
+    return this.provider.capture(id, amountPaise, currency);
+  }
+
+  async listOrderPayments(orderId: string): Promise<ProviderPayment[]> {
+    return this.provider.listOrderPayments ? this.provider.listOrderPayments(orderId) : [];
+  }
+
+  parseWebhook(raw: Buffer, headers: Record<string, string | string[] | undefined>): WebhookEvent | null {
+    return this.provider.parseWebhook?.(raw, headers) ?? null;
+  }
+
   async refund(req: RefundRequest): Promise<RefundResult> {
-    if (this.provider !== 'mock') {
-      throw new ServiceUnavailableException({ code: 'PAYMENTS_NOT_CONFIGURED', message: 'Refunds are not available yet.' });
-    }
-    return { ok: true, providerRefundId: `mock_refund_${randomUUID().slice(0, 12)}`, failureReason: null };
+    return this.provider.refund(req);
   }
 }

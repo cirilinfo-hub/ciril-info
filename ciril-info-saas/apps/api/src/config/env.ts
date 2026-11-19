@@ -61,6 +61,12 @@ export const envSchema = z
     ABANDONED_ORDER_DAYS: z.coerce.number().int().min(1).max(365).default(14),
 
     PAYMENT_PROVIDER: z.enum(['mock', 'razorpay', 'stripe']).default('mock'),
+    /** Razorpay. Put the real values in the server's .env only, never in chat, git or a screenshot. */
+    RAZORPAY_KEY_ID: z.string().trim().default(''),
+    RAZORPAY_KEY_SECRET: z.string().trim().default(''),
+    /** The secret you type in Razorpay's webhook settings. It signs every webhook they send us. */
+    RAZORPAY_WEBHOOK_SECRET: z.string().trim().default(''),
+    RAZORPAY_API_BASE: z.url().default('https://api.razorpay.com/v1'),
     HOSTING_PROVIDER: z.enum(['mock', 'cpanel', 'plesk']).default('mock'),
     REGISTRAR_PROVIDER: z.string().default('mock'),
 
@@ -74,6 +80,21 @@ export const envSchema = z
     THROTTLE_DISABLED: bool,
   })
   .superRefine((env, ctx) => {
+    if (env.PAYMENT_PROVIDER === 'razorpay') {
+      for (const key of ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET'] as const) {
+        if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: 'required when PAYMENT_PROVIDER=razorpay' });
+      }
+      // A live key in a development environment (or a test key in production) is a classic costly mix-up.
+      if (env.RAZORPAY_KEY_ID && env.NODE_ENV === 'production' && !env.RAZORPAY_KEY_ID.startsWith('rzp_live_')) {
+        ctx.addIssue({ code: 'custom', path: ['RAZORPAY_KEY_ID'], message: 'production needs a live key (rzp_live_...)' });
+      }
+      if (env.RAZORPAY_KEY_ID && env.NODE_ENV !== 'production' && env.RAZORPAY_KEY_ID.startsWith('rzp_live_')) {
+        ctx.addIssue({ code: 'custom', path: ['RAZORPAY_KEY_ID'], message: 'a live key must not be used outside production; use rzp_test_...' });
+      }
+    }
+    if (env.PAYMENT_PROVIDER === 'stripe') {
+      ctx.addIssue({ code: 'custom', path: ['PAYMENT_PROVIDER'], message: 'Stripe is not supported yet; use razorpay or mock' });
+    }
     if (env.NODE_ENV !== 'production') return;
     // Rule 7/8 of the brief: never fake payments or provisioning in production.
     for (const key of ['PAYMENT_PROVIDER', 'HOSTING_PROVIDER', 'REGISTRAR_PROVIDER'] as const) {

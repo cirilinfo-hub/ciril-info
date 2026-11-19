@@ -11,7 +11,7 @@ config({ path: ['.env', '../../.env'], quiet: true });
 
 export async function createTestApp(): Promise<NestExpressApplication> {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-  const app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
+  const app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false, rawBody: true });
   configureApp(app);
   await app.init();
   return app;

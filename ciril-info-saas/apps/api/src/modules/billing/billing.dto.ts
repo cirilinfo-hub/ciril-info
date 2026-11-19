@@ -35,6 +35,13 @@ export class PayInvoiceDto {
   @IsOptional() @IsIn(['fail']) simulate?: 'fail';
 }
 
+/** What the provider's checkout hands the browser when the customer has paid. The signature is what we trust. */
+export class ConfirmPaymentDto {
+  @ApiProperty() @IsString() @Length(4, 80) providerOrderId!: string;
+  @ApiProperty() @IsString() @Length(4, 80) providerPaymentId!: string;
+  @ApiProperty() @IsString() @Length(16, 200) signature!: string;
+}
+
 export class CancelSubscriptionDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @Length(0, 255) reason?: string;
 }

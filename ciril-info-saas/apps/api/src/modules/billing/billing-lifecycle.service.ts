@@ -5,6 +5,8 @@ import { PlatformPrisma, type Tx } from '../../database/prisma-clients.js';
 import type { BillingCycle, InvoiceStatus } from '../../generated/prisma/client.js';
 import { AuditService } from '../audit/audit.service.js';
 import { MailService } from '../mail/mail.service.js';
+import { PaymentGateway } from './payment-gateway.js';
+import { PaymentSettlementService } from './payment-settlement.service.js';
 import { computeTotals, toPaise } from './billing.logic.js';
 import { nextInvoiceNumber } from './numbering.js';
 import { readSeller } from './seller.js';
@@ -18,6 +20,10 @@ export interface LifecycleResult {
   pastDue: number;
   expired: number;
   abandoned: number;
+  /** Payments settled by asking the provider, because their webhook never arrived. */
+  reconciled: number;
+  /** Checkouts nobody completed, closed after three days. */
+  checkoutsClosed: number;
 }
 
 /**
@@ -43,6 +49,8 @@ export class BillingLifecycleService {
     private readonly db: PlatformPrisma,
     private readonly audit: AuditService,
     private readonly mail: MailService,
+    private readonly gateway: PaymentGateway,
+    private readonly settlement: PaymentSettlementService,
     config: ConfigService<Env, true>,
   ) {
     this.leadDays = config.get('RENEWAL_LEAD_DAYS', { infer: true });
@@ -54,10 +62,11 @@ export class BillingLifecycleService {
   async run(now = new Date()): Promise<LifecycleResult> {
     const renewalInvoices = await this.issueRenewals(now);
     const overdue = await this.markOverdue(now);
+    const { reconciled, checkoutsClosed } = await this.reconcilePayments(now);
     const abandoned = await this.cancelAbandonedOrders(now);
     const { pastDue, expired } = await this.processPeriodEnds(now);
-    if (renewalInvoices || overdue || abandoned || pastDue || expired) this.log.log(`billing lifecycle: ${JSON.stringify({ renewalInvoices, overdue, abandoned, pastDue, expired })}`);
-    return { renewalInvoices, overdue, pastDue, expired, abandoned };
+    if (renewalInvoices || overdue || abandoned || pastDue || expired || reconciled || checkoutsClosed) this.log.log(`billing lifecycle: ${JSON.stringify({ renewalInvoices, overdue, abandoned, pastDue, expired, reconciled, checkoutsClosed })}`);
+    return { renewalInvoices, overdue, pastDue, expired, abandoned, reconciled, checkoutsClosed };
   }
 
   // ───────────────────────────── renewals ─────────────────────────────
@@ -166,6 +175,48 @@ export class BillingLifecycleService {
   private async markOverdue(now: Date) {
     const r = await this.db.invoice.updateMany({ where: { status: 'ISSUED', dueAt: { lt: now } }, data: { status: 'OVERDUE' } });
     return r.count;
+  }
+
+  // ───────────────────────────── payment reconciliation ─────────────────────────────
+
+  /**
+   * Webhooks can be lost (an outage on our side, a provider hiccup). Any payment still waiting ten minutes after checkout
+   * opened is looked up at the provider, and a captured one is settled exactly as the webhook would have done. A checkout
+   * that nobody ever completed is closed after three days so it does not wait forever.
+   */
+  private async reconcilePayments(now: Date) {
+    if (this.gateway.mode !== 'hosted') return { reconciled: 0, checkoutsClosed: 0 };
+    const waiting = await this.db.payment.findMany({
+      where: { provider: this.gateway.id, status: { in: ['CREATED', 'PENDING'] }, providerOrderId: { not: null }, createdAt: { lt: new Date(now.getTime() - 10 * 60_000), gt: new Date(now.getTime() - 3 * DAY) } },
+      select: { id: true, providerOrderId: true },
+      take: 100,
+      orderBy: { createdAt: 'asc' },
+    });
+    let reconciled = 0;
+    for (const p of waiting) {
+      try {
+        const found = await this.gateway.listOrderPayments(p.providerOrderId!);
+        const captured = found.find((x) => x.status === 'captured');
+        const authorized = found.find((x) => x.status === 'authorized');
+        const target = captured ?? authorized ?? (found.length && found.every((x) => x.status === 'failed') ? found[0] : undefined);
+        if (!target) continue;
+        let fact = target;
+        if (target.status === 'authorized') fact = await this.gateway.capture(target.providerPaymentId, target.amountPaise, target.currency);
+        const outcome = await this.settlement.apply(
+          p.id,
+          { status: fact.status === 'captured' ? 'captured' : fact.status === 'failed' ? 'failed' : 'created', providerPaymentId: fact.providerPaymentId, providerOrderId: fact.providerOrderId, amountPaise: fact.amountPaise, currency: fact.currency, method: fact.method, failureReason: fact.failureReason },
+          'reconciliation',
+        );
+        if (outcome === 'SETTLED') reconciled++;
+      } catch (e) {
+        this.log.error(`payment reconciliation failed for payment ${p.id}: ${(e as Error).message}`);
+      }
+    }
+    const closed = await this.db.payment.updateMany({
+      where: { provider: this.gateway.id, status: { in: ['CREATED', 'PENDING'] }, createdAt: { lt: new Date(now.getTime() - 3 * DAY) } },
+      data: { status: 'FAILED', failureReason: 'Checkout was not completed.' },
+    });
+    return { reconciled, checkoutsClosed: closed.count };
   }
 
   // ───────────────────────────── abandoned first orders ─────────────────────────────

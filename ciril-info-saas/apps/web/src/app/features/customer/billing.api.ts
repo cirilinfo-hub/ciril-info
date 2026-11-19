@@ -86,6 +86,16 @@ export interface PlanOption {
   isCurrent: boolean;
 }
 
+export interface PayResult {
+  paymentId: string;
+  status: string;
+  failureReason: string | null;
+  invoice: InvoiceRow;
+  /** Present when the customer still has to pay in the provider's window. */
+  action?: 'CHECKOUT';
+  checkout?: { keyId: string; orderId: string; amountPaise: number; currency: string; description: string; name: string; prefillEmail?: string };
+}
+
 export interface Paged<T> {
   data: T[];
   meta: { page: number; pageSize: number; total: number; pageCount: number };
@@ -116,8 +126,12 @@ export class BillingApi {
   invoice(id: string) {
     return firstValueFrom(this.http.get<InvoiceDetail>(`${this.base}/invoices/${id}`));
   }
+  /** Test mode answers at once. A real provider answers with CHECKOUT details to open the provider's payment window. */
   pay(id: string, body: { idempotencyKey: string; simulate?: 'fail' }) {
-    return firstValueFrom(this.http.post<{ paymentId: string; status: string; failureReason: string | null; invoice: InvoiceRow }>(`${this.base}/invoices/${id}/pay`, body));
+    return firstValueFrom(this.http.post<PayResult>(`${this.base}/invoices/${id}/pay`, body));
+  }
+  confirmPayment(id: string, body: { providerOrderId: string; providerPaymentId: string; signature: string }) {
+    return firstValueFrom(this.http.post<PayResult>(`${this.base}/invoices/${id}/confirm-payment`, body));
   }
   subscriptions(page = 1) {
     return firstValueFrom(this.http.get<Paged<SubscriptionRow>>(`${this.base}/subscriptions`, { params: { page, pageSize: 20 } }));

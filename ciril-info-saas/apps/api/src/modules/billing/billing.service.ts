@@ -10,6 +10,8 @@ import { type PricedLine, addCycle, computeTotals, couponDiscountPaise, toPaise 
 import { couponProblem } from './coupons.js';
 import type { BillingListQuery, PayInvoiceDto, QuoteDto } from './billing.dto.js';
 import { PaymentGateway } from './payment-gateway.js';
+import { PaymentSettlementService } from './payment-settlement.service.js';
+import { settleInvoicePayment } from './settlement.js';
 import { nextInvoiceNumber } from './numbering.js';
 import { readSeller } from './seller.js';
 
@@ -30,6 +32,7 @@ export class BillingService {
     private readonly db: TenantPrisma,
     private readonly platform: PlatformPrisma,
     private readonly gateway: PaymentGateway,
+    private readonly settlement: PaymentSettlementService,
     config: ConfigService<Env, true>,
   ) {
     this.production = config.get('NODE_ENV', { infer: true }) === 'production';
@@ -223,67 +226,97 @@ export class BillingService {
       }
 
       const outstanding = toPaise(invoice.total.toString()) - toPaise(invoice.amountPaid.toString());
+      if (this.gateway.mode === 'hosted') return this.startCheckout(tx, ctx, invoice, outstanding);
       const result = await this.gateway.charge({ amountPaise: outstanding, currency: invoice.currency, invoiceNumber: invoice.number, idempotencyKey: key, simulate: dto.simulate });
 
       const payment = await tx.payment.create({
         data: {
-          tenantId: ctx.tenantId, invoiceId: id, provider: result.provider, status: result.ok ? 'SUCCEEDED' : 'FAILED', amount: (outstanding / 100).toFixed(2),
+          tenantId: ctx.tenantId, invoiceId: id, provider: result.provider, status: result.ok ? 'PENDING' : 'FAILED', amount: (outstanding / 100).toFixed(2),
           currency: invoice.currency, providerOrderId: result.providerOrderId, providerPaymentId: result.providerPaymentId, method: result.method,
-          failureReason: result.failureReason, idempotencyKey: key, verifiedAt: result.ok ? new Date() : null,
+          failureReason: result.failureReason, idempotencyKey: key,
         },
-        select: { id: true, status: true, failureReason: true },
+        select: { id: true },
       });
 
-      const audit = (action: string, metadata: Record<string, unknown>) =>
-        tx.auditLog.create({ data: { action, actorId: ctx.userId, tenantId: ctx.tenantId, entityType: 'invoice', entityId: id, metadata: metadata as Prisma.InputJsonValue, ipAddress: meta.ip ?? null, requestId: meta.requestId } });
-
       if (!result.ok) {
-        await audit('payment.failed', { reason: result.failureReason });
+        await tx.auditLog.create({ data: { action: 'payment.failed', actorId: ctx.userId, tenantId: ctx.tenantId, entityType: 'invoice', entityId: id, metadata: { reason: result.failureReason } as Prisma.InputJsonValue, ipAddress: meta.ip ?? null, requestId: meta.requestId } });
       } else {
-        const paidAt = new Date();
-        await tx.invoice.update({ where: { id }, data: { status: 'PAID', amountPaid: invoice.total, paidAt } });
-        if (invoice.subscription) await this.activate(tx, ctx, invoice.subscription, paidAt, invoice.billingSnapshot);
-        await audit('payment.succeeded', { paymentId: payment.id, provider: result.provider });
-        await tx.notification.createMany({
-          data: { userId: ctx.userId, tenantId: ctx.tenantId, type: 'payment.succeeded', title: `Payment received for ${invoice.number}`, body: 'Your service is being set up.', link: `/invoices/${id}` },
-        });
+        await settleInvoicePayment(tx, { tenantId: ctx.tenantId, invoiceId: id, paymentId: payment.id, actorUserId: ctx.userId, now: new Date(), providerPaymentId: result.providerPaymentId, method: result.method, via: 'test-mode' });
       }
-      return { paymentId: payment.id, status: payment.status, failureReason: payment.failureReason, invoice: await tx.invoice.findUniqueOrThrow({ where: { id }, select: invoiceSelect }) };
+      return { paymentId: payment.id, status: result.ok ? 'SUCCEEDED' : 'FAILED', failureReason: result.failureReason, invoice: await tx.invoice.findUniqueOrThrow({ where: { id }, select: invoiceSelect }) };
     });
   }
 
-  /** First payment activates the subscription; a later one renews it from the end of the paid period. */
-  private async activate(tx: Tx, ctx: TenantContext, sub: { id: string; status: SubscriptionStatus; billingCycle: BillingCycle; currentPeriodEnd: Date | null }, at: Date, snapshot: unknown) {
-    const renewing = (sub.status === 'ACTIVE' || sub.status === 'PAST_DUE') && sub.currentPeriodEnd !== null;
-    const start = renewing ? sub.currentPeriodEnd! : at;
-    await tx.subscription.update({
-      where: { id: sub.id },
-      data: { status: 'ACTIVE', currentPeriodStart: start, currentPeriodEnd: addCycle(start, sub.billingCycle) },
+  /**
+   * Hosted providers (Razorpay): create the provider's order and hand the browser what it needs to open checkout.
+   * An order opened in the last 30 minutes for the same amount is reused, so a double click or a closed modal does not
+   * pile up orders. Nothing is recorded as paid here: that only happens after a signed confirmation.
+   */
+  private async startCheckout(tx: Tx, ctx: TenantContext, invoice: { id: string; number: string; currency: string }, outstanding: number) {
+    const amount = (outstanding / 100).toFixed(2);
+    const open = await tx.payment.findFirst({
+      where: { invoiceId: invoice.id, provider: this.gateway.id, status: { in: ['CREATED', 'PENDING'] }, amount, createdAt: { gt: new Date(Date.now() - 30 * 60_000) }, providerOrderId: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, providerOrderId: true },
     });
-    await tx.subscriptionHistory.create({
-      data: { tenantId: ctx.tenantId, subscriptionId: sub.id, event: renewing ? 'RENEWED' : 'ACTIVATED', fromStatus: sub.status, toStatus: 'ACTIVE', actorUserId: ctx.userId },
-    });
-    if (renewing) await this.applyPlanChange(tx, ctx, sub.id, snapshot);
-    // Provisioning is a Phase 6 worker concern; it will read this event.
-    await tx.outboxEvent.createMany({ data: { tenantId: ctx.tenantId, type: 'subscription.activated', aggregateType: 'subscription', aggregateId: sub.id, payload: { subscriptionId: sub.id, renewal: renewing } } });
+    const account = await tx.customerAccount.findUnique({ where: { tenantId: ctx.tenantId }, select: { billingEmail: true } });
+
+    let paymentId: string;
+    let base: Record<string, string | number>;
+    if (open?.providerOrderId) {
+      paymentId = open.id;
+      base = this.gateway.checkoutParams(open.providerOrderId);
+    } else {
+      const key = `ord:${invoice.id}:${randomUUID()}`;
+      const order = await this.gateway.createOrder({ amountPaise: outstanding, currency: invoice.currency, receipt: invoice.number, idempotencyKey: key, notes: { invoiceId: invoice.id, invoiceNumber: invoice.number, tenantId: ctx.tenantId } });
+      const created = await tx.payment.create({
+        data: { tenantId: ctx.tenantId, invoiceId: invoice.id, provider: this.gateway.id, status: 'CREATED', amount, currency: invoice.currency, providerOrderId: order.providerOrderId, idempotencyKey: key },
+        select: { id: true },
+      });
+      paymentId = created.id;
+      base = order.checkout;
+    }
+    return {
+      action: 'CHECKOUT' as const, paymentId, provider: this.gateway.id, status: 'CREATED', failureReason: null,
+      checkout: { ...base, amountPaise: outstanding, currency: invoice.currency, description: `Invoice ${invoice.number}`, name: 'Ciril Info', ...(account?.billingEmail ? { prefillEmail: account.billingEmail } : {}) },
+      invoice: await tx.invoice.findUniqueOrThrow({ where: { id: invoice.id }, select: invoiceSelect }),
+    };
   }
 
-  /** A renewal invoice issued for a scheduled plan change switches the subscription to that plan once it is paid. */
-  private async applyPlanChange(tx: Tx, ctx: TenantContext, subscriptionId: string, snapshot: unknown) {
-    const change = (snapshot as { planChange?: { planId: string; pricingVersionId: string; description: string; unitPrice: string; renewalPrice: string } } | null)?.planChange;
-    if (!change) return;
-    const item = await tx.subscriptionItem.findFirst({ where: { subscriptionId }, orderBy: { createdAt: 'asc' } });
-    if (!item || item.planId === change.planId) return;
-    const upgrade = Number(change.renewalPrice) > Number(item.renewalPrice.toString());
-    await tx.subscriptionItem.update({
-      where: { id: item.id },
-      data: { planId: change.planId, pricingVersionId: change.pricingVersionId, description: change.description, unitPrice: change.unitPrice, renewalPrice: change.renewalPrice },
-    });
-    await tx.subscription.update({ where: { id: subscriptionId }, data: { scheduledPlanId: null, scheduledAt: null } });
-    await tx.subscriptionHistory.create({
-      data: { tenantId: ctx.tenantId, subscriptionId, event: upgrade ? 'UPGRADED' : 'DOWNGRADED', fromStatus: 'ACTIVE', toStatus: 'ACTIVE', actorUserId: ctx.userId, details: { fromPlanId: item.planId, toPlanId: change.planId } },
-    });
-    await tx.outboxEvent.createMany({ data: { tenantId: ctx.tenantId, type: 'subscription.plan_changed', aggregateType: 'subscription', aggregateId: subscriptionId, payload: { subscriptionId, fromPlanId: item.planId, toPlanId: change.planId } } });
+  /**
+   * The browser says the customer paid. The signature proves Razorpay produced it; we then ask Razorpay for the payment
+   * itself (never trusting the browser for amount or status), capture it if it was only authorised, and settle. If
+   * Razorpay still shows it in progress the answer is "pending" and the webhook finishes the job.
+   */
+  async confirmPayment(ctx: TenantContext, id: string, dto: { providerOrderId: string; providerPaymentId: string; signature: string }, meta: RequestMeta) {
+    const payment = await this.db.run(ctx, (tx) =>
+      tx.payment.findFirst({ where: { invoiceId: id, provider: this.gateway.id, providerOrderId: dto.providerOrderId }, select: { id: true, status: true, amount: true, currency: true } }),
+    );
+    if (!payment) throw new NotFoundException({ code: 'PAYMENT_NOT_FOUND', message: 'We could not find this payment.' });
+
+    if (!this.gateway.verifyCheckout(dto)) {
+      await this.db.run(ctx, (tx) => tx.auditLog.create({ data: { action: 'payment.signature_invalid', actorId: ctx.userId, tenantId: ctx.tenantId, entityType: 'invoice', entityId: id, ipAddress: meta.ip ?? null, requestId: meta.requestId } }));
+      throw new BadRequestException({ code: 'INVALID_SIGNATURE', message: 'This payment could not be verified.' });
+    }
+
+    let fact = await this.gateway.fetchPayment(dto.providerPaymentId);
+    if (fact.providerOrderId !== dto.providerOrderId) throw new BadRequestException({ code: 'INVALID_SIGNATURE', message: 'This payment could not be verified.' });
+    if (fact.status === 'authorized') fact = await this.gateway.capture(dto.providerPaymentId, fact.amountPaise, fact.currency);
+
+    const outcome = await this.settlement.apply(
+      payment.id,
+      { status: fact.status === 'captured' ? 'captured' : fact.status === 'failed' ? 'failed' : 'created', providerPaymentId: fact.providerPaymentId, providerOrderId: fact.providerOrderId, amountPaise: fact.amountPaise, currency: fact.currency, method: fact.method, failureReason: fact.failureReason },
+      'checkout',
+      ctx.userId,
+    );
+    if (outcome === 'MISMATCH' || outcome === 'ORPHANED') {
+      throw new ConflictException({ code: 'PAYMENT_NEEDS_REVIEW', message: 'We received your payment but could not match it to this invoice automatically. Our team has been told and will sort it out.' });
+    }
+    const status = outcome === 'SETTLED' || outcome === 'ALREADY_SETTLED' ? 'SUCCEEDED' : outcome === 'FAILED' ? 'FAILED' : 'PENDING';
+    return this.db.run(ctx, async (tx) => ({
+      paymentId: payment.id, status, failureReason: status === 'FAILED' ? fact.failureReason : null,
+      invoice: await tx.invoice.findUniqueOrThrow({ where: { id }, select: invoiceSelect }),
+    }));
   }
 
   // ─── Subscriptions ───

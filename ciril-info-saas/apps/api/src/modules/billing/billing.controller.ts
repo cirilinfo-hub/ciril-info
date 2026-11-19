@@ -8,7 +8,7 @@ import { CouponDto, CouponPatchDto } from './admin-coupons.dto.js';
 import { AdminCouponsService } from './admin-coupons.service.js';
 import { AdminBillingService } from './admin-billing.service.js';
 import { AdminInvoiceListQuery, AdminSubscriptionListQuery, RefundDto, VoidInvoiceDto } from './admin-billing.dto.js';
-import { BillingListQuery, CancelSubscriptionDto, ChangePlanDto, OrderDto, PayInvoiceDto, QuoteDto } from './billing.dto.js';
+import { BillingListQuery, CancelSubscriptionDto, ChangePlanDto, ConfirmPaymentDto, OrderDto, PayInvoiceDto, QuoteDto } from './billing.dto.js';
 import { PlanChangeService } from './plan-change.service.js';
 import { BillingService } from './billing.service.js';
 
@@ -80,6 +80,14 @@ export class BillingController {
   @RequireTenant('billing:read')
   invoice(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string) {
     return this.billing.getInvoice(ctx, id);
+  }
+
+  @Post('invoices/:id/confirm-payment')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @RequireTenant('billing:pay')
+  confirm(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @Body() dto: ConfirmPaymentDto, @ReqMeta() meta: RequestMeta) {
+    return this.billing.confirmPayment(ctx, id, dto, meta);
   }
 
   @Get('credit-notes/:id')
