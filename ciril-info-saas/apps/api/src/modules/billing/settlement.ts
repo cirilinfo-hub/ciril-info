@@ -63,6 +63,12 @@ async function requestDomainRegistration(tx: Tx, tenantId: string, invoiceId: st
     await tx.outboxEvent.createMany({ data: { tenantId, type: 'domain.registration_requested', aggregateType: 'domain', aggregateId: domain.id, payload: { domainId: domain.id, name: domain.name } } });
     return;
   }
+  // A paid transfer is a task for staff too: they start it at the registrar with the authorisation code.
+  const transfer = await tx.domainTransfer.findUnique({ where: { invoiceId }, select: { id: true, status: true, domain: { select: { id: true, name: true } } } });
+  if (transfer && transfer.status === 'REQUESTED') {
+    await tx.outboxEvent.createMany({ data: { tenantId, type: 'domain.transfer_requested', aggregateType: 'domain', aggregateId: transfer.domain.id, payload: { transferId: transfer.id, domainId: transfer.domain.id, name: transfer.domain.name } } });
+    return;
+  }
   // A paid renewal is a task for staff as well: they renew the name at the registrar.
   const renewal = await tx.domainRenewal.findUnique({ where: { invoiceId }, select: { id: true, years: true, status: true, domain: { select: { id: true, name: true } } } });
   if (renewal && renewal.status === 'PENDING') {

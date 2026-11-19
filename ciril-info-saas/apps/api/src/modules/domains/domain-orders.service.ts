@@ -1,16 +1,21 @@
-import { BadGatewayException, BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { BadGatewayException, BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env.js';
+import type { SecretBox } from '../../common/security/crypto.js';
 import { PlatformPrisma, TenantPrisma } from '../../database/prisma-clients.js';
-import type { DomainStatus, InvoiceStatus, Prisma } from '../../generated/prisma/client.js';
+import type { DomainStatus, InvoiceStatus, Prisma, TransferStatus } from '../../generated/prisma/client.js';
 import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
 import { type PricedLine, computeTotals, toPaise } from '../billing/billing.logic.js';
 import { nextInvoiceNumber } from '../billing/numbering.js';
 import { readSeller } from '../billing/seller.js';
-import { MAX_YEARS, addYears, parseDomainQuery, registrationPaise } from './domain-rules.js';
+import { MAX_YEARS, addYears, cleanAuthCode, parseDomainQuery, registrationPaise } from './domain-rules.js';
 import { RegistrarGateway } from './registrar-gateway.js';
+import { DOMAIN_SECRET_BOX } from './secret-box.js';
 
 const DUE_DAYS = 7;
+/** Transfer states that are still going. */
+export const LIVE_TRANSFER: TransferStatus[] = ['REQUESTED', 'PENDING_AUTH', 'IN_PROGRESS'];
 const UNPAID: InvoiceStatus[] = ['ISSUED', 'OVERDUE', 'PARTIALLY_PAID'];
 /** A name in one of these states can be ordered again. */
 export const DEAD_DOMAIN_STATES: DomainStatus[] = ['CANCELLED', 'FAILED', 'TRANSFERRED_OUT', 'EXPIRED'];
@@ -21,6 +26,7 @@ const domainSelect = {
   id: true, name: true, tld: true, status: true, years: true, registeredAt: true, expiresAt: true, autoRenew: true, failureReason: true, createdAt: true,
   orderInvoice: { select: { id: true, number: true, status: true, total: true, currency: true } },
   // The renewal waiting right now, if any: asked for and either unpaid or paid and waiting for staff.
+  transfers: { where: { status: { in: LIVE_TRANSFER } }, take: 1, select: { id: true, status: true, invoice: { select: { id: true, number: true, status: true, total: true, currency: true } } } },
   renewals: { where: { status: 'PENDING' as const }, take: 1, select: { id: true, years: true, requestedAt: true, invoice: { select: { id: true, number: true, status: true, total: true, currency: true } } } },
 } as const;
 
@@ -32,8 +38,12 @@ export function renewalView(d: DomainRow) {
 }
 
 /** What the customer sees: where the domain is in its life, in words that need no explaining. */
-export function stageOf(d: { status: DomainStatus; orderInvoice: { status: InvoiceStatus } | null }): 'AWAITING_PAYMENT' | 'REGISTERING' | 'ACTIVE' | 'FAILED' | 'CANCELLED' | 'EXPIRED' | 'OTHER' {
+export function stageOf(d: { status: DomainStatus; orderInvoice: { status: InvoiceStatus } | null; transfers?: { invoice: { status: InvoiceStatus } | null }[] }): 'AWAITING_PAYMENT' | 'REGISTERING' | 'TRANSFER_AWAITING_PAYMENT' | 'TRANSFERRING' | 'ACTIVE' | 'FAILED' | 'CANCELLED' | 'EXPIRED' | 'OTHER' {
   switch (d.status) {
+    case 'PENDING_TRANSFER': {
+      const inv = d.transfers?.[0]?.invoice;
+      return !inv || UNPAID.includes(inv.status) ? 'TRANSFER_AWAITING_PAYMENT' : 'TRANSFERRING';
+    }
     case 'PENDING_REGISTRATION':
       return d.orderInvoice && UNPAID.includes(d.orderInvoice.status) ? 'AWAITING_PAYMENT' : 'REGISTERING';
     case 'ACTIVE': return 'ACTIVE';
@@ -57,6 +67,7 @@ export class DomainOrdersService {
     private readonly db: TenantPrisma,
     private readonly platform: PlatformPrisma,
     private readonly registrar: RegistrarGateway,
+    @Inject(DOMAIN_SECRET_BOX) private readonly box: SecretBox,
     config: ConfigService<Env, true>,
   ) {
     this.production = config.get('NODE_ENV', { infer: true }) === 'production';
@@ -250,16 +261,108 @@ export class DomainOrdersService {
     });
   }
 
+  /**
+   * What bringing a domain to us costs and whether it can be done: the ending must be one we sell, nobody here may already
+   * hold the name, and the registrar must say it is registered somewhere (a free name is registered, not transferred).
+   */
+  private async priceTransfer(input: string) {
+    const rows = await this.platform.tldPrice.findMany({ where: { isActive: true, ...(this.production ? { isSample: false } : {}) } });
+    const parsed = parseDomainQuery(input, rows.map((r) => r.tld));
+    if (!parsed?.tld) throw new BadRequestException({ code: 'INVALID_DOMAIN', message: 'Enter the full domain name you want to transfer, such as example.com.' });
+    const row = rows.find((r) => r.tld === parsed.tld);
+    if (!row) throw new BadRequestException({ code: 'TLD_NOT_SOLD', message: `We do not handle .${parsed.tld} domains.` });
+    const name = `${parsed.label}.${row.tld}`;
+    if (await this.platform.domain.findFirst({ where: { name: { equals: name, mode: 'insensitive' }, status: { notIn: DEAD_DOMAIN_STATES } }, select: { id: true } })) {
+      throw new ConflictException({ code: 'DOMAIN_UNAVAILABLE', message: `${name} is already registered with us or has an order in progress.` });
+    }
+    let status: string | undefined;
+    try {
+      status = (await this.registrar.provider.checkAvailability([name]))[name];
+    } catch {
+      throw new BadGatewayException({ code: 'REGISTRAR_UNAVAILABLE', message: 'We could not check this name just now. Please try again in a moment.' });
+    }
+    if (status === 'AVAILABLE') throw new ConflictException({ code: 'NOT_REGISTERED', message: `${name} is not registered anywhere yet, so there is nothing to transfer. You can register it with us instead.` });
+    if (status !== 'TAKEN') throw new BadGatewayException({ code: 'REGISTRAR_UNAVAILABLE', message: 'We could not check this name just now. Please try again in a moment.' });
+
+    const tax = await this.platform.taxRate.findFirst({ where: { isActive: true, isDefault: true, country: 'IN' }, orderBy: { createdAt: 'desc' } });
+    const unitPaise = toPaise(row.transferPrice.toString());
+    const totals = computeTotals([{ description: `Domain transfer - ${name} (includes 1 year)`, unitPaise, quantity: 1 }], tax ? Number(tax.rate.toString()) : 0);
+    return { name, tld: row.tld, tax, totals, transferPrice: Number(row.transferPrice) };
+  }
+
+  async transferQuote(_ctx: TenantContext, domain: string) {
+    const p = await this.priceTransfer(domain);
+    return { domain: p.name, currency: 'INR', transferPrice: p.transferPrice, taxName: p.tax?.name ?? null, subtotal: p.totals.subtotal, taxTotal: p.totals.taxTotal, total: p.totals.total };
+  }
+
+  /**
+   * Orders a transfer: an invoice is issued, and once it is paid our team starts the transfer at the registrar with the
+   * authorisation code. The code is kept encrypted, shown only to staff who act on it, and deleted when the transfer ends.
+   */
+  async orderTransfer(ctx: TenantContext, domain: string, authCode: string, meta: RequestMeta) {
+    const code = cleanAuthCode(authCode);
+    if (!code) throw new BadRequestException({ code: 'INVALID_AUTH_CODE', message: 'Enter the authorisation (EPP) code from your current registrar. It is one word with no spaces.' });
+    const seller = await readSeller(this.platform);
+    const p = await this.priceTransfer(domain);
+    const transferId = randomUUID();
+    try {
+      return await this.db.run(ctx, async (tx) => {
+        const account = await tx.customerAccount.findUnique({ where: { tenantId: ctx.tenantId } });
+        if (!account) throw new ConflictException({ code: 'NO_BILLING_PROFILE', message: 'Complete your billing details before ordering.' });
+        const address = await tx.customerAddress.findFirst({ where: { tenantId: ctx.tenantId }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] });
+        if (!address) throw new ConflictException({ code: 'NO_BILLING_ADDRESS', message: 'Add a billing address in Organisation settings before ordering.' });
+
+        const now = new Date();
+        const number = await nextInvoiceNumber(tx, now);
+        const invoice = await tx.invoice.create({
+          data: {
+            tenantId: ctx.tenantId, number, status: 'ISSUED', currency: 'INR',
+            subtotal: p.totals.subtotal, discountTotal: p.totals.discountTotal, taxTotal: p.totals.taxTotal, total: p.totals.total, issuedAt: now,
+            dueAt: new Date(now.getTime() + DUE_DAYS * 86_400_000),
+            billingSnapshot: {
+              seller,
+              buyer: {
+                accountNo: account.accountNo, name: account.companyName, email: account.billingEmail, gstin: account.gstin,
+                address: { line1: address.line1, line2: address.line2, city: address.city, state: address.state, stateCode: address.stateCode, postalCode: address.postalCode, country: address.country },
+              },
+              tax: p.tax ? { name: p.tax.name, code: p.tax.code, rate: p.tax.rate.toString() } : null,
+              coupon: null,
+            },
+            items: { create: p.totals.lines.map((l) => ({ tenantId: ctx.tenantId, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, discount: l.discount, taxRate: l.taxRate, taxAmount: l.taxAmount, lineTotal: l.lineTotal })) },
+          },
+          select: invoiceSelect,
+        });
+        const created = await tx.domain.create({ data: { tenantId: ctx.tenantId, name: p.name, tld: p.tld, status: 'PENDING_TRANSFER', years: 1 }, select: { id: true } });
+        await tx.domainTransfer.create({
+          data: { id: transferId, tenantId: ctx.tenantId, domainId: created.id, invoiceId: invoice.id, status: 'REQUESTED', authCodeEnc: this.box.encrypt(code, `transfer:${transferId}`) },
+        });
+        await tx.auditLog.create({
+          data: { action: 'domain.transfer_requested', actorId: ctx.userId, tenantId: ctx.tenantId, entityType: 'domain', entityId: created.id, metadata: { name: p.name, total: p.totals.total, invoice: number }, ipAddress: meta.ip ?? null, requestId: meta.requestId },
+        });
+        const view = await tx.domain.findUniqueOrThrow({ where: { id: created.id }, select: domainSelect });
+        return { domain: { ...view, stage: stageOf(view), renewal: null }, invoice };
+      });
+    } catch (e) {
+      if ((e as { code?: string }).code === 'P2002') throw new ConflictException({ code: 'DOMAIN_UNAVAILABLE', message: `${domain.trim().toLowerCase()} is already registered with us or has an order in progress.` });
+      throw e;
+    }
+  }
+
   /** An order that has not been paid can be withdrawn: the invoice is voided and the name is released. */
   cancel(ctx: TenantContext, id: string, meta: RequestMeta) {
     return this.db.run(ctx, async (tx) => {
-      const found = await tx.domain.findUnique({ where: { id }, select: { id: true, name: true, status: true, orderInvoiceId: true } });
+      const found = await tx.domain.findUnique({ where: { id }, select: { id: true, name: true, status: true, orderInvoiceId: true, transfers: { where: { status: { in: LIVE_TRANSFER } }, select: { id: true, invoiceId: true }, take: 1 } } });
       if (!found) throw new NotFoundException({ code: 'DOMAIN_NOT_FOUND', message: 'Domain not found.' });
-      if (found.orderInvoiceId) await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${found.orderInvoiceId}::uuid FOR UPDATE`;
+      const transfer = found.transfers[0] ?? null;
+      const invoiceId = found.orderInvoiceId ?? transfer?.invoiceId ?? null;
+      if (invoiceId) await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${invoiceId}::uuid FOR UPDATE`;
       const d = await tx.domain.findUniqueOrThrow({ where: { id }, select: domainSelect });
-      if (stageOf(d) !== 'AWAITING_PAYMENT') throw new ConflictException({ code: 'DOMAIN_NOT_CANCELLABLE', message: 'Only an order that has not been paid can be cancelled.' });
-      if (await tx.payment.count({ where: { invoiceId: d.orderInvoice!.id, status: 'SUCCEEDED' } })) throw new ConflictException({ code: 'DOMAIN_NOT_CANCELLABLE', message: 'This order has a payment on it, so it cannot be cancelled here.' });
-      await tx.invoice.update({ where: { id: d.orderInvoice!.id }, data: { status: 'VOID', voidedAt: new Date() } });
+      const stage = stageOf(d);
+      if ((stage !== 'AWAITING_PAYMENT' && stage !== 'TRANSFER_AWAITING_PAYMENT') || !invoiceId) throw new ConflictException({ code: 'DOMAIN_NOT_CANCELLABLE', message: 'Only an order that has not been paid can be cancelled.' });
+      if (await tx.payment.count({ where: { invoiceId, status: 'SUCCEEDED' } })) throw new ConflictException({ code: 'DOMAIN_NOT_CANCELLABLE', message: 'This order has a payment on it, so it cannot be cancelled here.' });
+      await tx.invoice.update({ where: { id: invoiceId }, data: { status: 'VOID', voidedAt: new Date() } });
+      // The authorisation code is not kept once there is nothing left to do with it.
+      if (transfer) await tx.domainTransfer.update({ where: { id: transfer.id }, data: { status: 'CANCELLED', authCodeEnc: null } });
       await tx.domain.update({ where: { id }, data: { status: 'CANCELLED' } });
       await tx.auditLog.create({ data: { action: 'domain.order_cancelled', actorId: ctx.userId, tenantId: ctx.tenantId, entityType: 'domain', entityId: id, metadata: { name: d.name } as Prisma.InputJsonValue, ipAddress: meta.ip ?? null, requestId: meta.requestId } });
       return { id, status: 'CANCELLED' as const, stage: 'CANCELLED' as const };

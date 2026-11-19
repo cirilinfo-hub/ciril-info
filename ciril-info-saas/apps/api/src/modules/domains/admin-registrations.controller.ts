@@ -25,6 +25,18 @@ export class AdminRegistrationsController {
   @Post(':id/renewal/cannot-renew') @HttpCode(200) @RequirePlatform('domains:write')
   cannotRenew(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: CannotRegisterDto, @ReqMeta() meta: RequestMeta) { return this.svc.declineRenewal(u, id, dto.reason, meta); }
 
+  @Get(':id/transfer/auth-code') @RequirePlatform('domains:write')
+  authCode(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.svc.transferAuthCode(u, id, meta); }
+
+  @Post(':id/transfer/start') @HttpCode(200) @RequirePlatform('domains:write')
+  startTransfer(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.svc.startTransfer(u, id, meta); }
+
+  @Post(':id/transfer/complete') @HttpCode(200) @RequirePlatform('domains:write')
+  completeTransfer(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: CompleteRegistrationDto, @ReqMeta() meta: RequestMeta) { return this.svc.completeTransfer(u, id, dto, meta); }
+
+  @Post(':id/transfer/fail') @HttpCode(200) @RequirePlatform('domains:write')
+  failTransfer(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: CannotRegisterDto, @ReqMeta() meta: RequestMeta) { return this.svc.failTransfer(u, id, dto.reason, meta); }
+
   @Post(':id/cannot-register') @HttpCode(200) @RequirePlatform('domains:write')
   cannotRegister(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: CannotRegisterDto, @ReqMeta() meta: RequestMeta) { return this.svc.decline(u, id, dto.reason, meta); }
 }

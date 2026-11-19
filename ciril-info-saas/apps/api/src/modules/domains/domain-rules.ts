@@ -63,3 +63,12 @@ export function addYears(from: Date, years: number): Date {
   d.setUTCDate(Math.min(day, lastDay));
   return d;
 }
+
+/**
+ * The authorisation (EPP) code the current registrar gives for a transfer. Registrars differ, so this only checks it is a
+ * plausible single token: 6 to 128 visible characters with no spaces. Returns the cleaned code, or null.
+ */
+export function cleanAuthCode(input: string): string | null {
+  const c = input.trim();
+  return /^[\x21-\x7e]{6,128}$/.test(c) ? c : null;
+}

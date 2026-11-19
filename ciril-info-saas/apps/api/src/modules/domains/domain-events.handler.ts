@@ -13,6 +13,7 @@ export class DomainEventsHandler {
   /** Returns true when the event concerned a domain order. */
   async handle(type: string, payload: unknown): Promise<boolean> {
     if (type === 'domain.renewal_requested') return this.renewal(payload);
+    if (type === 'domain.transfer_requested') return this.transfer(payload);
     if (type !== 'domain.registration_requested') return false;
     const domainId = (payload as { domainId?: string } | null)?.domainId;
     if (!domainId) return false;
@@ -20,6 +21,17 @@ export class DomainEventsHandler {
     if (!d || d.status !== 'PENDING_REGISTRATION') return true; // already dealt with
     await this.staff.notify('domains:write', {
       type: 'domain.task', title: `Register ${d.name}`.slice(0, 190), body: `Paid for ${d.years} ${d.years === 1 ? 'year' : 'years'}. Register it at the registrar, then mark it done.`, link: '/domains',
+    });
+    return true;
+  }
+
+  private async transfer(payload: unknown): Promise<boolean> {
+    const transferId = (payload as { transferId?: string } | null)?.transferId;
+    if (!transferId) return false;
+    const t = await this.db.domainTransfer.findUnique({ where: { id: transferId }, select: { status: true, domain: { select: { name: true } } } });
+    if (!t || t.status !== 'REQUESTED') return true; // already dealt with
+    await this.staff.notify('domains:write', {
+      type: 'domain.task', title: `Transfer in ${t.domain.name}`.slice(0, 190), body: 'Paid. Start the transfer at your registrar with the authorisation code (open the domain to see it), then mark it started and finally transferred.', link: '/domains',
     });
     return true;
   }

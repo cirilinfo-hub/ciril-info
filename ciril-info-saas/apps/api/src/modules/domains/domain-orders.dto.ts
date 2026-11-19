@@ -17,3 +17,12 @@ export class DomainOrderDto {
 export class RenewDomainDto {
   @Type(() => Number) @IsInt() @Min(1) @Max(MAX_YEARS) years = 1;
 }
+
+export class TransferQuoteQuery {
+  @Transform(trim) @IsString() @MinLength(3) @MaxLength(253) domain!: string;
+}
+
+export class TransferOrderDto {
+  @Transform(trim) @IsString() @MinLength(3) @MaxLength(253) domain!: string;
+  @Transform(trim) @IsString() @MaxLength(200) authCode!: string;
+}

@@ -103,8 +103,8 @@ async function main() {
     await db.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.invoice.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.subscription.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await db.outboxEvent.deleteMany({ where: { tenantId: { in: tenantIds }, type: { in: ['subscription.activated', 'domain.registration_requested', 'domain.renewal_requested'] } } });
-    await db.$executeRaw`DELETE FROM notifications WHERE type = 'domain.task' AND (title LIKE 'Register pw%' OR title LIKE 'Renew pw%')`;
+    await db.outboxEvent.deleteMany({ where: { tenantId: { in: tenantIds }, type: { in: ['subscription.activated', 'domain.registration_requested', 'domain.renewal_requested', 'domain.transfer_requested'] } } });
+    await db.$executeRaw`DELETE FROM notifications WHERE type = 'domain.task' AND (title LIKE 'Register pw%' OR title LIKE 'Renew pw%' OR title LIKE 'Transfer in pw%')`;
     await db.tenant.deleteMany({ where: { id: { in: tenantIds } } });
     await db.$executeRaw`DELETE FROM notifications WHERE type IN ('ticket.opened', 'ticket.customer_reply') AND NOT EXISTS (SELECT 1 FROM support_tickets t WHERE '/support/' || t.id::text = notifications.link)`;
     await db.invitation.deleteMany({ where: { email: { startsWith: prefix, endsWith: '@example.test' } } });

@@ -9,7 +9,7 @@ import { Icon } from '../../design-system/icon/icon';
 import { PageHead } from '../../shared/components/page-head';
 import type { DomainResult, DomainSearchResponse } from '../public/shared/public-api';
 import { money } from './billing.api';
-import { type CustomerDomain, DOMAIN_STAGE, type DomainQuote, DomainsApi, type RenewalQuote } from './domains.api';
+import { type CustomerDomain, DOMAIN_STAGE, type DomainQuote, DomainsApi, type RenewalQuote, type TransferQuote } from './domains.api';
 
 const YEARS = [1, 2, 3, 4, 5];
 
@@ -88,6 +88,25 @@ const YEARS = [1, 2, 3, 4, 5];
       </div>
     </section>
 
+    <section id="transfer" aria-labelledby="xfer-h">
+      <h2 id="xfer-h" class="ts-heading-5">Transfer a domain to us</h2>
+      <div class="cf-card">
+        <p class="cf-help" style="margin: 0 0 var(--space-3)">Already own a domain somewhere else? Bring it to us. Its registration is extended by a year. You need its authorisation code (also called an EPP code) from your current registrar.</p>
+        <form class="search" aria-label="Transfer a domain" (submit)="$event.preventDefault(); checkTransfer()">
+          <div class="field">
+            <label for="t-domain" class="cx-sr">Domain to transfer</label>
+            <input id="t-domain" class="cf-input" name="tdomain" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url" maxlength="253" placeholder="yourdomain.com" [ngModel]="xferDomain()" (ngModelChange)="xferDomain.set($event)" />
+          </div>
+          <div class="field">
+            <label for="t-code" class="cx-sr">Authorisation code</label>
+            <input id="t-code" class="cf-input" name="tcode" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="128" placeholder="Authorisation code" [ngModel]="xferCode()" (ngModelChange)="xferCode.set($event)" />
+          </div>
+          <button type="submit" class="cf-btn cf-btn-primary" [disabled]="xferChecking() || !auth.can('services:manage')">{{ xferChecking() ? 'Checking…' : 'Check and continue' }}</button>
+        </form>
+        @if (xferError(); as e) { <div class="cf-alert cf-alert-error" role="alert" style="margin-top: var(--space-4)"><ci-icon name="error" /><span>{{ e }}</span></div> }
+      </div>
+    </section>
+
     <section aria-labelledby="mine-h">
       <h2 id="mine-h" class="ts-heading-5">Your domains</h2>
       <div class="cf-table-wrap">
@@ -112,6 +131,10 @@ const YEARS = [1, 2, 3, 4, 5];
                     @if (auth.can('services:manage')) { <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="cancelRenewalFor.set(d)" [attr.aria-label]="'Cancel the renewal for ' + d.name">Cancel renewal</button> }
                   } @else if (!d.renewal && (d.stage === 'ACTIVE' || d.stage === 'EXPIRED') && auth.can('services:manage')) {
                     <button type="button" class="cf-btn cf-btn-secondary cf-btn-sm" [disabled]="busy()" (click)="openRenew(d)" [attr.aria-label]="'Renew ' + d.name">Renew</button>
+                  }
+                  @if (d.stage === 'TRANSFER_AWAITING_PAYMENT' && d.transfers?.[0]?.invoice; as inv) {
+                    @if (auth.can('billing:read')) { <a class="cf-btn cf-btn-primary cf-btn-sm" [routerLink]="[auth.link('/invoices'), inv.id]" [attr.aria-label]="'Pay for the transfer of ' + d.name">Pay now</a> }
+                    @if (auth.can('services:manage')) { <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="cancelFor.set(d)" [attr.aria-label]="'Cancel the transfer of ' + d.name">Cancel order</button> }
                   }
                   @if (d.stage === 'AWAITING_PAYMENT' && d.orderInvoice) {
                     @if (auth.can('billing:read')) { <a class="cf-btn cf-btn-primary cf-btn-sm" [routerLink]="[auth.link('/invoices'), d.orderInvoice.id]" [attr.aria-label]="'Pay for ' + d.name">Pay now</a> }
@@ -148,6 +171,22 @@ const YEARS = [1, 2, 3, 4, 5];
         <ng-container actions>
           <button type="button" class="cf-btn cf-btn-secondary" (click)="ordering.set(null)">Cancel</button>
           <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy() || !quote()" (click)="placeOrder(name)">{{ busy() ? 'Creating invoice…' : 'Continue to payment' }}</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
+    @if (xferQuote(); as q) {
+      <ci-dialog [heading]="'Transfer ' + q.domain" description="You will get an invoice to pay. Once it is paid, our team starts the transfer with your authorisation code, and emails you." icon="swap" size="md" [dismissable]="false" (closed)="xferQuote.set(null)">
+        @if (xferError(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+        <div class="sum" aria-live="polite">
+          <div><span>{{ q.domain }} · transfer, includes 1 year</span><span>{{ money(q.subtotal) }}</span></div>
+          @if (+q.taxTotal > 0) { <div><span>{{ q.taxName ?? 'Tax' }}</span><span>{{ money(q.taxTotal) }}</span></div> }
+          <div class="total"><span>Total</span><span>{{ money(q.total) }}</span></div>
+        </div>
+        <p class="cf-help" style="margin-top: var(--space-4)">Before we start, at your current registrar: unlock the domain, turn off any privacy protection that hides the owner's email (so they can approve the transfer), and make sure it is not within 60 days of being registered or last transferred. If it cannot be transferred we will tell you why and refund you.</p>
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="xferQuote.set(null)">Cancel</button>
+          <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy()" (click)="placeTransfer(q)">{{ busy() ? 'Creating invoice…' : 'Continue to payment' }}</button>
         </ng-container>
       </ci-dialog>
     }
@@ -219,6 +258,11 @@ export class DomainsPage implements OnInit {
   protected readonly years = signal(1);
   protected readonly quote = signal<DomainQuote | null>(null);
   protected readonly quoting = signal(false);
+  protected readonly xferDomain = signal('');
+  protected readonly xferCode = signal('');
+  protected readonly xferChecking = signal(false);
+  protected readonly xferError = signal<string | null>(null);
+  protected readonly xferQuote = signal<TransferQuote | null>(null);
   protected readonly renewing = signal<CustomerDomain | null>(null);
   protected readonly renewYears = signal(1);
   protected readonly renewQuote = signal<RenewalQuote | null>(null);
@@ -329,6 +373,44 @@ export class DomainsPage implements OnInit {
       await this.load();
     } catch (e) {
       this.error.set(toApiError(e).message);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async checkTransfer() {
+    const domain = this.xferDomain().trim();
+    this.xferError.set(null);
+    if (!domain || !this.xferCode().trim()) {
+      this.xferError.set('Enter the domain and its authorisation code.');
+      return;
+    }
+    this.xferChecking.set(true);
+    try {
+      this.xferQuote.set(await this.api.transferQuote(domain));
+    } catch (e) {
+      this.xferError.set(toApiError(e).message);
+    } finally {
+      this.xferChecking.set(false);
+    }
+  }
+
+  protected async placeTransfer(q: TransferQuote) {
+    this.busy.set(true);
+    this.xferError.set(null);
+    try {
+      const r = await this.api.orderTransfer(q.domain, this.xferCode().trim());
+      this.xferQuote.set(null);
+      this.xferCode.set('');
+      this.xferDomain.set('');
+      if (this.auth.can('billing:read')) {
+        await this.router.navigate([this.auth.link('/invoices'), r.invoice.id]);
+        return;
+      }
+      this.notice.set(`Invoice ${r.invoice.number} was created to transfer ${q.domain}. Ask an owner or admin to pay it.`);
+      await this.load();
+    } catch (e) {
+      this.xferError.set(toApiError(e).message);
     } finally {
       this.busy.set(false);
     }

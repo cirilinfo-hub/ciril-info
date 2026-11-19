@@ -936,6 +936,8 @@ model DomainTransfer {
   /// EPP/auth code, encrypted. Never returned by the API.
   authCodeEnc   String?        @map("auth_code_enc")
   failureReason String?        @map("failure_reason") @db.VarChar(255)
+  /// The invoice that pays for bringing the domain to us.
+  invoiceId     String?        @unique @map("invoice_id") @db.Uuid
   requestedAt   DateTime       @default(now()) @map("requested_at") @db.Timestamptz(3)
   completedAt   DateTime?      @map("completed_at") @db.Timestamptz(3)
   updatedAt     DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
@@ -943,6 +945,7 @@ model DomainTransfer {
   tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   domain    Domain           @relation(fields: [domainId], references: [id], onDelete: Cascade)
   registrar DomainRegistrar? @relation(fields: [registrarId], references: [id])
+  invoice   Invoice?         @relation(fields: [invoiceId], references: [id])
 
   @@index([tenantId, status])
   @@index([domainId])
@@ -1056,6 +1059,7 @@ model Invoice {
   subscription Subscription? @relation(fields: [subscriptionId], references: [id])
   domainOrder  Domain?       @relation("DomainOrderInvoice")
   domainRenewal DomainRenewal?
+  domainTransfer DomainTransfer?
   items        InvoiceItem[]
   payments     Payment[]
   refunds      Refund[]

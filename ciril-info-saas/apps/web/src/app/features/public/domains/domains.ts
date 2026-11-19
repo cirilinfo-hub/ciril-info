@@ -127,7 +127,7 @@ import { type DomainResult, type DomainSearchResponse, PublicApi } from '../shar
               </tbody>
             </table>
           </div>
-          <p class="note">Prices are in Indian rupees per year. GST is added at checkout where it applies.</p>
+          <p class="note">Prices are in Indian rupees per year. GST is added at checkout where it applies. Already own a domain elsewhere? <a routerLink="/portal/domains" fragment="transfer">Transfer it to us</a>; the transfer price includes a year's renewal.</p>
         } @else {
           <div class="cf-alert cf-alert-info" role="note"><ci-icon name="info" /><span>Domain prices will appear here as soon as they are published.</span></div>
         }

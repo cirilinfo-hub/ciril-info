@@ -253,29 +253,43 @@ export class BillingLifecycleService {
     return cancelled;
   }
 
-  /** A domain order that is still unpaid after the same wait is withdrawn, which also releases the name for others. */
+  /** A domain order or transfer that is still unpaid after the same wait is withdrawn, which also releases the name for others. */
   private async cancelAbandonedDomainOrders(now: Date) {
     const cutoff = new Date(now.getTime() - this.abandonedDays * DAY);
-    const candidates = await this.db.domain.findMany({ where: { status: 'PENDING_REGISTRATION', createdAt: { lt: cutoff }, orderInvoice: { status: { in: UNPAID } } }, select: { id: true, orderInvoiceId: true } });
+    const candidates = await this.db.domain.findMany({
+      where: {
+        createdAt: { lt: cutoff },
+        OR: [
+          { status: 'PENDING_REGISTRATION', orderInvoice: { status: { in: UNPAID } } },
+          { status: 'PENDING_TRANSFER', transfers: { some: { status: { in: ['REQUESTED', 'PENDING_AUTH'] }, invoice: { status: { in: UNPAID } } } } },
+        ],
+      },
+      select: { id: true, orderInvoiceId: true, transfers: { where: { status: { in: ['REQUESTED', 'PENDING_AUTH'] } }, select: { id: true, invoiceId: true }, take: 1 } },
+    });
     let cancelled = 0;
-    for (const { id, orderInvoiceId } of candidates) {
+    for (const c of candidates) {
+      const transfer = c.transfers[0] ?? null;
+      const invoiceId = c.orderInvoiceId ?? transfer?.invoiceId;
+      if (!invoiceId) continue;
       try {
         const done = await this.db.$transaction(async (tx) => {
-          const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM invoices WHERE id = ${orderInvoiceId}::uuid FOR UPDATE SKIP LOCKED`;
+          const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM invoices WHERE id = ${invoiceId}::uuid FOR UPDATE SKIP LOCKED`;
           if (!locked.length) return false;
-          const d = await tx.domain.findUnique({ where: { id }, select: { id: true, tenantId: true, name: true, status: true, createdAt: true, orderInvoice: { select: { status: true } } } });
-          if (!d || d.status !== 'PENDING_REGISTRATION' || d.createdAt >= cutoff || !d.orderInvoice || !UNPAID.includes(d.orderInvoice.status)) return false;
+          const d = await tx.domain.findUnique({ where: { id: c.id }, select: { id: true, tenantId: true, name: true, status: true, createdAt: true } });
+          const inv = await tx.invoice.findUnique({ where: { id: invoiceId }, select: { status: true } });
+          if (!d || (d.status !== 'PENDING_REGISTRATION' && d.status !== 'PENDING_TRANSFER') || d.createdAt >= cutoff || !inv || !UNPAID.includes(inv.status)) return false;
           // Never withdraw an order that has money on it.
-          if (await tx.payment.count({ where: { invoiceId: orderInvoiceId!, status: 'SUCCEEDED' } })) return false;
-          await tx.invoice.update({ where: { id: orderInvoiceId! }, data: { status: 'VOID', voidedAt: now } });
-          await tx.domain.update({ where: { id }, data: { status: 'CANCELLED' } });
-          await this.notifyOwners(tx, d.tenantId, { type: 'order.expired', title: `The order for ${d.name} was cancelled`, body: `It was not paid within ${this.abandonedDays} days.`, link: '/domains' });
-          await this.audit.record({ action: 'domain.order_abandoned', tenantId: d.tenantId, entityType: 'domain', entityId: id }, tx);
+          if (await tx.payment.count({ where: { invoiceId, status: 'SUCCEEDED' } })) return false;
+          await tx.invoice.update({ where: { id: invoiceId }, data: { status: 'VOID', voidedAt: now } });
+          if (transfer) await tx.domainTransfer.update({ where: { id: transfer.id }, data: { status: 'CANCELLED', authCodeEnc: null } });
+          await tx.domain.update({ where: { id: c.id }, data: { status: 'CANCELLED' } });
+          await this.notifyOwners(tx, d.tenantId, { type: 'order.expired', title: `The ${transfer ? 'transfer' : 'order'} for ${d.name} was cancelled`, body: `It was not paid within ${this.abandonedDays} days.`, link: '/domains' });
+          await this.audit.record({ action: 'domain.order_abandoned', tenantId: d.tenantId, entityType: 'domain', entityId: c.id }, tx);
           return true;
         });
         if (done) cancelled++;
       } catch (e) {
-        this.log.error(`abandoned domain order cleanup failed for domain ${id}: ${(e as Error).message}`);
+        this.log.error(`abandoned domain order cleanup failed for domain ${c.id}: ${(e as Error).message}`);
       }
     }
     return cancelled;

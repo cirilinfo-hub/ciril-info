@@ -57,6 +57,8 @@ export function renderEmail(m: EmailMessage): RenderedEmail {
       return build(`Your hosting for ${m.data.domain} is ready`, 'Your hosting is ready', [`We have set up hosting for ${m.data.domain}. You can see its status in your client area.`], { label: 'Open Hosting', url: m.data.link });
     case 'domain-registered':
       return build(`${m.data.domain} is registered`, 'Your domain is registered', [`${m.data.domain} is now registered in your name. You can see its details and expiry date in your client area.`], { label: 'Open Domains', url: m.data.link });
+    case 'domain-transferred':
+      return build(`${m.data.domain} has been transferred to us`, 'Your domain has been transferred', [`${m.data.domain} is now with us. It is registered until ${m.data.expiresOn}, and you can manage its DNS records in your client area.`], { label: 'Open Domains', url: m.data.link });
     case 'domain-renewed':
       return build(`${m.data.domain} is renewed`, 'Your domain is renewed', [`${m.data.domain} has been renewed. It is now registered until ${m.data.expiresOn}.`], { label: 'Open Domains', url: m.data.link });
     case 'domain-expiring':

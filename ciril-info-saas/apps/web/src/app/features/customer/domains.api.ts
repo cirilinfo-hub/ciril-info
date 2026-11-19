@@ -4,7 +4,7 @@ import { firstValueFrom } from 'rxjs';
 import { AuthService } from '../../core/auth/auth.service';
 import type { DomainSearchResponse } from '../public/shared/public-api';
 
-export type DomainStage = 'AWAITING_PAYMENT' | 'REGISTERING' | 'ACTIVE' | 'FAILED' | 'CANCELLED' | 'EXPIRED' | 'OTHER';
+export type DomainStage = 'AWAITING_PAYMENT' | 'REGISTERING' | 'TRANSFER_AWAITING_PAYMENT' | 'TRANSFERRING' | 'ACTIVE' | 'FAILED' | 'CANCELLED' | 'EXPIRED' | 'OTHER';
 
 export interface CustomerDomain {
   id: string;
@@ -19,6 +19,8 @@ export interface CustomerDomain {
   failureReason: string | null;
   createdAt: string;
   orderInvoice: { id: string; number: string; status: string; total: string; currency: string } | null;
+  /** The transfer in progress, if this domain is being brought to us. The authorisation code is never sent to the browser. */
+  transfers?: { id: string; status: string; invoice: { id: string; number: string; status: string; total: string; currency: string } | null }[];
   /** A renewal that has been asked for and not finished: waiting for payment, or paid and waiting for our team. */
   renewal: { id: string; years: number; stage: 'AWAITING_PAYMENT' | 'RENEWING'; invoice: { id: string; number: string; status: string; total: string; currency: string } } | null;
 }
@@ -43,6 +45,16 @@ export interface DnsRecordBody {
   content: string;
   ttl: number;
   priority?: number;
+}
+
+export interface TransferQuote {
+  domain: string;
+  currency: string;
+  transferPrice: number;
+  taxName: string | null;
+  subtotal: string;
+  taxTotal: string;
+  total: string;
 }
 
 export interface RenewalQuote {
@@ -72,6 +84,8 @@ export interface DomainQuote {
 /** What a customer is shown for each stage, in plain words. */
 export const DOMAIN_STAGE: Record<DomainStage, { label: string; cls: string; hint: string }> = {
   AWAITING_PAYMENT: { label: 'Awaiting payment', cls: 'cf-badge-warning', hint: 'Pay the invoice and we will register it.' },
+  TRANSFER_AWAITING_PAYMENT: { label: 'Transfer awaiting payment', cls: 'cf-badge-warning', hint: 'Pay the invoice and we will start the transfer.' },
+  TRANSFERRING: { label: 'Transferring', cls: 'cf-badge-info', hint: 'Paid. Our team is moving it to us. Your current registrar may email you to approve it. This can take up to 7 days.' },
   REGISTERING: { label: 'Being registered', cls: 'cf-badge-info', hint: 'Paid. Our team is registering it and will email you when it is done.' },
   ACTIVE: { label: 'Active', cls: 'cf-badge-success', hint: 'Registered in your name.' },
   FAILED: { label: 'Not registered', cls: 'cf-badge-danger', hint: 'We could not register this name.' },
@@ -98,6 +112,12 @@ export class DomainsApi {
   }
   order(domain: string, years: number) {
     return firstValueFrom(this.http.post<{ domain: CustomerDomain; invoice: { id: string; number: string } }>(`${this.base}/orders`, { domain, years }));
+  }
+  transferQuote(domain: string) {
+    return firstValueFrom(this.http.get<TransferQuote>(`${this.base}/transfers/quote`, { params: { domain } }));
+  }
+  orderTransfer(domain: string, authCode: string) {
+    return firstValueFrom(this.http.post<{ domain: CustomerDomain; invoice: { id: string; number: string } }>(`${this.base}/transfers`, { domain, authCode }));
   }
   dns(domainId: string) {
     return firstValueFrom(this.http.get<{ domain: string; records: DnsRecordView[] }>(`${this.base}/${domainId}/dns`));

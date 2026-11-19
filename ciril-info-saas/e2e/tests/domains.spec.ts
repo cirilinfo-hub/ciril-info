@@ -268,6 +268,70 @@ test.describe('Domains', () => {
     await expect(renewed.getByRole('button', { name: `Renew ${domain}` })).toBeVisible(); // can renew again
   });
 
+  test('a customer transfers a domain in; staff start and complete it, and the code is shown only to them', async ({ page, browser }, info) => {
+    test.skip(info.project.name !== 'desktop', 'runs once');
+    test.setTimeout(180_000);
+    const tld = `pw${rand()}`;
+    const name = `pwtaken${rand()}`; // the mock registrar treats names containing "taken" as registered elsewhere
+    const domain = `${name}.${tld}`;
+    const CODE = 'Ab3$kL9!zQ-77';
+    fixture('add-tld', tld, '800', '1000', '700');
+    const email = await newCustomer('domxfer');
+    await page.goto('/portal/login');
+    await page.getByLabel('Email address').fill(email);
+    await page.getByLabel('Password').fill(CUSTOMER_PASSWORD);
+    await page.getByRole('button', { name: 'Sign In' }).click();
+    await page.getByRole('complementary').getByRole('link', { name: 'Domains' }).click();
+
+    // A name nobody has registered is refused: there is nothing to transfer.
+    await page.getByLabel('Domain to transfer').fill(`pwfree${rand()}.${tld}`);
+    await page.getByLabel('Authorisation code').fill(CODE);
+    await page.getByRole('button', { name: 'Check and continue' }).click();
+    await expect(page.getByText(/nothing to transfer/)).toBeVisible();
+
+    await page.getByLabel('Domain to transfer').fill(domain);
+    await page.getByRole('button', { name: 'Check and continue' }).click();
+    const dlg = page.getByRole('dialog', { name: `Transfer ${domain}` });
+    await expect(dlg.getByText('₹700').first()).toBeVisible(); // the transfer price, not the registration price
+    await expect(dlg.getByText(/unlock the domain/)).toBeVisible();
+    await dlg.getByRole('button', { name: 'Continue to payment' }).click();
+
+    await expect(page).toHaveURL(/\/portal\/invoices\//);
+    await page.getByRole('button', { name: /Pay .* \(test\)/ }).click();
+    await expect(page.getByText('Payment received.')).toBeVisible();
+    await page.getByRole('complementary').getByRole('link', { name: 'Domains' }).click();
+    const mine = page.getByRole('row', { name: new RegExp(domain) });
+    await expect(mine.locator('.cf-badge', { hasText: 'Transferring' })).toBeVisible();
+    await expect(page.locator('body')).not.toContainText(CODE); // the customer's own page never echoes the code back
+
+    const staffEmail = uniqueEmail('domadmin4');
+    const { secret } = fixture('create-staff-ready', staffEmail, STAFF_PASSWORD, 'SUPER_ADMIN') as { secret: string };
+    const ctx = await browser.newContext();
+    const staff = await ctx.newPage();
+    await staffSignIn(staff, staffEmail, secret);
+    await staff.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Domains', exact: true }).click();
+    await staff.getByRole('button', { name: 'Needs action' }).click();
+    await staff.getByRole('searchbox', { name: 'Search domains' }).fill(name);
+    const row = staff.getByRole('row', { name: new RegExp(domain) });
+    await expect(row).toContainText('Paid, to transfer');
+    await expect(row).not.toContainText(CODE); // the list never carries the code
+    await row.getByRole('button', { name: `Start the transfer of ${domain}` }).click();
+    const code = staff.getByRole('dialog', { name: `Transfer ${domain}` });
+    await expect(code.getByTestId('auth-code')).toHaveText(CODE);
+    await code.getByRole('button', { name: 'I started it at the registrar' }).click();
+    await expect(staff.getByText(`The transfer of ${domain} is marked started.`)).toBeVisible();
+    await expect(row).toContainText('Transfer in progress');
+    await row.getByRole('button', { name: `Mark ${domain} transferred` }).click();
+    await staff.getByRole('dialog', { name: 'Mark transferred' }).getByRole('button', { name: 'Mark transferred' }).click();
+    await expect(staff.getByText(`${domain} is transferred. The customer has been told.`)).toBeVisible();
+    await ctx.close();
+
+    await page.reload();
+    const active = page.getByRole('row', { name: new RegExp(domain) });
+    await expect(active.locator('.cf-badge', { hasText: 'Active' })).toBeVisible();
+    await expect(active).toContainText(/\d{1,2} \w{3} \d{4}/);
+  });
+
   test('a customer manages the DNS records of a registered domain', async ({ page }, info) => {
     test.skip(info.project.name !== 'desktop', 'runs once');
     test.setTimeout(120_000);

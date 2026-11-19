@@ -3,7 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
 import { CurrentTenant, ReqMeta, RequireTenant } from '../auth/decorators.js';
-import { DomainOrderDto, DomainQuoteQuery, RenewDomainDto } from './domain-orders.dto.js';
+import { DomainOrderDto, DomainQuoteQuery, RenewDomainDto, TransferOrderDto, TransferQuoteQuery } from './domain-orders.dto.js';
 import { DomainOrdersService } from './domain-orders.service.js';
 
 const uuid = new ParseUUIDPipe({ version: '4' });
@@ -26,6 +26,13 @@ export class DomainOrdersController {
 
   @Get(':id/renew/quote') @Throttle({ default: { limit: 30, ttl: 60_000 } }) @RequireTenant('services:read')
   renewalQuote(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @Query() q: RenewDomainDto) { return this.svc.renewalQuote(ctx, id, q.years); }
+
+  /** What bringing a domain to us costs, and whether it can be done. Asks the registrar, so it is rate limited. */
+  @Get('transfers/quote') @Throttle({ default: { limit: 30, ttl: 60_000 } }) @RequireTenant('services:read')
+  transferQuote(@CurrentTenant() ctx: TenantContext, @Query() q: TransferQuoteQuery) { return this.svc.transferQuote(ctx, q.domain); }
+
+  @Post('transfers') @HttpCode(201) @Throttle({ default: { limit: 10, ttl: 60_000 } }) @RequireTenant('services:manage')
+  orderTransfer(@CurrentTenant() ctx: TenantContext, @Body() dto: TransferOrderDto, @ReqMeta() meta: RequestMeta) { return this.svc.orderTransfer(ctx, dto.domain, dto.authCode, meta); }
 
   @Post(':id/renew') @HttpCode(201) @Throttle({ default: { limit: 10, ttl: 60_000 } }) @RequireTenant('services:manage')
   renew(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @Body() dto: RenewDomainDto, @ReqMeta() meta: RequestMeta) { return this.svc.renew(ctx, id, dto.years, meta); }

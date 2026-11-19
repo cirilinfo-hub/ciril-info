@@ -71,7 +71,7 @@ export class AdminDashboardService {
           ]).then(([waiting, failed]) => ({ waiting, failed }))
         : null,
       // Paid domain orders waiting for staff to register them.
-      can('domains:read') ? this.db.domain.count({ where: { OR: [{ status: 'PENDING_REGISTRATION', orderInvoice: { status: 'PAID' } }, { renewals: { some: { status: 'PENDING', invoice: { status: 'PAID' } } } }] } }).then((waiting) => ({ waiting })) : null,
+      can('domains:read') ? this.db.domain.count({ where: { OR: [{ status: 'PENDING_REGISTRATION', orderInvoice: { status: 'PAID' } }, { renewals: { some: { status: 'PENDING', invoice: { status: 'PAID' } } } }, { status: 'PENDING_TRANSFER', transfers: { some: { status: { in: ['REQUESTED', 'IN_PROGRESS'] }, invoice: { status: 'PAID' } } } }] } }).then((waiting) => ({ waiting })) : null,
     ]);
     return { customers, enquiries, content, staff, recentEnquiries, recentActivity, tickets, hosting, domains };
   }

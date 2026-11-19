@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env.js';
+import { Inject } from '@nestjs/common';
+import type { SecretBox } from '../../common/security/crypto.js';
 import { PlatformPrisma } from '../../database/prisma-clients.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { orderBy, page, skipTake } from '../../common/http/pagination.js';
@@ -9,12 +11,15 @@ import type { AuthUser, RequestMeta } from '../auth/auth.types.js';
 import { MailService } from '../mail/mail.service.js';
 import type { AdminRegistrationListQuery, CompleteRegistrationDto } from './admin-registrations.dto.js';
 import { addYears } from './domain-rules.js';
+import { LIVE_TRANSFER } from './domain-orders.service.js';
+import { DOMAIN_SECRET_BOX } from './secret-box.js';
 
 const select = {
   id: true, name: true, tld: true, status: true, years: true, registeredAt: true, expiresAt: true, registrarRef: true, failureReason: true, createdAt: true,
   tenant: { select: { id: true, name: true } },
   orderInvoice: { select: { id: true, number: true, status: true, total: true } },
   reminderStage: true,
+  transfers: { where: { status: { in: LIVE_TRANSFER } }, take: 1, select: { id: true, status: true, invoice: { select: { id: true, number: true, status: true, total: true } } } },
   renewals: { where: { status: 'PENDING' as const }, take: 1, select: { id: true, years: true, requestedAt: true, invoice: { select: { id: true, number: true, status: true, total: true } } } },
 } as const;
 
@@ -30,6 +35,7 @@ export class AdminRegistrationsService {
     private readonly db: PlatformPrisma,
     private readonly audit: AuditService,
     private readonly mail: MailService,
+    @Inject(DOMAIN_SECRET_BOX) private readonly box: SecretBox,
     config: ConfigService<Env, true>,
   ) {
     this.portalUrl = config.get('CUSTOMER_PORTAL_URL', { infer: true }).replace(/\/$/, '');
@@ -38,7 +44,7 @@ export class AdminRegistrationsService {
   async list(q: AdminRegistrationListQuery) {
     const where: Prisma.DomainWhereInput = {
       ...(q.status ? { status: q.status } : {}),
-      ...(q.needsAction ? { OR: [{ status: 'PENDING_REGISTRATION' as const, orderInvoice: { status: 'PAID' as const } }, { renewals: { some: { status: 'PENDING' as const, invoice: { status: 'PAID' as const } } } }] } : {}),
+      ...(q.needsAction ? { OR: [{ status: 'PENDING_REGISTRATION' as const, orderInvoice: { status: 'PAID' as const } }, { renewals: { some: { status: 'PENDING' as const, invoice: { status: 'PAID' as const } } } }, { status: 'PENDING_TRANSFER' as const, transfers: { some: { status: { in: ['REQUESTED' as const, 'IN_PROGRESS' as const] }, invoice: { status: 'PAID' as const } } } }] } : {}),
       ...(q.search ? { AND: [{ OR: [{ name: { contains: q.search, mode: 'insensitive' } }, { tenant: { name: { contains: q.search, mode: 'insensitive' } } }] }] } : {}),
     };
     const [rows, total] = await Promise.all([
@@ -84,6 +90,68 @@ export class AdminRegistrationsService {
     if (r.count === 0) throw new ConflictException({ code: 'DOMAIN_NOT_WAITING', message: 'This domain is not waiting to be registered.' });
     await this.audit.record({ action: 'domain.registration_failed', actorId: user.id, tenantId: d.tenant.id, entityType: 'domain', entityId: id, metadata: { name: d.name, reason }, meta });
     await this.tell(d.tenant.id, { type: 'domain.failed', title: `We could not register ${d.name}`, body: `${reason} We will refund your payment.`, link: '/domains' }, d.name, false);
+    return this.db.domain.findUniqueOrThrow({ where: { id }, select });
+  }
+
+  /** A paid transfer that is still going, or the precise reason there is none. */
+  private async transferWaiting(id: string) {
+    const d = await this.db.domain.findUnique({ where: { id }, select });
+    if (!d) throw new NotFoundException({ code: 'DOMAIN_NOT_FOUND', message: 'Domain not found.' });
+    const t = d.transfers[0];
+    if (d.status !== 'PENDING_TRANSFER' || !t) throw new ConflictException({ code: 'TRANSFER_NOT_WAITING', message: 'This domain has no transfer waiting.' });
+    if (t.invoice?.status !== 'PAID') throw new ConflictException({ code: 'TRANSFER_NOT_PAID', message: 'The transfer has not been paid yet.' });
+    return { d, t };
+  }
+
+  /** The code the customer got from their current registrar, for staff to start the transfer with. Each viewing is recorded. */
+  async transferAuthCode(user: AuthUser, id: string, meta: RequestMeta) {
+    const { d, t } = await this.transferWaiting(id);
+    const row = await this.db.domainTransfer.findUniqueOrThrow({ where: { id: t.id }, select: { authCodeEnc: true } });
+    if (!row.authCodeEnc) throw new ConflictException({ code: 'NO_AUTH_CODE', message: 'There is no authorisation code on file for this transfer.' });
+    await this.audit.record({ action: 'domain.transfer_code_viewed', actorId: user.id, tenantId: d.tenant.id, entityType: 'domain', entityId: id, metadata: { name: d.name }, meta });
+    return { authCode: this.box.decrypt(row.authCodeEnc, `transfer:${t.id}`) };
+  }
+
+  /** Staff report the transfer started at the registrar. The customer is asked to approve it with their current registrar. */
+  async startTransfer(user: AuthUser, id: string, meta: RequestMeta) {
+    const { d, t } = await this.transferWaiting(id);
+    const r = await this.db.domainTransfer.updateMany({ where: { id: t.id, status: 'REQUESTED' }, data: { status: 'IN_PROGRESS' } });
+    if (r.count === 0) throw new ConflictException({ code: 'TRANSFER_NOT_WAITING', message: 'This transfer has already been started.' });
+    await this.audit.record({ action: 'domain.transfer_started', actorId: user.id, tenantId: d.tenant.id, entityType: 'domain', entityId: id, metadata: { name: d.name }, meta });
+    await this.tellRenewal(d.tenant.id, { type: 'domain.transfer_started', title: `The transfer of ${d.name} has started`, body: 'Your current registrar may email you to approve it. Approving it quickly speeds things up. It usually takes up to 7 days.', link: '/domains' });
+    return this.db.domain.findUniqueOrThrow({ where: { id }, select });
+  }
+
+  /** Staff report the domain now with us. It becomes Active, a year longer than it was, and the stored code is deleted. */
+  async completeTransfer(user: AuthUser, id: string, dto: CompleteRegistrationDto, meta: RequestMeta) {
+    const { d, t } = await this.transferWaiting(id);
+    const now = new Date();
+    const expiresAt = dto.expiresAt ?? addYears(now, 1);
+    if (expiresAt <= now) throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'The expiry date must be in the future.' });
+    await this.db.$transaction(async (tx) => {
+      const done = await tx.domainTransfer.updateMany({ where: { id: t.id, status: { in: ['REQUESTED', 'IN_PROGRESS'] } }, data: { status: 'COMPLETED', completedAt: now, authCodeEnc: null } });
+      if (done.count === 0) throw new ConflictException({ code: 'TRANSFER_NOT_WAITING', message: 'This domain has no transfer waiting.' });
+      await tx.domain.update({ where: { id }, data: { status: 'ACTIVE', registeredAt: now, expiresAt, reminderStage: 0, ...(dto.registrarRef ? { registrarRef: dto.registrarRef } : {}) } });
+    });
+    await this.audit.record({ action: 'domain.transferred_in', actorId: user.id, tenantId: d.tenant.id, entityType: 'domain', entityId: id, metadata: { name: d.name, expiresAt: expiresAt.toISOString() }, meta });
+    const owners = await this.db.tenantMembership.findMany({ where: { tenantId: d.tenant.id, status: 'ACTIVE', role: { key: 'TENANT_OWNER' } }, select: { user: { select: { id: true, email: true } } } });
+    if (owners.length) {
+      await this.db.notification.createMany({ data: owners.map((o) => ({ userId: o.user.id, tenantId: d.tenant.id, type: 'domain.transferred', title: `${d.name} has been transferred to us`, body: `It is registered until ${expiresAt.toISOString().slice(0, 10)}.`, link: '/domains' })) });
+      for (const o of owners) await this.mail.enqueue({ template: 'domain-transferred', to: o.user.email, data: { domain: d.name, expiresOn: expiresAt.toISOString().slice(0, 10), link: `${this.portalUrl}/domains` } }, undefined, d.tenant.id);
+    }
+    return this.db.domain.findUniqueOrThrow({ where: { id }, select });
+  }
+
+  /** The transfer did not happen (refused, wrong code, domain locked). The customer is told why and the stored code is deleted. */
+  async failTransfer(user: AuthUser, id: string, reason: string, meta: RequestMeta) {
+    const { d, t } = await this.transferWaiting(id);
+    await this.db.$transaction(async (tx) => {
+      const done = await tx.domainTransfer.updateMany({ where: { id: t.id, status: { in: ['REQUESTED', 'IN_PROGRESS'] } }, data: { status: 'REJECTED', failureReason: reason, authCodeEnc: null } });
+      if (done.count === 0) throw new ConflictException({ code: 'TRANSFER_NOT_WAITING', message: 'This domain has no transfer waiting.' });
+      await tx.domain.update({ where: { id }, data: { status: 'FAILED', failureReason: reason } });
+    });
+    await this.audit.record({ action: 'domain.transfer_failed', actorId: user.id, tenantId: d.tenant.id, entityType: 'domain', entityId: id, metadata: { name: d.name, reason }, meta });
+    await this.tellRenewal(d.tenant.id, { type: 'domain.transfer_failed', title: `We could not transfer ${d.name}`, body: `${reason} We will refund your payment.`, link: '/domains' });
     return this.db.domain.findUniqueOrThrow({ where: { id }, select });
   }
 

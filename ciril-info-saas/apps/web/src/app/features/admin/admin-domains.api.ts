@@ -39,6 +39,8 @@ export interface AdminRegistration {
   tenant: { id: string; name: string };
   orderInvoice: { id: string; number: string; status: string; total: string } | null;
   reminderStage: number;
+  /** The transfer still going, if the domain is being brought to us. The authorisation code is fetched separately and only on request. */
+  transfers: { id: string; status: 'REQUESTED' | 'PENDING_AUTH' | 'IN_PROGRESS'; invoice: { id: string; number: string; status: string; total: string } | null }[];
   /** The renewal waiting right now, if any. */
   renewals: { id: string; years: number; requestedAt: string; invoice: { id: string; number: string; status: string; total: string } }[];
 }
@@ -63,6 +65,18 @@ export class AdminDomainsApi {
   }
   cannotRenew(id: string, reason: string) {
     return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/renewal/cannot-renew`, { reason }));
+  }
+  transferCode(id: string) {
+    return firstValueFrom(this.http.get<{ authCode: string }>(`${this.registrationsBase}/${id}/transfer/auth-code`));
+  }
+  startTransfer(id: string) {
+    return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/transfer/start`, {}));
+  }
+  completeTransfer(id: string, body: { registrarRef?: string; expiresAt?: string }) {
+    return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/transfer/complete`, body));
+  }
+  failTransfer(id: string, reason: string) {
+    return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/transfer/fail`, { reason }));
   }
   cannotRegister(id: string, reason: string) {
     return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/cannot-register`, { reason }));
