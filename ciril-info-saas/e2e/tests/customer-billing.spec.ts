@@ -69,6 +69,18 @@ test.describe('Customer ordering', () => {
     await expect(page.getByText('Billed to')).toBeVisible();
     await expect(page.getByText(/12 MG Road, Bengaluru, Karnataka 560001/)).toBeVisible();
 
+    // Printable view: the seller comes from the company profile, and print mode drops the portal chrome.
+    await expect(page.getByText('From', { exact: true })).toBeVisible();
+    await page.emulateMedia({ media: 'print' });
+    await expect(page.getByRole('complementary')).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Print / Save as PDF' })).toBeHidden();
+    await expect(page.getByText('Billed to')).toBeVisible();
+    const pdf = await page.pdf({ format: 'A4', path: 'screenshots/customer-invoice.pdf' });
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(pdf.length).toBeGreaterThan(5_000);
+    await page.screenshot({ path: 'screenshots/customer-invoice-print.png', fullPage: true });
+    await page.emulateMedia({ media: 'screen' });
+
     await page.getByRole('button', { name: /Pay .* \(test\)/ }).click();
     await expect(page.getByText('Payment received.')).toBeVisible();
     await expect(page.locator('.cf-badge', { hasText: 'Paid' })).toBeVisible();

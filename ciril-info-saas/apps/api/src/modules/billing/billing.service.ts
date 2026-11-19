@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env.js';
-import { type Tx, TenantPrisma } from '../../database/prisma-clients.js';
+import { PlatformPrisma, type Tx, TenantPrisma } from '../../database/prisma-clients.js';
 import type { BillingCycle, InvoiceStatus, Prisma, SubscriptionStatus } from '../../generated/prisma/client.js';
 import { orderBy, page, skipTake } from '../../common/http/pagination.js';
 import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
@@ -25,6 +25,7 @@ export class BillingService {
 
   constructor(
     private readonly db: TenantPrisma,
+    private readonly platform: PlatformPrisma,
     private readonly gateway: PaymentGateway,
     config: ConfigService<Env, true>,
   ) {
@@ -79,7 +80,24 @@ export class BillingService {
     return invoiceNumber(fy, rows[0]!.value);
   }
 
-  order(ctx: TenantContext, dto: QuoteDto, meta: RequestMeta) {
+  /**
+   * Seller details printed on the invoice, copied from the company profile the admins maintain. Only what has
+   * been filled in is kept, so nothing is invented, and later profile edits never rewrite an issued invoice.
+   */
+  private async seller() {
+    const row = await this.platform.systemSetting.findUnique({ where: { key: 'company.profile' } });
+    const v = (row?.value ?? {}) as Record<string, unknown>;
+    const text = (x: unknown) => (typeof x === 'string' && x.trim() ? x.trim() : undefined);
+    const a = (v['address'] ?? {}) as Record<string, unknown>;
+    const address = Object.fromEntries(['line1', 'line2', 'city', 'state', 'stateCode', 'postalCode'].map((k) => [k, text(a[k])]).filter(([, x]) => x));
+    return Object.fromEntries(
+      Object.entries({ name: text(v['legalName']) ?? text(v['brandName']), gstin: text(v['gstin']), email: text(v['email']), phone: text(v['phone']), address: Object.keys(address).length ? address : undefined })
+        .filter(([, x]) => x !== undefined),
+    ) as Prisma.InputJsonObject;
+  }
+
+  async order(ctx: TenantContext, dto: QuoteDto, meta: RequestMeta) {
+    const seller = await this.seller();
     return this.db.run(ctx, async (tx) => {
       const account = await tx.customerAccount.findUnique({ where: { tenantId: ctx.tenantId } });
       if (!account) throw new ConflictException({ code: 'NO_BILLING_PROFILE', message: 'Complete your billing details before ordering.' });
@@ -106,6 +124,7 @@ export class BillingService {
           subtotal: p.totals.subtotal, taxTotal: p.totals.taxTotal, total: p.totals.total, issuedAt: now,
           dueAt: new Date(now.getTime() + DUE_DAYS * 86_400_000),
           billingSnapshot: {
+            seller,
             buyer: {
               accountNo: account.accountNo, name: account.companyName, email: account.billingEmail, gstin: account.gstin,
               address: { line1: address.line1, line2: address.line2, city: address.city, state: address.state, stateCode: address.stateCode, postalCode: address.postalCode, country: address.country },

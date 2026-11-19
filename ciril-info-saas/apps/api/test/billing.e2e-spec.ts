@@ -87,6 +87,7 @@ describe('Billing (e2e)', () => {
     await http().post(api('organisation/addresses')).set(auth(alice.token)).send({ line1: '12 MG Road', city: 'Bengaluru', stateCode: '29', postalCode: '560001' }).expect(201);
     const ok = await http().post(api('orders')).set(auth(alice.token)).send({ planId, billingCycle: 'YEARLY' }).expect(201);
     const inv = await http().get(api(`invoices/${ok.body.invoice.id}`)).set(auth(alice.token)).expect(200);
+    expect(inv.body.billingSnapshot.seller).toBeTypeOf('object'); // company profile as filled in by the admins
     expect(inv.body.billingSnapshot.buyer.address).toMatchObject({ line1: '12 MG Road', stateCode: '29', state: 'Karnataka' });
     await http().post(api(`subscriptions/${ok.body.subscriptionId}/cancel`)).set(auth(alice.token)).send({}).expect(200);
   });

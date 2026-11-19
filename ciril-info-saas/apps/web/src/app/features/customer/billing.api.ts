@@ -35,7 +35,7 @@ export interface InvoiceRow {
 
 export interface InvoiceDetail extends InvoiceRow {
   testMode: boolean;
-  billingSnapshot: { buyer?: { accountNo?: string; name?: string | null; email?: string; gstin?: string | null; address?: { line1: string; line2?: string | null; city: string; state: string; stateCode?: string | null; postalCode: string } | null } } | null;
+  billingSnapshot: { seller?: { name?: string; gstin?: string; email?: string; phone?: string; address?: { line1?: string; line2?: string; city?: string; state?: string; stateCode?: string; postalCode?: string } }; buyer?: { accountNo?: string; name?: string | null; email?: string; gstin?: string | null; address?: { line1: string; line2?: string | null; city: string; state: string; stateCode?: string | null; postalCode: string } | null } } | null;
   items: Quote['lines'];
   payments: { id: string; provider: string; status: string; amount: string; method: string | null; failureReason: string | null; createdAt: string }[];
 }
