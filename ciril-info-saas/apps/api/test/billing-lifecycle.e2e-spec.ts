@@ -147,6 +147,35 @@ describe('Billing lifecycle (e2e)', () => {
     expect((await db.subscription.findUniqueOrThrow({ where: { id: sub.id } })).status).toBe('EXPIRED');
   });
 
+  it('an unpaid first order is cancelled after 14 days; a recent one and a paid one are left alone', async () => {
+    const mk = async (ageDays: number) => {
+      const sub = await db.subscription.create({
+        data: {
+          tenantId: alice.tenantId, status: 'PENDING', billingCycle: 'YEARLY', createdAt: new Date(t0.getTime() - ageDays * DAY),
+          items: { create: { tenantId: alice.tenantId, planId, pricingVersionId: versionId, description: `Plan ${tag}`, unitPrice: '1000.00', renewalPrice: '1000.00' } },
+        },
+      });
+      const inv = await db.invoice.create({
+        data: { tenantId: alice.tenantId, subscriptionId: sub.id, number: `T-${randomUUID().slice(0, 8)}`, status: 'ISSUED', subtotal: '1000.00', total: '1000.00', issuedAt: new Date(t0.getTime() - ageDays * DAY) },
+      });
+      return { sub, inv };
+    };
+    const old = await mk(15);
+    const fresh = await mk(3);
+
+    await lifecycle.run(t0);
+    expect((await db.subscription.findUniqueOrThrow({ where: { id: old.sub.id } })).status).toBe('CANCELLED');
+    expect((await db.invoice.findUniqueOrThrow({ where: { id: old.inv.id } })).status).toBe('VOID');
+    expect((await db.subscription.findUniqueOrThrow({ where: { id: fresh.sub.id } })).status).toBe('PENDING');
+    expect((await db.invoice.findUniqueOrThrow({ where: { id: fresh.inv.id } })).status).toBe('ISSUED');
+    expect(await db.notification.count({ where: { userId: alice.userId, type: 'order.expired' } })).toBe(1);
+    await http().post(api(`invoices/${old.inv.id}/pay`)).set(auth(alice.token)).send({}).expect(409);
+
+    // Later, the fresh one is also abandoned.
+    await lifecycle.run(new Date(t0.getTime() + 12 * DAY));
+    expect((await db.subscription.findUniqueOrThrow({ where: { id: fresh.sub.id } })).status).toBe('CANCELLED');
+  });
+
   it('suspended organisations are not billed', async () => {
     const end = new Date(t0.getTime() + 3 * DAY);
     const sub = await activeSub(end);

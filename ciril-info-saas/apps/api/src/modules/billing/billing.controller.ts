@@ -1,8 +1,11 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { AuthUser, RequestMeta, TenantContext } from '../auth/auth.types.js';
 import { CurrentTenant, CurrentUser, ReqMeta, RequirePlatform, RequireTenant } from '../auth/decorators.js';
+import { ListQueryDto } from '../../common/http/pagination.js';
+import { CouponDto, CouponPatchDto } from './admin-coupons.dto.js';
+import { AdminCouponsService } from './admin-coupons.service.js';
 import { AdminBillingService } from './admin-billing.service.js';
 import { AdminInvoiceListQuery, AdminSubscriptionListQuery, VoidInvoiceDto } from './admin-billing.dto.js';
 import { BillingListQuery, CancelSubscriptionDto, OrderDto, PayInvoiceDto, QuoteDto } from './billing.dto.js';
@@ -84,4 +87,20 @@ export class AdminBillingController {
 
   @Get('subscriptions') @RequirePlatform('subscriptions:read')
   subscriptions(@Query() q: AdminSubscriptionListQuery) { return this.svc.listSubscriptions(q); }
+}
+
+/** Admin portal: discount codes. Reading needs product access; creating and editing needs pricing access. */
+@ApiTags('admin · coupons')
+@Controller('admin/coupons')
+export class AdminCouponsController {
+  constructor(private readonly svc: AdminCouponsService) {}
+
+  @Get() @RequirePlatform('products:read')
+  list(@Query() q: ListQueryDto) { return this.svc.list(q); }
+
+  @Post() @RequirePlatform('pricing:write')
+  create(@CurrentUser() u: AuthUser, @Body() dto: CouponDto, @ReqMeta() meta: RequestMeta) { return this.svc.create(u, dto, meta); }
+
+  @Patch(':id') @RequirePlatform('pricing:write')
+  update(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: CouponPatchDto, @ReqMeta() meta: RequestMeta) { return this.svc.update(u, id, dto, meta); }
 }

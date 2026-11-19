@@ -1,4 +1,4 @@
-import { addCycle, computeTotals, financialYear, invoiceNumber, toPaise } from './billing.logic.js';
+import { addCycle, computeTotals, couponDiscountPaise, financialYear, invoiceNumber, toPaise } from './billing.logic.js';
 
 describe('billing logic', () => {
   it('adds billing cycles and clamps month ends', () => {
@@ -36,5 +36,30 @@ describe('billing logic', () => {
     const t = computeTotals([{ description: 'Plan', unitPaise: 50000, quantity: 2 }], 0);
     expect(t.total).toBe('1000.00');
     expect(t.taxTotal).toBe('0.00');
+  });
+
+  it('works out coupon discounts and never exceeds the price', () => {
+    expect(couponDiscountPaise('PERCENT', '10', 199900)).toBe(19990);
+    expect(couponDiscountPaise('PERCENT', '33.333', 10000)).toBe(3333);
+    expect(couponDiscountPaise('PERCENT', '150', 10000)).toBe(10000);
+    expect(couponDiscountPaise('FIXED', '250.00', 199900)).toBe(25000);
+    expect(couponDiscountPaise('FIXED', '5000', 199900)).toBe(199900);
+    expect(couponDiscountPaise('FIXED', '-5', 199900)).toBe(0);
+  });
+
+  it('charges tax on the discounted amount and keeps the totals consistent', () => {
+    const t = computeTotals(
+      [
+        { description: 'Plan', unitPaise: 100000, quantity: 1, discountPaise: 20000 },
+        { description: 'Setup', unitPaise: 10000, quantity: 1 },
+      ],
+      18,
+    );
+    expect(t.subtotal).toBe('1100.00');
+    expect(t.discountTotal).toBe('200.00');
+    expect(t.taxTotal).toBe('162.00'); // 18% of 800.00 plus 18% of 100.00
+    expect(t.total).toBe('1062.00'); // 1100.00 - 200.00 + 162.00
+    expect(t.lines[0]!.discount).toBe('200.00');
+    expect(t.lines[0]!.lineTotal).toBe('944.00');
   });
 });

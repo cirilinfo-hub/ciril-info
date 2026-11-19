@@ -57,6 +57,9 @@ export const envSchema = z
     /** After the period ends unpaid, a subscription stays past due for this many days, then expires. */
     PAST_DUE_GRACE_DAYS: z.coerce.number().int().min(0).max(60).default(7),
 
+    /** A first order that is still unpaid this many days after it was placed is cancelled and its invoice voided. */
+    ABANDONED_ORDER_DAYS: z.coerce.number().int().min(1).max(365).default(14),
+
     PAYMENT_PROVIDER: z.enum(['mock', 'razorpay', 'stripe']).default('mock'),
     HOSTING_PROVIDER: z.enum(['mock', 'cpanel', 'plesk']).default('mock'),
     REGISTRAR_PROVIDER: z.string().default('mock'),

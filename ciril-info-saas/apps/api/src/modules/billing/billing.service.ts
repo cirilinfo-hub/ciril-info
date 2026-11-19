@@ -6,7 +6,8 @@ import { PlatformPrisma, type Tx, TenantPrisma } from '../../database/prisma-cli
 import type { BillingCycle, InvoiceStatus, Prisma, SubscriptionStatus } from '../../generated/prisma/client.js';
 import { orderBy, page, skipTake } from '../../common/http/pagination.js';
 import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
-import { addCycle, computeTotals, toPaise } from './billing.logic.js';
+import { type PricedLine, addCycle, computeTotals, couponDiscountPaise, toPaise } from './billing.logic.js';
+import { couponProblem } from './coupons.js';
 import type { BillingListQuery, PayInvoiceDto, QuoteDto } from './billing.dto.js';
 import { PaymentGateway } from './payment-gateway.js';
 import { nextInvoiceNumber } from './numbering.js';
@@ -60,20 +61,40 @@ export class BillingService {
     const tax = await tx.taxRate.findFirst({ where: { isActive: true, isDefault: true, country: 'IN' }, orderBy: { createdAt: 'desc' } });
     const taxPercent = tax ? Number(tax.rate.toString()) : 0;
 
-    const lines = [{ description: `${plan.product.name} - ${plan.name} (${dto.billingCycle.toLowerCase().replace('_', ' ')})`, unitPaise: toPaise(version.price), quantity: 1 }];
+    // The coupon (if any) discounts the plan's first-term price, never the setup fee.
+    const pricePaise = toPaise(version.price);
+    let coupon: { id: string; code: string; discountPaise: number } | null = null;
+    if (dto.couponCode) {
+      const row = await this.platform.coupon.findUnique({ where: { code: dto.couponCode } });
+      const problem = row ? couponProblem({ ...row, discountType: row.discountType }, { planId: plan.id, currency: version.currency, now }) : 'This code is not valid.';
+      if (problem || !row) throw new ConflictException({ code: 'COUPON_INVALID', message: problem ?? 'This code is not valid.' });
+      coupon = { id: row.id, code: row.code, discountPaise: couponDiscountPaise(row.discountType, row.discountValue, pricePaise) };
+    }
+    const lines: PricedLine[] = [{ description: `${plan.product.name} - ${plan.name} (${dto.billingCycle.toLowerCase().replace('_', ' ')})`, unitPaise: pricePaise, quantity: 1, discountPaise: coupon?.discountPaise ?? 0 }];
     if (toPaise(version.setupFee) > 0) lines.push({ description: `${plan.name} setup fee`, unitPaise: toPaise(version.setupFee), quantity: 1 });
-    return { plan, version, tax, totals: computeTotals(lines, taxPercent), currency: version.currency };
+    return { plan, version, tax, coupon, totals: computeTotals(lines, taxPercent), currency: version.currency };
   }
 
   quote(ctx: TenantContext, dto: QuoteDto) {
     return this.db.run(ctx, async (tx) => {
       const p = await this.price(tx, dto);
-      return { planId: p.plan.id, planName: p.plan.name, billingCycle: dto.billingCycle, currency: p.currency, taxName: p.tax?.name ?? null, ...p.totals };
+      return { planId: p.plan.id, planName: p.plan.name, billingCycle: dto.billingCycle, currency: p.currency, taxName: p.tax?.name ?? null, couponCode: p.coupon?.code ?? null, ...p.totals };
     });
   }
 
   async order(ctx: TenantContext, dto: QuoteDto, meta: RequestMeta) {
     const seller = await readSeller(this.platform);
+    let reservedCoupon: string | null = null;
+    try {
+      return await this.placeOrder(ctx, dto, meta, seller, (id) => (reservedCoupon = id));
+    } catch (e) {
+      // The order did not commit, so give the coupon use back.
+      if (reservedCoupon) await this.platform.coupon.updateMany({ where: { id: reservedCoupon, redemptions: { gt: 0 } }, data: { redemptions: { decrement: 1 } } });
+      throw e;
+    }
+  }
+
+  private placeOrder(ctx: TenantContext, dto: QuoteDto, meta: RequestMeta, seller: Prisma.InputJsonObject, onReserve: (couponId: string) => void) {
     return this.db.run(ctx, async (tx) => {
       const account = await tx.customerAccount.findUnique({ where: { tenantId: ctx.tenantId } });
       if (!account) throw new ConflictException({ code: 'NO_BILLING_PROFILE', message: 'Complete your billing details before ordering.' });
@@ -83,6 +104,16 @@ export class BillingService {
       // A tax invoice needs the buyer's address (place of supply), so ordering requires one.
       if (!address) throw new ConflictException({ code: 'NO_BILLING_ADDRESS', message: 'Add a billing address in Organisation settings before ordering.' });
       const now = new Date();
+
+      // Reserve the coupon use atomically: two customers racing for the last redemption cannot both win.
+      if (p.coupon) {
+        const r = await this.platform.coupon.updateMany({
+          where: { id: p.coupon.id, isActive: true, OR: [{ maxRedemptions: null }, { redemptions: { lt: this.platform.coupon.fields.maxRedemptions } }] },
+          data: { redemptions: { increment: 1 } },
+        });
+        if (r.count === 0) throw new ConflictException({ code: 'COUPON_INVALID', message: 'This code has already been used the maximum number of times.' });
+        onReserve(p.coupon.id);
+      }
       const number = await nextInvoiceNumber(tx, now);
 
       const subscription = await tx.subscription.create({
@@ -97,7 +128,7 @@ export class BillingService {
       const invoice = await tx.invoice.create({
         data: {
           tenantId: ctx.tenantId, subscriptionId: subscription.id, number, status: 'ISSUED', currency: p.currency,
-          subtotal: p.totals.subtotal, taxTotal: p.totals.taxTotal, total: p.totals.total, issuedAt: now,
+          subtotal: p.totals.subtotal, discountTotal: p.totals.discountTotal, taxTotal: p.totals.taxTotal, total: p.totals.total, issuedAt: now,
           dueAt: new Date(now.getTime() + DUE_DAYS * 86_400_000),
           billingSnapshot: {
             seller,
@@ -106,10 +137,11 @@ export class BillingService {
               address: { line1: address.line1, line2: address.line2, city: address.city, state: address.state, stateCode: address.stateCode, postalCode: address.postalCode, country: address.country },
             },
             tax: p.tax ? { name: p.tax.name, code: p.tax.code, rate: p.tax.rate.toString() } : null,
+            coupon: p.coupon ? { code: p.coupon.code, discount: p.totals.discountTotal } : null,
           },
           items: {
             create: p.totals.lines.map((l) => ({
-              tenantId: ctx.tenantId, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, taxRate: l.taxRate,
+              tenantId: ctx.tenantId, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, discount: l.discount, taxRate: l.taxRate,
               taxAmount: l.taxAmount, lineTotal: l.lineTotal,
             })),
           },
@@ -118,7 +150,7 @@ export class BillingService {
       });
 
       await tx.auditLog.create({
-        data: { action: 'order.create', actorId: ctx.userId, tenantId: ctx.tenantId, entityType: 'invoice', entityId: invoice.id, metadata: { planId: p.plan.id, billingCycle: dto.billingCycle, total: p.totals.total }, ipAddress: meta.ip ?? null, requestId: meta.requestId },
+        data: { action: 'order.create', actorId: ctx.userId, tenantId: ctx.tenantId, entityType: 'invoice', entityId: invoice.id, metadata: { planId: p.plan.id, billingCycle: dto.billingCycle, total: p.totals.total, coupon: p.coupon?.code ?? null }, ipAddress: meta.ip ?? null, requestId: meta.requestId },
       });
       return { subscriptionId: subscription.id, invoice };
     });

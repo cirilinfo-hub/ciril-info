@@ -30,6 +30,7 @@ const pwLegal = {
 };
 
 async function cleanupPublic() {
+  await db.coupon.deleteMany({ where: { code: { startsWith: 'PW-' } } });
   const planIds = (await db.plan.findMany({ where: { slug: { startsWith: 'pw-' } }, select: { id: true } })).map((p) => p.id);
   await db.pricingVersion.deleteMany({ where: { planId: { in: planIds } } });
   await db.planFeature.deleteMany({ where: { planId: { in: planIds } } });

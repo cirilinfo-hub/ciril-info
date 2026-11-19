@@ -17,6 +17,7 @@ export interface LifecycleResult {
   overdue: number;
   pastDue: number;
   expired: number;
+  abandoned: number;
 }
 
 /**
@@ -25,7 +26,8 @@ export interface LifecycleResult {
  *
  *  1. Renewal invoices, issued RENEWAL_LEAD_DAYS before a period ends (once per period).
  *  2. Unpaid invoices past their due date become OVERDUE.
- *  3. A period that ended unpaid becomes PAST_DUE; after PAST_DUE_GRACE_DAYS it EXPIRES and its open invoices are voided.
+ *  3. A first order still unpaid ABANDONED_ORDER_DAYS after it was placed is cancelled and its invoice voided.
+ *  4. A period that ended unpaid becomes PAST_DUE; after PAST_DUE_GRACE_DAYS it EXPIRES and its open invoices are voided.
  *     A subscription the customer cancelled (or that does not auto-renew) simply expires when its period ends.
  * Provisioning (suspending hosting on expiry) listens for the `subscription.expired` event in Phase 6.
  */
@@ -34,6 +36,7 @@ export class BillingLifecycleService {
   private readonly log = new Logger(BillingLifecycleService.name);
   private readonly leadDays: number;
   private readonly graceDays: number;
+  private readonly abandonedDays: number;
   private readonly portalUrl: string;
 
   constructor(
@@ -44,15 +47,17 @@ export class BillingLifecycleService {
   ) {
     this.leadDays = config.get('RENEWAL_LEAD_DAYS', { infer: true });
     this.graceDays = config.get('PAST_DUE_GRACE_DAYS', { infer: true });
+    this.abandonedDays = config.get('ABANDONED_ORDER_DAYS', { infer: true });
     this.portalUrl = config.get('CUSTOMER_PORTAL_URL', { infer: true }).replace(/\/$/, '');
   }
 
   async run(now = new Date()): Promise<LifecycleResult> {
     const renewalInvoices = await this.issueRenewals(now);
     const overdue = await this.markOverdue(now);
+    const abandoned = await this.cancelAbandonedOrders(now);
     const { pastDue, expired } = await this.processPeriodEnds(now);
-    if (renewalInvoices || overdue || pastDue || expired) this.log.log(`billing lifecycle: ${JSON.stringify({ renewalInvoices, overdue, pastDue, expired })}`);
-    return { renewalInvoices, overdue, pastDue, expired };
+    if (renewalInvoices || overdue || abandoned || pastDue || expired) this.log.log(`billing lifecycle: ${JSON.stringify({ renewalInvoices, overdue, abandoned, pastDue, expired })}`);
+    return { renewalInvoices, overdue, pastDue, expired, abandoned };
   }
 
   // ───────────────────────────── renewals ─────────────────────────────
@@ -138,6 +143,38 @@ export class BillingLifecycleService {
   private async markOverdue(now: Date) {
     const r = await this.db.invoice.updateMany({ where: { status: 'ISSUED', dueAt: { lt: now } }, data: { status: 'OVERDUE' } });
     return r.count;
+  }
+
+  // ───────────────────────────── abandoned first orders ─────────────────────────────
+
+  private async cancelAbandonedOrders(now: Date) {
+    const cutoff = new Date(now.getTime() - this.abandonedDays * DAY);
+    const candidates = await this.db.subscription.findMany({ where: { status: 'PENDING', createdAt: { lt: cutoff } }, select: { id: true } });
+    let cancelled = 0;
+    for (const { id } of candidates) {
+      try {
+        const done = await this.db.$transaction(async (tx) => {
+          const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM subscriptions WHERE id = ${id}::uuid FOR UPDATE SKIP LOCKED`;
+          if (!locked.length) return false;
+          const sub = await tx.subscription.findUnique({ where: { id }, select: { id: true, tenantId: true, status: true, createdAt: true } });
+          if (!sub || sub.status !== 'PENDING' || sub.createdAt >= cutoff) return false;
+          // Never cancel an order that has money on it.
+          if (await tx.payment.count({ where: { invoice: { subscriptionId: id }, status: 'SUCCEEDED' } })) return false;
+          await tx.subscription.update({ where: { id }, data: { status: 'CANCELLED', cancelledAt: now, autoRenew: false } });
+          await tx.invoice.updateMany({ where: { subscriptionId: id, status: { in: UNPAID } }, data: { status: 'VOID', voidedAt: now } });
+          await tx.subscriptionHistory.create({
+            data: { tenantId: sub.tenantId, subscriptionId: id, event: 'CANCELLED', fromStatus: 'PENDING', toStatus: 'CANCELLED', details: { reason: `unpaid for ${this.abandonedDays} days` } },
+          });
+          await this.notifyOwners(tx, sub.tenantId, { type: 'order.expired', title: 'An unpaid order was cancelled', body: `It was not paid within ${this.abandonedDays} days.`, link: '/services' });
+          await this.audit.record({ action: 'subscription.abandoned', tenantId: sub.tenantId, entityType: 'subscription', entityId: id }, tx);
+          return true;
+        });
+        if (done) cancelled++;
+      } catch (e) {
+        this.log.error(`abandoned order cleanup failed for subscription ${id}: ${(e as Error).message}`);
+      }
+    }
+    return cancelled;
   }
 
   // ───────────────────────────── period ends ─────────────────────────────

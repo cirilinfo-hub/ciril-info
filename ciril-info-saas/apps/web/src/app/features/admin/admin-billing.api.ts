@@ -51,6 +51,31 @@ export interface BillingSummary {
   includesTestPayments: boolean;
 }
 
+export interface AdminCoupon {
+  id: string;
+  code: string;
+  description: string | null;
+  discountType: 'PERCENT' | 'FIXED';
+  discountValue: string;
+  planIds: string[];
+  maxRedemptions: number | null;
+  redemptions: number;
+  startsAt: string | null;
+  endsAt: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+export interface CouponInput {
+  code: string;
+  description?: string;
+  discountType: 'PERCENT' | 'FIXED';
+  discountValue: number;
+  planIds: string[];
+  maxRedemptions: number | null;
+  startsAt: string | null;
+  endsAt: string | null;
+}
+
 /** Admin-portal billing: invoices, subscriptions and headline figures. */
 @Injectable()
 export class AdminBillingApi {
@@ -71,5 +96,14 @@ export class AdminBillingApi {
   }
   subscriptions(page: number, status: string, search: string) {
     return firstValueFrom(this.http.get<Paged<AdminSubscriptionRow>>(`${this.base}/subscriptions`, { params: { page, pageSize: 20, ...(status ? { status } : {}), ...(search ? { search } : {}) } }));
+  }
+  coupons(page: number, search: string) {
+    return firstValueFrom(this.http.get<Paged<AdminCoupon>>(`${this.base}/coupons`, { params: { page, pageSize: 20, ...(search ? { search } : {}) } }));
+  }
+  createCoupon(body: CouponInput) {
+    return firstValueFrom(this.http.post<AdminCoupon>(`${this.base}/coupons`, body));
+  }
+  updateCoupon(id: string, body: Partial<Pick<CouponInput, 'description' | 'planIds' | 'maxRedemptions' | 'startsAt' | 'endsAt'>> & { isActive?: boolean }) {
+    return firstValueFrom(this.http.patch<AdminCoupon>(`${this.base}/coupons/${id}`, body));
   }
 }

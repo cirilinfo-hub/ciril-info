@@ -81,6 +81,7 @@ import { BillingApi, INVOICE_BADGE, type InvoiceDetail, money } from './billing.
             @for (l of i.items; track l.description) {
               <tr><td>{{ l.description }}</td><td class="r">{{ fmt(l.taxAmount, i.currency) }}</td><td class="r">{{ fmt(l.lineTotal, i.currency) }}</td></tr>
             }
+            @if (+i.discountTotal > 0) { <tr><td colspan="2">Discount{{ i.billingSnapshot?.coupon ? ' (' + i.billingSnapshot?.coupon?.code + ')' : '' }}</td><td class="r">−{{ fmt(i.discountTotal, i.currency) }}</td></tr> }
             <tr class="total"><td colspan="2">Total</td><td class="r">{{ fmt(i.total, i.currency) }}</td></tr>
           </tbody>
         </table>

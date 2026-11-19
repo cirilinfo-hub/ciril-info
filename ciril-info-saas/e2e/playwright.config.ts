@@ -1,4 +1,4 @@
-import { defineConfig, devices } from '@playwright/test';
+﻿import { defineConfig, devices } from '@playwright/test';
 
 const WEB = process.env['E2E_WEB_URL'] ?? 'http://localhost:4200';
 const API = process.env['E2E_API_URL'] ?? 'http://localhost:3000';
@@ -25,7 +25,7 @@ export default defineConfig({
     { name: 'desktop', testIgnore: /admin-content/, use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } },
     { name: 'tablet', testIgnore: /admin-content/, use: { ...devices['Desktop Chrome'], viewport: { width: 1024, height: 768 } } },
     { name: 'mobile', testIgnore: /admin-content/, use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } } },
-    // Edits live website content (publishes a product, FAQ…), so it runs alone, after the read-only suites above.
+    // Edits live website content (publishes a product, FAQâ€¦), so it runs alone, after the read-only suites above.
     {
       name: 'content',
       testMatch: /admin-content/,
@@ -44,7 +44,9 @@ export default defineConfig({
           url: `${API}/health/ready`,
           reuseExistingServer: !process.env['CI'],
           timeout: 60_000,
-          env: { LOG_LEVEL: 'warn' },
+          // Browser tests sign in and register many accounts from one address, which the real per-IP limits would block.
+          // (Refused in production by env validation; the limits themselves are covered by the API tests.)
+          env: { LOG_LEVEL: 'warn', THROTTLE_DISABLED: 'true' },
         },
         {
           command: 'npm start -- --port 4200',

@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import { IsIn, IsOptional, IsString, IsUUID, Length, Matches, ValidateIf } from 'class-validator';
 import { ListQueryDto } from '../../common/http/pagination.js';
 
@@ -12,6 +13,9 @@ export class QuoteDto {
   @ValidateIf((o: QuoteDto) => !o.planId) @Matches(/^[a-z0-9-]{1,120}\/[a-z0-9-]{1,120}$/, { message: 'Use the form product-slug/plan-slug.' }) planRef?: string;
 
   @ApiProperty({ enum: ORDERABLE_CYCLES }) @IsIn(ORDERABLE_CYCLES) billingCycle!: (typeof ORDERABLE_CYCLES)[number];
+
+  @ApiPropertyOptional({ description: 'Coupon code, discounting the first term.' })
+  @IsOptional() @Transform(({ value }) => (typeof value === 'string' ? value.trim() || undefined : value)) @IsString() @Length(2, 40) couponCode?: string;
 }
 
 export class OrderDto extends QuoteDto {}

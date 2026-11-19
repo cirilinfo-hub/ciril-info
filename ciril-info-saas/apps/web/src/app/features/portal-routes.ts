@@ -39,6 +39,7 @@ const ADMIN_NAV: NavSection[] = [
     label: 'Website',
     items: [
       { path: '/products', label: 'Products & Pricing', icon: 'tag', permission: 'products:read' },
+      { path: '/coupons', label: 'Coupons', icon: 'percent', permission: 'products:read' },
       { path: '/projects', label: 'Projects', icon: 'layers', permission: 'content:read' },
       { path: '/testimonials', label: 'Testimonials', icon: 'star', permission: 'content:read' },
       { path: '/faqs', label: 'FAQs', icon: 'life-buoy', permission: 'content:read' },
@@ -144,6 +145,7 @@ export function adminRoutes(base: string): Routes {
             { path: 'company', title: 'Company profile · Ciril Info Admin', canActivate: [requirePermission('content:read')], loadComponent: () => import('./admin/content/company.page').then((m) => m.CompanyPage) },
             { path: 'inquiries', title: 'Enquiries · Ciril Info Admin', canActivate: [requirePermission('inquiries:read')], loadComponent: () => import('./admin/content/inquiries.page').then((m) => m.InquiriesPage) },
             { path: 'invoices', title: 'Invoices · Ciril Info Admin', canActivate: [requirePermission('billing:read')], loadComponent: () => import('./admin/billing/invoices.page').then((m) => m.AdminInvoicesPage) },
+            { path: 'coupons', title: 'Coupons · Ciril Info Admin', canActivate: [requirePermission('products:read')], loadComponent: () => import('./admin/billing/coupons.page').then((m) => m.AdminCouponsPage) },
             { path: 'subscriptions', title: 'Subscriptions · Ciril Info Admin', canActivate: [requirePermission('subscriptions:read')], loadComponent: () => import('./admin/billing/subscriptions.page').then((m) => m.AdminSubscriptionsPage) },
             { path: 'support', title: 'Support inbox · Ciril Info Admin', canActivate: [requirePermission('support:read')], loadComponent: () => import('./support/admin-tickets.page').then((m) => m.AdminTicketsPage) },
             { path: 'support/:id', title: 'Ticket · Ciril Info Admin', canActivate: [requirePermission('support:read')], loadComponent: () => import('./support/admin-ticket.page').then((m) => m.AdminTicketPage) },
