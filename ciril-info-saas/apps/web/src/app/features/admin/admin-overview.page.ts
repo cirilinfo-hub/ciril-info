@@ -6,12 +6,13 @@ import { AuthService } from '../../core/auth/auth.service';
 import { Icon } from '../../design-system/icon/icon';
 import { PageHead } from '../../shared/components/page-head';
 import { type DashboardSummary, AdminOpsApi } from './admin-ops.api';
+import { type BillingSummary, AdminBillingApi } from './admin-billing.api';
+import { money } from '../customer/billing.api';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /**
  * Admin landing page: real counts from the database, limited to what the signed-in role may see.
- * Revenue and renewals appear here once billing exists; nothing is estimated in the meantime.
  */
 @Component({
   selector: 'ci-admin-overview',
@@ -36,6 +37,30 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
     @if (data(); as d) {
       <section class="hx-stats-grid stats" aria-label="Key figures">
+        @if (bill(); as b) {
+          <a class="hx-stat is-link" [routerLink]="auth.link('/invoices')">
+            <div class="hx-stat-top"><span class="hx-stat-label">Paid, last 30 days</span><span class="hx-stat-ic"><ci-icon name="file" /></span></div>
+            <strong>{{ fmt(b.paidLast30Days.total) }}</strong>
+            <span class="hx-stat-hint">{{ plural(b.paidLast30Days.count, 'paid invoice') }}{{ b.includesTestPayments ? ' · includes test-mode payments' : '' }}</span>
+          </a>
+          <a class="hx-stat is-link" [routerLink]="auth.link('/invoices')" [queryParams]="{}">
+            <div class="hx-stat-top"><span class="hx-stat-label">Unpaid invoices</span><span class="hx-stat-ic"><ci-icon name="warning" /></span></div>
+            <strong>{{ fmt(b.outstanding.total) }}</strong>
+            <span class="hx-stat-hint">{{ plural(b.outstanding.count, 'invoice') }} waiting for payment</span>
+          </a>
+          <a class="hx-stat is-link" [routerLink]="auth.link('/subscriptions')">
+            <div class="hx-stat-top"><span class="hx-stat-label">Active subscriptions</span><span class="hx-stat-ic"><ci-icon name="layers" /></span></div>
+            <strong>{{ b.activeSubscriptions }}</strong>
+            <span class="hx-stat-hint">{{ b.pendingSubscriptions }} awaiting payment</span>
+          </a>
+        }
+        @if (d.tickets; as t) {
+          <a class="hx-stat is-link" [routerLink]="auth.link('/support')">
+            <div class="hx-stat-top"><span class="hx-stat-label">Open tickets</span><span class="hx-stat-ic"><ci-icon name="life-buoy" /></span></div>
+            <strong>{{ t.open }}</strong>
+            <span class="hx-stat-hint">{{ t.unassigned }} not yet assigned</span>
+          </a>
+        }
         @if (d.customers; as c) {
           <a class="hx-stat is-link" [routerLink]="auth.link('/customers')">
             <div class="hx-stat-top"><span class="hx-stat-label">Customers</span><span class="hx-stat-ic"><ci-icon name="building" /></span></div>
@@ -103,7 +128,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
           </section>
         }
       </div>
-      <p class="note">Revenue, renewals and open tickets will appear here once billing and support are switched on. Until then this page shows only what is stored today.</p>
+      <p class="note">Figures come straight from the database. Payments are in test mode until a real payment gateway is connected, so money shown here is not real revenue yet.</p>
     } @else if (!error()) {
       <span class="ci-skeleton"></span>
     }
@@ -111,15 +136,20 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 })
 export class AdminOverviewPage implements OnInit {
   private readonly api = inject(AdminOpsApi);
+  private readonly billing = inject(AdminBillingApi);
   protected readonly auth = inject(AuthService);
   protected readonly me = computed(() => this.auth.me());
   protected readonly data = signal<DashboardSummary | null>(null);
   protected readonly error = signal<string | null>(null);
+  protected readonly bill = signal<BillingSummary | null>(null);
   protected readonly plural = plural;
+  protected readonly fmt = (v: string) => money(v);
 
   async ngOnInit() {
     try {
       this.data.set(await this.api.dashboard());
+      // Money is shown only to roles that may read billing; the API refuses everyone else.
+      if (this.auth.can('billing:read')) this.bill.set(await this.billing.summary().catch(() => null));
     } catch (e) {
       this.error.set(toApiError(e).message);
     }

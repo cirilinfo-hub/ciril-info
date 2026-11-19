@@ -9,6 +9,7 @@ export interface DashboardSummary {
   enquiries: { new: number; last7Days: number } | null;
   content: { products: number; plans: number; draftPlans: number; projects: number; testimonials: number; faqs: number } | null;
   staff: { active: number } | null;
+  tickets: { open: number; unassigned: number } | null;
   recentEnquiries: { id: string; name: string; email: string; service: string | null; status: string; createdAt: string }[] | null;
   recentActivity: { id: string; action: string; createdAt: string; actor: { firstName: string; lastName: string; email: string } | null }[] | null;
 }

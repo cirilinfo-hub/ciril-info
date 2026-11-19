@@ -1,8 +1,10 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
-import { CurrentTenant, ReqMeta, RequireTenant } from '../auth/decorators.js';
+import type { AuthUser, RequestMeta, TenantContext } from '../auth/auth.types.js';
+import { CurrentTenant, CurrentUser, ReqMeta, RequirePlatform, RequireTenant } from '../auth/decorators.js';
+import { AdminBillingService } from './admin-billing.service.js';
+import { AdminInvoiceListQuery, AdminSubscriptionListQuery, VoidInvoiceDto } from './admin-billing.dto.js';
 import { BillingListQuery, CancelSubscriptionDto, OrderDto, PayInvoiceDto, QuoteDto } from './billing.dto.js';
 import { BillingService } from './billing.service.js';
 
@@ -60,4 +62,26 @@ export class BillingController {
   pay(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @Body() dto: PayInvoiceDto, @ReqMeta() meta: RequestMeta) {
     return this.billing.pay(ctx, id, dto, meta);
   }
+}
+
+/** Admin portal: invoices and subscriptions across all customers. */
+@ApiTags('admin · billing')
+@Controller('admin')
+export class AdminBillingController {
+  constructor(private readonly svc: AdminBillingService) {}
+
+  @Get('billing/summary') @RequirePlatform('billing:read')
+  summary() { return this.svc.summary(); }
+
+  @Get('invoices') @RequirePlatform('billing:read')
+  invoices(@Query() q: AdminInvoiceListQuery) { return this.svc.listInvoices(q); }
+
+  @Get('invoices/:id') @RequirePlatform('billing:read')
+  invoice(@Param('id', uuid) id: string) { return this.svc.getInvoice(id); }
+
+  @Post('invoices/:id/void') @HttpCode(200) @RequirePlatform('billing:write')
+  voidInvoice(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: VoidInvoiceDto, @ReqMeta() meta: RequestMeta) { return this.svc.voidInvoice(u, id, dto.reason, meta); }
+
+  @Get('subscriptions') @RequirePlatform('subscriptions:read')
+  subscriptions(@Query() q: AdminSubscriptionListQuery) { return this.svc.listSubscriptions(q); }
 }

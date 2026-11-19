@@ -6,8 +6,7 @@ const DAY = 86_400_000;
 
 /**
  * Admin dashboard: real counts only. A section is included only when the caller's role
- * may read that data, and it is `null` otherwise. There are no revenue or growth figures
- * here until billing exists (Phase 4/6): nothing is estimated or invented.
+ * may read that data, and it is `null` otherwise. Billing figures come from /admin/billing/summary; nothing is estimated or invented.
  */
 @Injectable()
 export class AdminDashboardService {
@@ -19,7 +18,7 @@ export class AdminDashboardService {
     const d7 = new Date(now - 7 * DAY);
     const d30 = new Date(now - 30 * DAY);
 
-    const [customers, enquiries, content, staff, recentEnquiries, recentActivity] = await Promise.all([
+    const [customers, enquiries, content, staff, recentEnquiries, recentActivity, tickets] = await Promise.all([
       can('tenants:read')
         ? Promise.all([
             this.db.tenant.count(),
@@ -59,7 +58,13 @@ export class AdminDashboardService {
             select: { id: true, action: true, createdAt: true, actor: { select: { firstName: true, lastName: true, email: true } } },
           })
         : null,
+      can('support:read')
+        ? Promise.all([
+            this.db.supportTicket.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
+            this.db.supportTicket.count({ where: { status: 'OPEN', assigneeId: null } }),
+          ]).then(([open, unassigned]) => ({ open, unassigned }))
+        : null,
     ]);
-    return { customers, enquiries, content, staff, recentEnquiries, recentActivity };
+    return { customers, enquiries, content, staff, recentEnquiries, recentActivity, tickets };
   }
 }
