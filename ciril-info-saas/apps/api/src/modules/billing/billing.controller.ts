@@ -82,6 +82,12 @@ export class BillingController {
     return this.billing.getInvoice(ctx, id);
   }
 
+  @Get('credit-notes/:id')
+  @RequireTenant('billing:read')
+  creditNote(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string) {
+    return this.billing.getCreditNote(ctx, id);
+  }
+
   @Post('invoices/:id/pay')
   @HttpCode(200)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
@@ -111,6 +117,9 @@ export class AdminBillingController {
 
   @Post('invoices/:id/refunds') @HttpCode(200) @RequirePlatform('billing:refund')
   refund(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: RefundDto, @ReqMeta() meta: RequestMeta) { return this.svc.refundInvoice(u, id, dto, meta); }
+
+  @Get('credit-notes/:id') @RequirePlatform('billing:read')
+  creditNote(@Param('id', uuid) id: string) { return this.svc.getCreditNote(id); }
 
   @Get('subscriptions') @RequirePlatform('subscriptions:read')
   subscriptions(@Query() q: AdminSubscriptionListQuery) { return this.svc.listSubscriptions(q); }

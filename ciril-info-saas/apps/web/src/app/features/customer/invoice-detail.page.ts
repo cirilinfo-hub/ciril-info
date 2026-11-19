@@ -102,7 +102,9 @@ import { BillingApi, INVOICE_BADGE, type InvoiceDetail, money } from './billing.
         <section class="cf-card card" aria-labelledby="ref-h">
           <h2 id="ref-h" class="ts-heading-5">Refunds</h2>
           <ul class="pays">
-            @for (r of i.refunds; track r.id) { <li>{{ r.createdAt | date: 'd MMM y' }} · {{ fmt(r.amount, i.currency) }} refunded · {{ r.reason }}</li> }
+            @for (r of i.refunds; track r.id) {
+              <li>{{ r.createdAt | date: 'd MMM y' }} · {{ fmt(r.amount, i.currency) }} refunded · {{ r.reason }}@if (r.creditNote; as cn) { · <a [routerLink]="[auth.link('/credit-notes'), cn.id]">Credit note {{ cn.number }}</a> }</li>
+            }
           </ul>
         </section>
       }

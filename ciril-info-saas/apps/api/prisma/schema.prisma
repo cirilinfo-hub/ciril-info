@@ -317,6 +317,7 @@ model Tenant {
   subscriptions       Subscription[]
   subscriptionItems   SubscriptionItem[]
   subscriptionHistory SubscriptionHistory[]
+  creditNotes CreditNote[]
   invoices            Invoice[]
   invoiceItems        InvoiceItem[]
   payments            Payment[]
@@ -992,6 +993,7 @@ model Invoice {
   items        InvoiceItem[]
   payments     Payment[]
   refunds      Refund[]
+  creditNotes  CreditNote[]
 
   @@unique([number])
   @@index([tenantId, status])
@@ -1056,6 +1058,36 @@ model Payment {
   @@map("payments")
 }
 
+/// A GST credit note, issued for every successful refund. Numbered in its own gap-free series per financial year.
+/// The snapshot keeps seller, buyer, the original invoice and the CGST/SGST/IGST split exactly as they were at issue time.
+model CreditNote {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  invoiceId String   @map("invoice_id") @db.Uuid
+  refundId  String   @map("refund_id") @db.Uuid
+  /// CN-2026-27-000001
+  number    String   @db.VarChar(32)
+  currency  String   @default("INR") @db.Char(3)
+  /// Taxable value credited (before tax).
+  subtotal  Decimal  @db.Decimal(14, 2)
+  taxTotal  Decimal  @default(0) @map("tax_total") @db.Decimal(14, 2)
+  total     Decimal  @db.Decimal(14, 2)
+  reason    String   @db.VarChar(255)
+  snapshot  Json     @default("{}")
+  issuedAt  DateTime @default(now()) @map("issued_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  refund  Refund  @relation(fields: [refundId], references: [id])
+
+  @@unique([number])
+  @@unique([refundId])
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@map("credit_notes")
+}
+
 model Refund {
   id               String       @id @default(uuid()) @db.Uuid
   tenantId         String       @map("tenant_id") @db.Uuid
@@ -1074,6 +1106,7 @@ model Refund {
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   payment Payment @relation(fields: [paymentId], references: [id])
   invoice Invoice @relation(fields: [invoiceId], references: [id])
+  creditNote CreditNote?
 
   @@index([tenantId, status])
   @@index([paymentId])

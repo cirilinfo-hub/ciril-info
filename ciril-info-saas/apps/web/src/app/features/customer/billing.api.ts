@@ -41,7 +41,25 @@ export interface InvoiceDetail extends InvoiceRow {
   discountTotal: string;
   items: Quote['lines'];
   payments: { id: string; provider: string; status: string; amount: string; method: string | null; failureReason: string | null; createdAt: string }[];
-  refunds: { id: string; amount: string; reason: string; createdAt: string }[];
+  refunds: { id: string; amount: string; reason: string; createdAt: string; creditNote: { id: string; number: string } | null }[];
+}
+
+export interface CreditNoteDetail {
+  id: string;
+  number: string;
+  currency: string;
+  subtotal: string;
+  taxTotal: string;
+  total: string;
+  reason: string;
+  issuedAt: string;
+  invoice: { id: string; number: string };
+  snapshot: {
+    seller?: { name?: string; gstin?: string; address?: { line1?: string; line2?: string; city?: string; state?: string; postalCode?: string } };
+    buyer?: { name?: string | null; gstin?: string | null; address?: { line1?: string; line2?: string | null; city?: string; state?: string; stateCode?: string | null; postalCode?: string } | null };
+    original?: { number: string; issuedAt: string | null };
+    gst?: { kind: 'INTRA' | 'INTER' | 'UNKNOWN'; cgst: string; sgst: string; igst: string; gst: string };
+  };
 }
 
 export interface SubscriptionRow {
@@ -103,6 +121,9 @@ export class BillingApi {
   }
   subscriptions(page = 1) {
     return firstValueFrom(this.http.get<Paged<SubscriptionRow>>(`${this.base}/subscriptions`, { params: { page, pageSize: 20 } }));
+  }
+  creditNote(id: string) {
+    return firstValueFrom(this.http.get<CreditNoteDetail>(`${this.base}/credit-notes/${id}`));
   }
   planOptions(id: string) {
     return firstValueFrom(this.http.get<{ billingCycle: string; scheduledPlanId: string | null; plans: PlanOption[] }>(`${this.base}/subscriptions/${id}/plan-options`));

@@ -5,7 +5,8 @@ import { orderBy, page, skipTake } from '../../common/http/pagination.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthUser, RequestMeta } from '../auth/auth.types.js';
 import type { AdminInvoiceListQuery, AdminSubscriptionListQuery, RefundDto } from './admin-billing.dto.js';
-import { toPaise } from './billing.logic.js';
+import { fromPaise, gstSplit, refundTaxPaise, toPaise } from './billing.logic.js';
+import { nextCreditNoteNumber } from './numbering.js';
 import { PaymentGateway } from './payment-gateway.js';
 
 const UNPAID: InvoiceStatus[] = ['ISSUED', 'OVERDUE', 'PARTIALLY_PAID'];
@@ -46,7 +47,7 @@ export class AdminBillingService {
         tenant: { select: { id: true, name: true } },
         items: { select: { id: true, description: true, quantity: true, unitPrice: true, taxRate: true, taxAmount: true, lineTotal: true } },
         payments: { orderBy: { createdAt: 'desc' }, select: { id: true, provider: true, status: true, amount: true, method: true, failureReason: true, providerPaymentId: true, createdAt: true } },
-        refunds: { orderBy: { createdAt: 'desc' }, select: { id: true, amount: true, status: true, reason: true, createdAt: true } },
+        refunds: { orderBy: { createdAt: 'desc' }, select: { id: true, amount: true, status: true, reason: true, createdAt: true, creditNote: { select: { id: true, number: true } } } },
       },
     });
     if (!inv) throw new NotFoundException({ code: 'INVOICE_NOT_FOUND', message: 'Invoice not found.' });
@@ -124,6 +125,25 @@ export class AdminBillingService {
       await tx.payment.update({ where: { id: started.payment.id }, data: { status: fully ? 'REFUNDED' : 'PARTIALLY_REFUNDED' } });
       if (fully) await tx.invoice.update({ where: { id: invoiceId }, data: { status: 'REFUNDED' } });
 
+      // A GST credit note for this refund: the taxable value and the tax inside it, split the way the invoice was.
+      const full = await tx.invoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { number: true, issuedAt: true, total: true, taxTotal: true, billingSnapshot: true } });
+      const snap = (full.billingSnapshot ?? {}) as { seller?: { address?: { stateCode?: string } }; buyer?: { address?: { stateCode?: string | null } | null }; tax?: unknown };
+      const priorTax = await tx.creditNote.aggregate({ where: { invoiceId }, _sum: { taxTotal: true } });
+      const taxPaise = refundTaxPaise(started.wanted, toPaise(full.total), toPaise(full.taxTotal), toPaise(priorTax._sum.taxTotal ?? 0), fully);
+      const issuedAt = new Date();
+      const creditNote = await tx.creditNote.create({
+        data: {
+          tenantId: started.inv.tenantId, invoiceId, refundId: started.refundId, number: await nextCreditNoteNumber(tx, issuedAt), currency: started.inv.currency,
+          subtotal: fromPaise(started.wanted - taxPaise), taxTotal: fromPaise(taxPaise), total: fromPaise(started.wanted), reason: dto.reason, issuedAt,
+          snapshot: {
+            seller: (snap as { seller?: object }).seller ?? {}, buyer: snap.buyer ?? {}, tax: snap.tax ?? null,
+            original: { number: full.number, issuedAt: full.issuedAt?.toISOString() ?? null },
+            gst: { ...gstSplit(taxPaise, snap.seller?.address?.stateCode, snap.buyer?.address?.stateCode) },
+          },
+        },
+        select: { number: true },
+      });
+
       let cancelled = false;
       if (fully && dto.cancelService) {
         const sub = await tx.subscription.findFirst({ where: { invoices: { some: { id: invoiceId } }, status: { in: ['ACTIVE', 'PAST_DUE', 'PENDING'] } }, select: { id: true, status: true } });
@@ -143,13 +163,22 @@ export class AdminBillingService {
         });
       }
       await this.audit.record(
-        { action: 'refund.issue', actorId: user.id, tenantId: started.inv.tenantId, entityType: 'invoice', entityId: invoiceId, metadata: { amount: (started.wanted / 100).toFixed(2), reason: dto.reason, full: fully, serviceCancelled: cancelled }, meta },
+        { action: 'refund.issue', actorId: user.id, tenantId: started.inv.tenantId, entityType: 'invoice', entityId: invoiceId, metadata: { amount: (started.wanted / 100).toFixed(2), reason: dto.reason, full: fully, serviceCancelled: cancelled, creditNote: creditNote.number }, meta },
         tx,
       );
     });
 
     if (!result.ok) throw new ConflictException({ code: 'REFUND_FAILED', message: result.failureReason ?? 'The payment provider did not accept the refund.' });
     return this.getInvoice(invoiceId);
+  }
+
+  async getCreditNote(id: string) {
+    const c = await this.db.creditNote.findUnique({
+      where: { id },
+      select: { id: true, number: true, currency: true, subtotal: true, taxTotal: true, total: true, reason: true, snapshot: true, issuedAt: true, invoice: { select: { id: true, number: true } }, tenant: { select: { id: true, name: true } } },
+    });
+    if (!c) throw new NotFoundException({ code: 'CREDIT_NOTE_NOT_FOUND', message: 'Credit note not found.' });
+    return c;
   }
 
   async listSubscriptions(q: AdminSubscriptionListQuery) {

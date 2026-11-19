@@ -1,4 +1,4 @@
-import { addCycle, computeTotals, couponDiscountPaise, financialYear, invoiceNumber, toPaise } from './billing.logic.js';
+import { addCycle, computeTotals, couponDiscountPaise, financialYear, gstSplit, invoiceNumber, refundTaxPaise, toPaise } from './billing.logic.js';
 
 describe('billing logic', () => {
   it('adds billing cycles and clamps month ends', () => {
@@ -61,5 +61,27 @@ describe('billing logic', () => {
     expect(t.total).toBe('1062.00'); // 1100.00 - 200.00 + 162.00
     expect(t.lines[0]!.discount).toBe('200.00');
     expect(t.lines[0]!.lineTotal).toBe('944.00');
+  });
+
+  it('splits GST into CGST and SGST within a state, IGST across states, and never guesses', () => {
+    expect(gstSplit(14400, '27', '27')).toEqual({ kind: 'INTRA', cgst: '72.00', sgst: '72.00', igst: '0.00', gst: '0.00' });
+    expect(gstSplit(101, '27', '27')).toMatchObject({ cgst: '0.50', sgst: '0.51' }); // the odd paisa goes to SGST
+    expect(gstSplit(14400, '27', '29')).toEqual({ kind: 'INTER', cgst: '0.00', sgst: '0.00', igst: '144.00', gst: '0.00' });
+    expect(gstSplit(14400, null, '29')).toEqual({ kind: 'UNKNOWN', cgst: '0.00', sgst: '0.00', igst: '0.00', gst: '144.00' });
+    expect(gstSplit(14400, '27', undefined).kind).toBe('UNKNOWN');
+  });
+
+  it('finds the tax inside a refund, and the last refund takes the remainder', () => {
+    // Invoice: 1180.00 total including 180.00 tax.
+    expect(refundTaxPaise(59000, 118000, 18000, 0, false)).toBe(9000); // half the money, half the tax
+    expect(refundTaxPaise(10000, 118000, 18000, 0, false)).toBe(1525); // 100.00 of 1180.00
+    expect(refundTaxPaise(118000, 118000, 18000, 0, true)).toBe(18000); // full refund
+    expect(refundTaxPaise(59000, 118000, 18000, 9000, true)).toBe(9000); // the final half takes what is left
+    expect(refundTaxPaise(50000, 100000, 0, 0, false)).toBe(0); // an untaxed invoice
+    // Three uneven refunds always add up to exactly the invoice tax.
+    const a = refundTaxPaise(33333, 118000, 18000, 0, false);
+    const b = refundTaxPaise(33333, 118000, 18000, a, false);
+    const c = refundTaxPaise(51334, 118000, 18000, a + b, true);
+    expect(a + b + c).toBe(18000);
   });
 });

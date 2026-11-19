@@ -107,6 +107,7 @@ export function customerRoutes(base: string): Routes {
             { path: 'order', title: 'Order · Ciril Info', canActivate: [requirePermission('services:order')], loadComponent: () => import('./customer/order.page').then((m) => m.OrderPage) },
             { path: 'services', title: 'Services · Ciril Info', canActivate: [requirePermission('services:read')], loadComponent: () => import('./customer/subscriptions.page').then((m) => m.SubscriptionsPage) },
             { path: 'invoices', title: 'Invoices · Ciril Info', canActivate: [requirePermission('billing:read')], loadComponent: () => import('./customer/invoices.page').then((m) => m.InvoicesPage) },
+            { path: 'credit-notes/:id', title: 'Credit note · Ciril Info', canActivate: [requirePermission('billing:read')], loadComponent: () => import('./customer/credit-note.page').then((m) => m.CreditNotePage) },
             { path: 'invoices/:id', title: 'Invoice · Ciril Info', canActivate: [requirePermission('billing:read')], loadComponent: () => import('./customer/invoice-detail.page').then((m) => m.InvoiceDetailPage) },
             { path: 'support', title: 'Support · Ciril Info', canActivate: [requirePermission('support:read')], loadComponent: () => import('./support/customer-tickets.page').then((m) => m.CustomerTicketsPage) },
             { path: 'support/:id', title: 'Ticket · Ciril Info', canActivate: [requirePermission('support:read')], loadComponent: () => import('./support/customer-ticket.page').then((m) => m.CustomerTicketPage) },

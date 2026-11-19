@@ -39,6 +39,7 @@ const FILTERS: { key: InvoiceStatus | ''; label: string }[] = [
     table.inner th, table.inner td { padding: var(--space-2) 0; border-top: 1px solid var(--color-border-subtle); }
     table.inner thead th { border-top: 0; }
     h3 { margin: var(--space-4) 0 var(--space-2); }
+    td small { display: block; color: var(--color-text-secondary); }
   `,
   template: `
     <ci-page-head title="Invoices" sub="Invoices issued to all customers." />
@@ -110,7 +111,7 @@ const FILTERS: { key: InvoiceStatus | ''; label: string }[] = [
             <thead><tr><th scope="col">When</th><th scope="col">Reason</th><th scope="col">Status</th><th scope="col" class="amt">Amount</th></tr></thead>
             <tbody>
               @for (r of d.refunds; track r.id) {
-                <tr><td>{{ r.createdAt | date: 'd MMM y, h:mm a' }}</td><td>{{ r.reason }}</td><td>{{ r.status === 'SUCCEEDED' ? 'Refunded' : r.status === 'FAILED' ? 'Failed' : 'Processing' }}</td><td class="amt">{{ fmt(r.amount, d.currency) }}</td></tr>
+                <tr><td>{{ r.createdAt | date: 'd MMM y, h:mm a' }}</td><td>{{ r.reason }}@if (r.creditNote; as cn) { <small>Credit note {{ cn.number }}</small> }</td><td>{{ r.status === 'SUCCEEDED' ? 'Refunded' : r.status === 'FAILED' ? 'Failed' : 'Processing' }}</td><td class="amt">{{ fmt(r.amount, d.currency) }}</td></tr>
               }
             </tbody>
           </table>

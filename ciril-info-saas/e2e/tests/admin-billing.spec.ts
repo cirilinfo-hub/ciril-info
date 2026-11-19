@@ -25,7 +25,7 @@ async function customerWithUnpaidOrder(email: string, org: string) {
   await post('organisation/addresses', { line1: '5 Lake Road', city: 'Pune', stateCode: '27', postalCode: '411001' }, token);
   const order = await post('orders', { planRef: 'pw-hosting/pw-pro', billingCycle: 'YEARLY' }, token);
   const invoice = order['invoice'] as { id: string; number: string };
-  return { invoiceNumber: invoice.number, invoiceId: invoice.id, token };
+  return { invoiceNumber: invoice.number, invoiceId: invoice.id, token, email };
 }
 
 async function staffSignIn(page: Page, email: string, secret: string) {
@@ -82,11 +82,11 @@ test.describe('Admin billing', () => {
     await page.screenshot({ path: 'screenshots/admin-subscriptions.png', fullPage: true });
   });
 
-  test('finance refunds a paid invoice in two steps and the customer sees it', async ({ page }, info) => {
+  test('finance refunds a paid invoice in two steps and the customer sees it', async ({ page, browser }, info) => {
     test.skip(info.project.name !== 'desktop', 'full journey runs once');
     test.setTimeout(120_000);
     const org = `PW Refund Org ${Date.now()}`;
-    const { invoiceNumber, invoiceId, token } = await customerWithUnpaidOrder(uniqueEmail('refund'), org);
+    const { invoiceNumber, invoiceId, token, email } = await customerWithUnpaidOrder(uniqueEmail('refund'), org);
     await post(`invoices/${invoiceId}/pay`, {}, token);
 
     // Finance can refund; a Support Agent has no Refund button.
@@ -131,7 +131,29 @@ test.describe('Admin billing', () => {
     await expect(page.getByText(`Refund issued for ${invoiceNumber}.`)).toBeVisible();
     await expect(page.getByRole('dialog', { name: invoiceNumber }).getByRole('button', { name: 'Refund' })).toHaveCount(0); // nothing left
     await page.getByRole('dialog', { name: invoiceNumber }).getByRole('button', { name: 'Close', exact: true }).last().click();
+    // Each refund came with a numbered GST credit note, shown to staff...
     await expect(row.locator('.cf-badge', { hasText: 'Refunded' })).toBeVisible();
+
+    // ...and to the customer, who can open and print it.
+    const customerCtx = await browser.newContext();
+    const cust = await customerCtx.newPage();
+    await cust.goto('/portal/login');
+    await cust.getByLabel('Email address').fill(email);
+    await cust.getByLabel('Password').fill(CUSTOMER_PASSWORD);
+    await cust.getByRole('button', { name: 'Sign In' }).click();
+    await expect(cust.getByRole('heading', { name: /^Welcome/ })).toBeVisible();
+    await cust.goto(`/portal/invoices/${invoiceId}`);
+    await expect(cust.getByRole('link', { name: /^Credit note CN-/ })).toHaveCount(2);
+    await cust.getByRole('link', { name: /^Credit note CN-/ }).first().click();
+    await expect(cust.getByRole('heading', { name: /^CN-\d{4}-\d{2}-\d{6}$/, level: 1 })).toBeVisible();
+    await expect(cust.getByText('Credited to')).toBeVisible();
+    await expect(cust.getByText('Taxable value credited')).toBeVisible();
+    await expect(cust.getByText('Total credited')).toBeVisible();
+    await expect(cust.getByText(invoiceNumber).first()).toBeVisible();
+    await cust.emulateMedia({ media: 'print' });
+    await expect(cust.getByRole('complementary')).toBeHidden();
+    await cust.screenshot({ path: 'screenshots/customer-credit-note-print.png', fullPage: true });
+    await customerCtx.close();
     await page.screenshot({ path: 'screenshots/admin-refunded-invoice.png', fullPage: true });
 
     await page.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Subscriptions' }).click();

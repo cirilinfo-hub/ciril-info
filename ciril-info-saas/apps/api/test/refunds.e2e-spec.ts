@@ -50,6 +50,7 @@ describe('Refunds (e2e)', () => {
 
   afterAll(async () => {
     const tenantIds = [alice?.tenantId, bob?.tenantId].filter(Boolean) as string[];
+    await db.creditNote.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.refund.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.invoice.deleteMany({ where: { tenantId: { in: tenantIds } } });

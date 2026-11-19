@@ -28,7 +28,7 @@ export interface AdminInvoiceDetail extends AdminInvoiceRow {
   billingSnapshot: { buyer?: { name?: string | null; email?: string; gstin?: string | null; address?: { line1: string; city: string; state: string; postalCode: string } | null } } | null;
   items: { id: string; description: string; quantity: number; unitPrice: string; taxRate: string; taxAmount: string; lineTotal: string }[];
   payments: { id: string; provider: string; status: string; amount: string; method: string | null; failureReason: string | null; providerPaymentId: string | null; createdAt: string }[];
-  refunds: { id: string; amount: string; status: string; reason: string; createdAt: string }[];
+  refunds: { id: string; amount: string; status: string; reason: string; createdAt: string; creditNote: { id: string; number: string } | null }[];
 }
 
 export interface AdminSubscriptionRow {

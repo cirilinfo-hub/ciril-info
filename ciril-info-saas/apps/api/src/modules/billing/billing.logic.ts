@@ -95,3 +95,37 @@ export function computeTotals(lines: readonly PricedLine[], taxPercent: number):
   });
   return { lines: out, subtotal: fromPaise(subtotal), discountTotal: fromPaise(discounts), taxTotal: fromPaise(tax), total: fromPaise(subtotal - discounts + tax) };
 }
+
+export interface GstSplit {
+  /** INTRA: seller and buyer are in the same state (CGST + SGST). INTER: different states (IGST). UNKNOWN: a state is missing, so one GST line. */
+  kind: 'INTRA' | 'INTER' | 'UNKNOWN';
+  cgst: string;
+  sgst: string;
+  igst: string;
+  gst: string;
+}
+
+/**
+ * Splits a tax amount the way a GST invoice shows it. Same state: half CGST, half SGST (an odd paisa goes to SGST).
+ * Different states: all IGST. When either state is not on record the split is not guessed, and one GST line is shown.
+ */
+export function gstSplit(taxPaise: number, sellerStateCode?: string | null, buyerStateCode?: string | null): GstSplit {
+  if (sellerStateCode && buyerStateCode) {
+    if (sellerStateCode === buyerStateCode) {
+      const cgst = Math.floor(taxPaise / 2);
+      return { kind: 'INTRA', cgst: fromPaise(cgst), sgst: fromPaise(taxPaise - cgst), igst: '0.00', gst: '0.00' };
+    }
+    return { kind: 'INTER', cgst: '0.00', sgst: '0.00', igst: fromPaise(taxPaise), gst: '0.00' };
+  }
+  return { kind: 'UNKNOWN', cgst: '0.00', sgst: '0.00', igst: '0.00', gst: fromPaise(taxPaise) };
+}
+
+/**
+ * How much of a refund is tax. Proportional to the original invoice, so a refund of half the total credits half the tax.
+ * The refund that clears the last of the money takes whatever tax is left, so the credit notes always add up exactly.
+ */
+export function refundTaxPaise(refundPaise: number, invoiceTotalPaise: number, invoiceTaxPaise: number, alreadyCreditedTaxPaise: number, isFinal: boolean): number {
+  if (invoiceTotalPaise <= 0 || invoiceTaxPaise <= 0) return 0;
+  if (isFinal) return Math.max(0, invoiceTaxPaise - alreadyCreditedTaxPaise);
+  return Math.min(Math.round((refundPaise * invoiceTaxPaise) / invoiceTotalPaise), Math.max(0, invoiceTaxPaise - alreadyCreditedTaxPaise));
+}
