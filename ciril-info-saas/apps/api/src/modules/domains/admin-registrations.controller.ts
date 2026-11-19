@@ -19,6 +19,12 @@ export class AdminRegistrationsController {
   @Post(':id/complete') @HttpCode(200) @RequirePlatform('domains:write')
   complete(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: CompleteRegistrationDto, @ReqMeta() meta: RequestMeta) { return this.svc.complete(u, id, dto, meta); }
 
+  @Post(':id/renewal/complete') @HttpCode(200) @RequirePlatform('domains:write')
+  completeRenewal(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: CompleteRegistrationDto, @ReqMeta() meta: RequestMeta) { return this.svc.completeRenewal(u, id, dto, meta); }
+
+  @Post(':id/renewal/cannot-renew') @HttpCode(200) @RequirePlatform('domains:write')
+  cannotRenew(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: CannotRegisterDto, @ReqMeta() meta: RequestMeta) { return this.svc.declineRenewal(u, id, dto.reason, meta); }
+
   @Post(':id/cannot-register') @HttpCode(200) @RequirePlatform('domains:write')
   cannotRegister(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: CannotRegisterDto, @ReqMeta() meta: RequestMeta) { return this.svc.decline(u, id, dto.reason, meta); }
 }

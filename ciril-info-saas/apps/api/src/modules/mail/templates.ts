@@ -57,6 +57,10 @@ export function renderEmail(m: EmailMessage): RenderedEmail {
       return build(`Your hosting for ${m.data.domain} is ready`, 'Your hosting is ready', [`We have set up hosting for ${m.data.domain}. You can see its status in your client area.`], { label: 'Open Hosting', url: m.data.link });
     case 'domain-registered':
       return build(`${m.data.domain} is registered`, 'Your domain is registered', [`${m.data.domain} is now registered in your name. You can see its details and expiry date in your client area.`], { label: 'Open Domains', url: m.data.link });
+    case 'domain-renewed':
+      return build(`${m.data.domain} is renewed`, 'Your domain is renewed', [`${m.data.domain} has been renewed. It is now registered until ${m.data.expiresOn}.`], { label: 'Open Domains', url: m.data.link });
+    case 'domain-expiring':
+      return build(`${m.data.domain} ${m.data.when}`, `Your domain ${m.data.when}`, [`${m.data.domain} ${m.data.when}.`, 'Renew it to keep your website and email working. If a domain is not renewed in time, you can lose the name.'], { label: 'Renew Domain', url: m.data.link });
     case 'renewal-invoice':
       return build(`Renewal invoice ${m.data.number}`, 'Your renewal invoice is ready', [`Invoice ${m.data.number} for ${m.data.total} is due on ${m.data.dueDate}.`, 'Pay it before the due date so your service continues without interruption.'], { label: 'View Invoice', url: m.data.link });
     case 'ticket-reply':

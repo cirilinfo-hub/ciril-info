@@ -9,7 +9,7 @@ import { Icon } from '../../design-system/icon/icon';
 import { PageHead } from '../../shared/components/page-head';
 import type { DomainResult, DomainSearchResponse } from '../public/shared/public-api';
 import { money } from './billing.api';
-import { type CustomerDomain, DOMAIN_STAGE, type DomainQuote, DomainsApi } from './domains.api';
+import { type CustomerDomain, DOMAIN_STAGE, type DomainQuote, DomainsApi, type RenewalQuote } from './domains.api';
 
 const YEARS = [1, 2, 3, 4, 5];
 
@@ -45,7 +45,7 @@ const YEARS = [1, 2, 3, 4, 5];
   template: `
     <ci-page-head title="Domains" sub="Search for a domain name, register it, and see the domains you own." />
     @if (notice(); as n) { <div class="cf-alert cf-alert-success" role="status"><ci-icon name="check-circle" /><span>{{ n }}</span></div> }
-    @if (error() && !ordering(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ error() }}</span></div> }
+    @if (error() && !ordering() && !renewing(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ error() }}</span></div> }
 
     <section aria-labelledby="find-h">
       <h2 id="find-h" class="ts-heading-5">Find a domain</h2>
@@ -100,9 +100,18 @@ const YEARS = [1, 2, 3, 4, 5];
                 <td>
                   <span class="cf-badge" [class]="'cf-badge ' + stage(d).cls">{{ stage(d).label }}</span>
                   <small>{{ d.stage === 'FAILED' && d.failureReason ? d.failureReason + ' We will refund your payment.' : stage(d).hint }}</small>
+                  @if (d.renewal; as rn) {
+                    <small>{{ rn.stage === 'AWAITING_PAYMENT' ? 'Renewal for ' + rn.years + (rn.years === 1 ? ' year' : ' years') + ' is awaiting payment.' : 'Renewal paid. Our team is renewing it and will email you when it is done.' }}</small>
+                  }
                 </td>
                 <td>{{ d.expiresAt ? (d.expiresAt | date: 'd MMM y') : '—' }}</td>
                 <td class="row-actions">
+                  @if (d.renewal?.stage === 'AWAITING_PAYMENT') {
+                    @if (auth.can('billing:read')) { <a class="cf-btn cf-btn-primary cf-btn-sm" [routerLink]="[auth.link('/invoices'), d.renewal!.invoice.id]" [attr.aria-label]="'Pay the renewal for ' + d.name">Pay renewal</a> }
+                    @if (auth.can('services:manage')) { <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="cancelRenewalFor.set(d)" [attr.aria-label]="'Cancel the renewal for ' + d.name">Cancel renewal</button> }
+                  } @else if (!d.renewal && (d.stage === 'ACTIVE' || d.stage === 'EXPIRED') && auth.can('services:manage')) {
+                    <button type="button" class="cf-btn cf-btn-secondary cf-btn-sm" [disabled]="busy()" (click)="openRenew(d)" [attr.aria-label]="'Renew ' + d.name">Renew</button>
+                  }
                   @if (d.stage === 'AWAITING_PAYMENT' && d.orderInvoice) {
                     @if (auth.can('billing:read')) { <a class="cf-btn cf-btn-primary cf-btn-sm" [routerLink]="[auth.link('/invoices'), d.orderInvoice.id]" [attr.aria-label]="'Pay for ' + d.name">Pay now</a> }
                     @if (auth.can('services:manage')) { <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="cancelFor.set(d)" [attr.aria-label]="'Cancel the order for ' + d.name">Cancel order</button> }
@@ -142,6 +151,41 @@ const YEARS = [1, 2, 3, 4, 5];
       </ci-dialog>
     }
 
+    @if (renewing(); as d) {
+      <ci-dialog [heading]="'Renew ' + d.name" description="You will get an invoice to pay. Once it is paid, our team renews the domain at the registrar and emails you." icon="refresh" size="md" [dismissable]="false" (closed)="renewing.set(null)">
+        @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+        <div class="years">
+          <label for="r-years" class="cf-label">Renew for</label>
+          <select id="r-years" class="cf-input" [ngModel]="renewYears()" (ngModelChange)="setRenewYears($event)">
+            @for (y of yearOptions; track y) { <option [ngValue]="y">{{ y }} {{ y === 1 ? 'year' : 'years' }}</option> }
+          </select>
+        </div>
+        @if (renewQuote(); as q) {
+          <div class="sum" aria-live="polite">
+            <div><span>{{ q.domain }} · {{ q.years }} {{ q.years === 1 ? 'year' : 'years' }}</span><span>{{ money(q.subtotal) }}</span></div>
+            @if (+q.taxTotal > 0) { <div><span>{{ q.taxName ?? 'Tax' }}</span><span>{{ money(q.taxTotal) }}</span></div> }
+            <div class="total"><span>Total</span><span>{{ money(q.total) }}</span></div>
+            <div><span>New expiry date</span><span>{{ q.newExpiry | date: 'd MMM y' }}</span></div>
+          </div>
+        } @else if (renewQuoting()) {
+          <div class="ci-skeleton" style="height: 72px; margin-top: var(--space-4)" aria-hidden="true"></div>
+        }
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="renewing.set(null)">Cancel</button>
+          <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy() || !renewQuote()" (click)="placeRenewal(d)">{{ busy() ? 'Creating invoice…' : 'Continue to payment' }}</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
+    @if (cancelRenewalFor(); as d) {
+      <ci-dialog heading="Cancel this renewal?" [description]="'The renewal invoice for ' + d.name + ' is cancelled. The domain keeps its current expiry date.'" icon="warning" tone="danger" [dismissable]="false" (closed)="cancelRenewalFor.set(null)">
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="cancelRenewalFor.set(null)">Keep the renewal</button>
+          <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy()" (click)="cancelRenewal(d)">{{ busy() ? 'Cancelling…' : 'Cancel renewal' }}</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
     @if (cancelFor(); as d) {
       <ci-dialog heading="Cancel this order?" [description]="'The invoice for ' + d.name + ' is cancelled and the name is released for others.'" icon="warning" tone="danger" [dismissable]="false" (closed)="cancelFor.set(null)">
         <ng-container actions>
@@ -174,6 +218,12 @@ export class DomainsPage implements OnInit {
   protected readonly years = signal(1);
   protected readonly quote = signal<DomainQuote | null>(null);
   protected readonly quoting = signal(false);
+  protected readonly renewing = signal<CustomerDomain | null>(null);
+  protected readonly renewYears = signal(1);
+  protected readonly renewQuote = signal<RenewalQuote | null>(null);
+  protected readonly renewQuoting = signal(false);
+  protected readonly cancelRenewalFor = signal<CustomerDomain | null>(null);
+  private latestRenewQuote = 0;
   /** Answers can arrive out of order; only the newest is shown. */
   private latestSearch = 0;
   private latestQuote = 0;
@@ -277,6 +327,69 @@ export class DomainsPage implements OnInit {
       this.notice.set(`Invoice ${r.invoice.number} was created for ${name}. Ask an owner or admin to pay it.`);
       await this.load();
     } catch (e) {
+      this.error.set(toApiError(e).message);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async openRenew(d: CustomerDomain) {
+    this.error.set(null);
+    this.renewYears.set(1);
+    this.renewQuote.set(null);
+    this.renewing.set(d);
+    await this.requoteRenewal(d);
+  }
+
+  protected setRenewYears(y: number) {
+    this.renewYears.set(y);
+    const d = this.renewing();
+    if (d) void this.requoteRenewal(d);
+  }
+
+  private async requoteRenewal(d: CustomerDomain) {
+    const mine = ++this.latestRenewQuote;
+    this.renewQuoting.set(true);
+    this.renewQuote.set(null);
+    try {
+      const q = await this.api.renewalQuote(d.id, this.renewYears());
+      if (mine === this.latestRenewQuote) this.renewQuote.set(q);
+    } catch (e) {
+      if (mine === this.latestRenewQuote) this.error.set(toApiError(e).message);
+    } finally {
+      if (mine === this.latestRenewQuote) this.renewQuoting.set(false);
+    }
+  }
+
+  protected async placeRenewal(d: CustomerDomain) {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      const r = await this.api.renew(d.id, this.renewYears());
+      this.renewing.set(null);
+      if (this.auth.can('billing:read')) {
+        await this.router.navigate([this.auth.link('/invoices'), r.invoice.id]);
+        return;
+      }
+      this.notice.set(`Invoice ${r.invoice.number} was created to renew ${d.name}. Ask an owner or admin to pay it.`);
+      await this.load();
+    } catch (e) {
+      this.error.set(toApiError(e).message);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async cancelRenewal(d: CustomerDomain) {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.cancelRenewal(d.renewal!.id);
+      this.cancelRenewalFor.set(null);
+      this.notice.set(`The renewal for ${d.name} was cancelled.`);
+      await this.load();
+    } catch (e) {
+      this.cancelRenewalFor.set(null);
       this.error.set(toApiError(e).message);
     } finally {
       this.busy.set(false);

@@ -314,6 +314,7 @@ model Tenant {
   hostingResources    HostingResource[]
   provisioningJobs    ProvisioningJob[]
   domains             Domain[]
+  domainRenewals      DomainRenewal[]
   dnsRecords          DnsRecord[]
   domainTransfers     DomainTransfer[]
   subscriptions       Subscription[]
@@ -816,6 +817,33 @@ model TldPrice {
   @@map("tld_prices")
 }
 
+enum DomainRenewalStatus {
+  PENDING
+  DONE
+  CANCELLED
+}
+
+/// A request to extend a domain by some years, paid by its own invoice. Staff renew it at the registrar and mark it done.
+model DomainRenewal {
+  id          String              @id @default(uuid()) @db.Uuid
+  tenantId    String              @map("tenant_id") @db.Uuid
+  domainId    String              @map("domain_id") @db.Uuid
+  years       Int
+  invoiceId   String              @unique @map("invoice_id") @db.Uuid
+  status      DomainRenewalStatus @default(PENDING)
+  failureReason String?           @map("failure_reason") @db.VarChar(255)
+  requestedAt DateTime            @default(now()) @map("requested_at") @db.Timestamptz(3)
+  completedAt DateTime?           @map("completed_at") @db.Timestamptz(3)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  domain  Domain  @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@index([tenantId])
+  @@index([domainId, status])
+  @@map("domain_renewals")
+}
+
 model DomainRegistrar {
   id             String   @id @default(uuid()) @db.Uuid
   name           String   @db.VarChar(80)
@@ -858,10 +886,13 @@ model Domain {
   orderInvoiceId String?      @unique @map("order_invoice_id") @db.Uuid
   /// Why staff could not register it (shown to the customer).
   failureReason  String?      @map("failure_reason") @db.VarChar(255)
+  /// Which expiry reminder was last sent: 0 none, 1 thirty days, 2 seven days, 3 expired.
+  reminderStage  Int          @default(0) @map("reminder_stage")
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  renewals     DomainRenewal[]
   subscription Subscription?    @relation(fields: [subscriptionId], references: [id])
   registrar    DomainRegistrar? @relation(fields: [registrarId], references: [id])
   orderInvoice Invoice?         @relation("DomainOrderInvoice", fields: [orderInvoiceId], references: [id])
@@ -1024,6 +1055,7 @@ model Invoice {
   tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   subscription Subscription? @relation(fields: [subscriptionId], references: [id])
   domainOrder  Domain?       @relation("DomainOrderInvoice")
+  domainRenewal DomainRenewal?
   items        InvoiceItem[]
   payments     Payment[]
   refunds      Refund[]

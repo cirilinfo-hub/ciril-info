@@ -13,3 +13,7 @@ export class DomainOrderDto {
   @Transform(trim) @IsString() @MinLength(3) @MaxLength(253) domain!: string;
   @Type(() => Number) @IsInt() @Min(1) @Max(MAX_YEARS) years = 1;
 }
+
+export class RenewDomainDto {
+  @Type(() => Number) @IsInt() @Min(1) @Max(MAX_YEARS) years = 1;
+}

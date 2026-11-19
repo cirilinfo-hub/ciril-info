@@ -65,6 +65,8 @@ export class BillingLifecycleService {
     const { reconciled, checkoutsClosed } = await this.reconcilePayments(now);
     const abandoned = (await this.cancelAbandonedOrders(now)) + (await this.cancelAbandonedDomainOrders(now));
     const { pastDue, expired } = await this.processPeriodEnds(now);
+    const domains = await this.processDomainExpiry(now);
+    if (domains.reminded || domains.expired) this.log.log(`domain expiry: ${JSON.stringify(domains)}`);
     if (renewalInvoices || overdue || abandoned || pastDue || expired || reconciled || checkoutsClosed) this.log.log(`billing lifecycle: ${JSON.stringify({ renewalInvoices, overdue, abandoned, pastDue, expired, reconciled, checkoutsClosed })}`);
     return { renewalInvoices, overdue, pastDue, expired, abandoned, reconciled, checkoutsClosed };
   }
@@ -277,6 +279,54 @@ export class BillingLifecycleService {
       }
     }
     return cancelled;
+  }
+
+  // ───────────────────────────── domain expiry ─────────────────────────────
+
+  /**
+   * Domains are reminded 30 and 7 days before they expire, and marked expired when the date passes. Each reminder is
+   * sent once (the stage is stored on the domain). A domain whose renewal has been paid, and is only waiting for staff,
+   * is not marked expired: the customer has done their part.
+   */
+  private async processDomainExpiry(now: Date) {
+    const horizon = new Date(now.getTime() + 30 * DAY);
+    const candidates = await this.db.domain.findMany({ where: { status: 'ACTIVE', expiresAt: { not: null, lte: horizon }, reminderStage: { lt: 3 } }, select: { id: true } });
+    let reminded = 0;
+    let expired = 0;
+    for (const { id } of candidates) {
+      try {
+        const outcome = await this.db.$transaction(async (tx) => {
+          const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM domains WHERE id = ${id}::uuid FOR UPDATE SKIP LOCKED`;
+          if (!locked.length) return null;
+          const d = await tx.domain.findUnique({
+            where: { id },
+            select: { id: true, tenantId: true, name: true, status: true, expiresAt: true, reminderStage: true, renewals: { where: { status: 'PENDING', invoice: { status: 'PAID' } }, select: { id: true }, take: 1 } },
+          });
+          if (!d || d.status !== 'ACTIVE' || !d.expiresAt) return null;
+          const msLeft = d.expiresAt.getTime() - now.getTime();
+          const days = Math.ceil(msLeft / DAY);
+          const target = msLeft <= 0 ? 3 : days <= 7 ? 2 : days <= 30 ? 1 : 0;
+          if (target <= d.reminderStage) return null;
+          if (target === 3 && d.renewals.length) return null; // paid and waiting for staff: not the customer's fault
+          const link = `${this.portalUrl}/domains`;
+          const owners = await tx.tenantMembership.findMany({ where: { tenantId: d.tenantId, status: 'ACTIVE', role: { key: 'TENANT_OWNER' } }, select: { user: { select: { email: true } } } });
+          const when = target === 3 ? 'has expired' : `expires in ${days} ${days === 1 ? 'day' : 'days'}`;
+          await tx.domain.update({ where: { id }, data: { reminderStage: target, ...(target === 3 ? { status: 'EXPIRED' as const } : {}) } });
+          await this.notifyOwners(tx, d.tenantId, {
+            type: target === 3 ? 'domain.expired' : 'domain.expiring', title: `${d.name} ${when}`,
+            body: target === 3 ? 'Renew it as soon as possible to avoid losing the name.' : 'Renew it to keep your website and email working.', link: '/domains',
+          });
+          for (const o of owners) await this.mail.enqueue({ template: 'domain-expiring', to: o.user.email, data: { domain: d.name, when, link } }, tx, d.tenantId);
+          await this.audit.record({ action: target === 3 ? 'domain.expired' : 'domain.expiry_reminder', tenantId: d.tenantId, entityType: 'domain', entityId: id, metadata: { stage: target } }, tx);
+          return target === 3 ? 'EXPIRED' : 'REMINDED';
+        });
+        if (outcome === 'EXPIRED') expired++;
+        else if (outcome === 'REMINDED') reminded++;
+      } catch (e) {
+        this.log.error(`domain expiry failed for domain ${id}: ${(e as Error).message}`);
+      }
+    }
+    return { reminded, expired };
   }
 
   // ───────────────────────────── period ends ─────────────────────────────

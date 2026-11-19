@@ -19,6 +19,20 @@ export interface CustomerDomain {
   failureReason: string | null;
   createdAt: string;
   orderInvoice: { id: string; number: string; status: string; total: string; currency: string } | null;
+  /** A renewal that has been asked for and not finished: waiting for payment, or paid and waiting for our team. */
+  renewal: { id: string; years: number; stage: 'AWAITING_PAYMENT' | 'RENEWING'; invoice: { id: string; number: string; status: string; total: string; currency: string } } | null;
+}
+
+export interface RenewalQuote {
+  domain: string;
+  years: number;
+  currency: string;
+  renewPrice: number;
+  taxName: string | null;
+  subtotal: string;
+  taxTotal: string;
+  total: string;
+  newExpiry: string;
 }
 
 export interface DomainQuote {
@@ -62,6 +76,15 @@ export class DomainsApi {
   }
   order(domain: string, years: number) {
     return firstValueFrom(this.http.post<{ domain: CustomerDomain; invoice: { id: string; number: string } }>(`${this.base}/orders`, { domain, years }));
+  }
+  renewalQuote(id: string, years: number) {
+    return firstValueFrom(this.http.get<RenewalQuote>(`${this.base}/${id}/renew/quote`, { params: { years } }));
+  }
+  renew(id: string, years: number) {
+    return firstValueFrom(this.http.post<{ renewal: { id: string }; invoice: { id: string; number: string } }>(`${this.base}/${id}/renew`, { years }));
+  }
+  cancelRenewal(renewalId: string) {
+    return firstValueFrom(this.http.post<{ id: string; status: string }>(`${this.base}/renewals/${renewalId}/cancel`, {}));
   }
   cancel(id: string) {
     return firstValueFrom(this.http.post<{ id: string; stage: DomainStage }>(`${this.base}/${id}/cancel`, {}));

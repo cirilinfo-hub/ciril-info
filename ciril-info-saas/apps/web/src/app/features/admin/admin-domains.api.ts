@@ -38,6 +38,9 @@ export interface AdminRegistration {
   createdAt: string;
   tenant: { id: string; name: string };
   orderInvoice: { id: string; number: string; status: string; total: string } | null;
+  reminderStage: number;
+  /** The renewal waiting right now, if any. */
+  renewals: { id: string; years: number; requestedAt: string; invoice: { id: string; number: string; status: string; total: string } }[];
 }
 
 /** Admin-portal domain price list. */
@@ -54,6 +57,12 @@ export class AdminDomainsApi {
   }
   completeRegistration(id: string, body: { registrarRef?: string; expiresAt?: string }) {
     return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/complete`, body));
+  }
+  completeRenewal(id: string, body: { registrarRef?: string; expiresAt?: string }) {
+    return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/renewal/complete`, body));
+  }
+  cannotRenew(id: string, reason: string) {
+    return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/renewal/cannot-renew`, { reason }));
   }
   cannotRegister(id: string, reason: string) {
     return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/cannot-register`, { reason }));

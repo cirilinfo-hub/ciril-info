@@ -34,7 +34,7 @@ const FILTERS = [
     .pager { display: flex; gap: var(--space-3); align-items: center; justify-content: flex-end; margin-top: var(--space-4); }
   `,
   template: `
-    <ci-page-head title="Domains" sub="Domains customers have ordered. When an order is paid, register the name at your registrar, then mark it done here and the customer is told.">
+    <ci-page-head title="Domains" sub="Domains customers have ordered or asked to renew. When one is paid, do it at your registrar, then mark it done here and the customer is told.">
       @if (canWrite()) { <a class="cf-btn cf-btn-secondary" [routerLink]="auth.link('/domain-prices')">Domain prices</a> }
     </ci-page-head>
     @if (toast(); as t) { <div class="cf-alert cf-alert-success" role="status"><ci-icon name="check-circle" /><span>{{ t }}</span></div> }
@@ -59,7 +59,7 @@ const FILTERS = [
         <tbody>
           @for (d of rows(); track d.id) {
             <tr>
-              <td>{{ d.name }}<small>{{ d.years }} {{ d.years === 1 ? 'year' : 'years' }}@if (d.orderInvoice) { · {{ money(d.orderInvoice.total) }} }</small></td>
+              <td>{{ d.name }}<small>{{ d.years }} {{ d.years === 1 ? 'year' : 'years' }}@if (d.orderInvoice) { · {{ money(d.orderInvoice.total) }} }</small>@if (d.renewals[0]; as rn) { <small>Renewal: {{ rn.years }} {{ rn.years === 1 ? 'year' : 'years' }} · {{ money(rn.invoice.total) }} · {{ rn.invoice.status === 'PAID' ? 'paid' : 'unpaid' }}</small> }</td>
               <td>{{ d.tenant.name }}</td>
               <td>
                 <span class="cf-badge" [class]="'cf-badge ' + label(d).cls">{{ label(d).text }}</span>
@@ -69,8 +69,11 @@ const FILTERS = [
               <td>{{ d.expiresAt ? (d.expiresAt | date: 'd MMM y') : '—' }}</td>
               <td class="row-actions">
                 @if (canWrite() && waiting(d)) {
-                  <button type="button" class="cf-btn cf-btn-primary cf-btn-sm" [disabled]="busy()" (click)="openDone(d)" [attr.aria-label]="'Mark ' + d.name + ' registered'">Mark registered</button>
-                  <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="openCannot(d)" [attr.aria-label]="'Cannot register ' + d.name">Can't register</button>
+                  <button type="button" class="cf-btn cf-btn-primary cf-btn-sm" [disabled]="busy()" (click)="openDone(d, false)" [attr.aria-label]="'Mark ' + d.name + ' registered'">Mark registered</button>
+                  <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="openCannot(d, false)" [attr.aria-label]="'Cannot register ' + d.name">Can't register</button>
+                } @else if (canWrite() && renewalWaiting(d)) {
+                  <button type="button" class="cf-btn cf-btn-primary cf-btn-sm" [disabled]="busy()" (click)="openDone(d, true)" [attr.aria-label]="'Mark ' + d.name + ' renewed'">Mark renewed</button>
+                  <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="openCannot(d, true)" [attr.aria-label]="'Cannot renew ' + d.name">Can't renew</button>
                 }
               </td>
             </tr>
@@ -89,7 +92,7 @@ const FILTERS = [
     }
 
     @if (doneFor(); as d) {
-      <ci-dialog heading="Mark registered" [description]="d.name + ' is registered at the registrar. The customer is told and sees it as Active.'" icon="check-circle" size="md" [dismissable]="false" (closed)="doneFor.set(null)">
+      <ci-dialog [heading]="doneRenew() ? 'Mark renewed' : 'Mark registered'" [description]="doneRenew() ? d.name + ' is renewed at the registrar. The customer is told and sees the new expiry date.' : d.name + ' is registered at the registrar. The customer is told and sees it as Active.'" icon="check-circle" size="md" [dismissable]="false" (closed)="doneFor.set(null)">
         <form id="reg-form" [formGroup]="doneForm" (ngSubmit)="done(d)" novalidate>
           @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
           <ci-field label="Expires on" for="r-exp" [control]="doneForm.controls.expiresAt" [required]="true" errorLabel="the date the registration ends" hint="Taken from the registrar. It starts as today plus the years paid for.">
@@ -101,13 +104,13 @@ const FILTERS = [
         </form>
         <ng-container actions>
           <button type="button" class="cf-btn cf-btn-secondary" (click)="doneFor.set(null)">Cancel</button>
-          <button type="submit" form="reg-form" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Saving…' : 'Mark registered' }}</button>
+          <button type="submit" form="reg-form" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Saving…' : doneRenew() ? 'Mark renewed' : 'Mark registered' }}</button>
         </ng-container>
       </ci-dialog>
     }
 
     @if (cannotFor(); as d) {
-      <ci-dialog heading="Can't register this domain" [description]="'The order for ' + d.name + ' is marked not registered and the customer is told why. Then refund the invoice from the invoices page.'" icon="warning" tone="danger" [dismissable]="false" (closed)="cannotFor.set(null)">
+      <ci-dialog [heading]="cannotRenewMode() ? 'Cannot renew this domain' : 'Cannot register this domain'" [description]="cannotRenewMode() ? 'The renewal for ' + d.name + ' is closed and the customer is told why. The domain keeps its current expiry date. Then refund the invoice from the invoices page.' : 'The order for ' + d.name + ' is marked not registered and the customer is told why. Then refund the invoice from the invoices page.'" icon="warning" tone="danger" [dismissable]="false" (closed)="cannotFor.set(null)">
         <form id="cannot-reg-form" [formGroup]="cannotForm" (ngSubmit)="cannot(d)" novalidate>
           @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
           <ci-field label="Reason" for="c-reason" [control]="cannotForm.controls.reason" [required]="true" errorLabel="why it could not be registered" hint="The customer reads this.">
@@ -116,7 +119,7 @@ const FILTERS = [
         </form>
         <ng-container actions>
           <button type="button" class="cf-btn cf-btn-secondary" (click)="cannotFor.set(null)">Cancel</button>
-          <button type="submit" form="cannot-reg-form" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Saving…' : 'Mark not registered' }}</button>
+          <button type="submit" form="cannot-reg-form" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Saving…' : cannotRenewMode() ? 'Close renewal' : 'Mark not registered' }}</button>
         </ng-container>
       </ci-dialog>
     }
@@ -138,6 +141,9 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
   protected readonly pageCount = signal(1);
   protected readonly doneFor = signal<AdminRegistration | null>(null);
   protected readonly cannotFor = signal<AdminRegistration | null>(null);
+  /** The dialogs serve both a new registration and a renewal. */
+  protected readonly doneRenew = signal(false);
+  protected readonly cannotRenewMode = signal(false);
   protected readonly doneForm = inject(NonNullableFormBuilder).group({ expiresAt: ['', [Validators.required]], registrarRef: ['', [Validators.maxLength(120)]] });
   protected readonly cannotForm = inject(NonNullableFormBuilder).group({ reason: ['', [Validators.required, Validators.minLength(3), Validators.maxLength(200)]] });
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -161,6 +167,10 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
 
   protected waiting(d: AdminRegistration) {
     return d.status === 'PENDING_REGISTRATION' && d.orderInvoice?.status === 'PAID';
+  }
+
+  protected renewalWaiting(d: AdminRegistration) {
+    return d.renewals[0]?.invoice.status === 'PAID';
   }
 
   protected label(d: AdminRegistration) {
@@ -196,16 +206,21 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
     return this.load();
   }
 
-  protected openDone(d: AdminRegistration) {
+  protected openDone(d: AdminRegistration, renew: boolean) {
     this.error.set(null);
-    const end = new Date();
-    end.setUTCFullYear(end.getUTCFullYear() + d.years);
+    this.doneRenew.set(renew);
+    // A renewal adds the paid years to the current end date (or to today, if it has already passed).
+    const now = new Date();
+    const start = renew && d.expiresAt && new Date(d.expiresAt) > now ? new Date(d.expiresAt) : now;
+    const end = new Date(start);
+    end.setUTCFullYear(end.getUTCFullYear() + (renew ? (d.renewals[0]?.years ?? 1) : d.years));
     this.doneForm.reset({ expiresAt: end.toISOString().slice(0, 10), registrarRef: '' });
     this.doneFor.set(d);
   }
 
-  protected openCannot(d: AdminRegistration) {
+  protected openCannot(d: AdminRegistration, renew: boolean) {
     this.error.set(null);
+    this.cannotRenewMode.set(renew);
     this.cannotForm.reset({ reason: '' });
     this.cannotFor.set(d);
   }
@@ -215,10 +230,12 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
     if (this.doneForm.invalid) return;
     const v = this.doneForm.getRawValue();
     // The registrar's date is a calendar day; keep it at the end of that day, Indian time.
-    const ok = await this.run(async () => void (await this.api.completeRegistration(d.id, { expiresAt: new Date(`${v.expiresAt}T23:59:59+05:30`).toISOString(), registrarRef: v.registrarRef.trim() || undefined })));
+    const body = { expiresAt: new Date(`${v.expiresAt}T23:59:59+05:30`).toISOString(), registrarRef: v.registrarRef.trim() || undefined };
+    const renew = this.doneRenew();
+    const ok = await this.run(async () => void (await (renew ? this.api.completeRenewal(d.id, body) : this.api.completeRegistration(d.id, body))));
     if (ok) {
       this.doneFor.set(null);
-      this.toast.set(`${d.name} is registered. The customer has been told.`);
+      this.toast.set(`${d.name} is ${renew ? 'renewed' : 'registered'}. The customer has been told.`);
       await this.load();
     }
   }
@@ -226,10 +243,12 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
   protected async cannot(d: AdminRegistration) {
     this.cannotForm.markAllAsTouched();
     if (this.cannotForm.invalid) return;
-    const ok = await this.run(async () => void (await this.api.cannotRegister(d.id, this.cannotForm.getRawValue().reason.trim())));
+    const reason = this.cannotForm.getRawValue().reason.trim();
+    const renew = this.cannotRenewMode();
+    const ok = await this.run(async () => void (await (renew ? this.api.cannotRenew(d.id, reason) : this.api.cannotRegister(d.id, reason))));
     if (ok) {
       this.cannotFor.set(null);
-      this.toast.set(`${d.name} is marked not registered. The customer has been told. Refund the invoice from the invoices page.`);
+      this.toast.set(renew ? `The renewal for ${d.name} is closed. The customer has been told. Refund the invoice from the invoices page.` : `${d.name} is marked not registered. The customer has been told. Refund the invoice from the invoices page.`);
       await this.load();
     }
   }

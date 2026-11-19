@@ -3,7 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
 import { CurrentTenant, ReqMeta, RequireTenant } from '../auth/decorators.js';
-import { DomainOrderDto, DomainQuoteQuery } from './domain-orders.dto.js';
+import { DomainOrderDto, DomainQuoteQuery, RenewDomainDto } from './domain-orders.dto.js';
 import { DomainOrdersService } from './domain-orders.service.js';
 
 const uuid = new ParseUUIDPipe({ version: '4' });
@@ -23,6 +23,15 @@ export class DomainOrdersController {
 
   @Post('orders') @HttpCode(201) @Throttle({ default: { limit: 10, ttl: 60_000 } }) @RequireTenant('services:manage')
   order(@CurrentTenant() ctx: TenantContext, @Body() dto: DomainOrderDto, @ReqMeta() meta: RequestMeta) { return this.svc.order(ctx, dto.domain, dto.years, meta); }
+
+  @Get(':id/renew/quote') @Throttle({ default: { limit: 30, ttl: 60_000 } }) @RequireTenant('services:read')
+  renewalQuote(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @Query() q: RenewDomainDto) { return this.svc.renewalQuote(ctx, id, q.years); }
+
+  @Post(':id/renew') @HttpCode(201) @Throttle({ default: { limit: 10, ttl: 60_000 } }) @RequireTenant('services:manage')
+  renew(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @Body() dto: RenewDomainDto, @ReqMeta() meta: RequestMeta) { return this.svc.renew(ctx, id, dto.years, meta); }
+
+  @Post('renewals/:id/cancel') @HttpCode(200) @RequireTenant('services:manage')
+  cancelRenewal(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.svc.cancelRenewal(ctx, id, meta); }
 
   @Post(':id/cancel') @HttpCode(200) @RequireTenant('services:manage')
   cancel(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.svc.cancel(ctx, id, meta); }

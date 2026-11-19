@@ -12,6 +12,7 @@ export class DomainEventsHandler {
 
   /** Returns true when the event concerned a domain order. */
   async handle(type: string, payload: unknown): Promise<boolean> {
+    if (type === 'domain.renewal_requested') return this.renewal(payload);
     if (type !== 'domain.registration_requested') return false;
     const domainId = (payload as { domainId?: string } | null)?.domainId;
     if (!domainId) return false;
@@ -19,6 +20,17 @@ export class DomainEventsHandler {
     if (!d || d.status !== 'PENDING_REGISTRATION') return true; // already dealt with
     await this.staff.notify('domains:write', {
       type: 'domain.task', title: `Register ${d.name}`.slice(0, 190), body: `Paid for ${d.years} ${d.years === 1 ? 'year' : 'years'}. Register it at the registrar, then mark it done.`, link: '/domains',
+    });
+    return true;
+  }
+
+  private async renewal(payload: unknown): Promise<boolean> {
+    const renewalId = (payload as { renewalId?: string } | null)?.renewalId;
+    if (!renewalId) return false;
+    const r = await this.db.domainRenewal.findUnique({ where: { id: renewalId }, select: { years: true, status: true, domain: { select: { name: true } } } });
+    if (!r || r.status !== 'PENDING') return true; // already dealt with
+    await this.staff.notify('domains:write', {
+      type: 'domain.task', title: `Renew ${r.domain.name}`.slice(0, 190), body: `Paid for ${r.years} ${r.years === 1 ? 'year' : 'years'}. Renew it at the registrar, then mark it renewed.`, link: '/domains',
     });
     return true;
   }

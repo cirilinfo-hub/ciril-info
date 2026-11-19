@@ -5,6 +5,7 @@
  *   tsx scripts/e2e-fixtures.ts cleanup <email-prefix>
  *   tsx scripts/e2e-fixtures.ts seed-public | cleanup-public   (website content used by the public-page tests)
  *   tsx scripts/e2e-fixtures.ts add-tld <pw-ending> <register> <renew> <transfer>   (a domain ending the browser tests can sell)
+ *   tsx scripts/e2e-fixtures.ts add-domain <customer-email> <name> <pw-ending> <days-until-expiry>   (a registered domain the customer already owns)
  *   tsx scripts/e2e-fixtures.ts hosting-awaiting <customer-email> <domain>   (a hosting set-up waiting for staff, as in manual mode)
  * Refuses to run when NODE_ENV=production and only touches @example.test addresses.
  */
@@ -95,14 +96,15 @@ async function main() {
     await db.supportTicket.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.provisioningJob.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.hostingAccount.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.domainRenewal.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.domain.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.creditNote.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.refund.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.invoice.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.subscription.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await db.outboxEvent.deleteMany({ where: { tenantId: { in: tenantIds }, type: { in: ['subscription.activated', 'domain.registration_requested'] } } });
-    await db.$executeRaw`DELETE FROM notifications WHERE type = 'domain.task' AND title LIKE 'Register pw%'`;
+    await db.outboxEvent.deleteMany({ where: { tenantId: { in: tenantIds }, type: { in: ['subscription.activated', 'domain.registration_requested', 'domain.renewal_requested'] } } });
+    await db.$executeRaw`DELETE FROM notifications WHERE type = 'domain.task' AND (title LIKE 'Register pw%' OR title LIKE 'Renew pw%')`;
     await db.tenant.deleteMany({ where: { id: { in: tenantIds } } });
     await db.$executeRaw`DELETE FROM notifications WHERE type IN ('ticket.opened', 'ticket.customer_reply') AND NOT EXISTS (SELECT 1 FROM support_tickets t WHERE '/support/' || t.id::text = notifications.link)`;
     await db.invitation.deleteMany({ where: { email: { startsWith: prefix, endsWith: '@example.test' } } });
@@ -112,6 +114,16 @@ async function main() {
     const [tld, register, renew, transfer] = args as [string, string, string, string];
     if (!tld.startsWith('pw')) throw new Error('Test endings must start with "pw"');
     await db.tldPrice.upsert({ where: { tld }, update: { isActive: true }, create: { tld, registerPrice: register, renewPrice: renew, transferPrice: transfer } });
+    console.log('{}');
+  } else if (cmd === 'add-domain') {
+    const [email, name, tld, days] = args as [string, string, string, string];
+    testOnly(email);
+    if (!tld.startsWith('pw')) throw new Error('Test endings must start with "pw"');
+    const user = await db.user.findUniqueOrThrow({ where: { email }, select: { memberships: { select: { tenantId: true }, take: 1 } } });
+    const day = 86_400_000;
+    await db.domain.create({
+      data: { tenantId: user.memberships[0]!.tenantId, name: `${name}.${tld}`, tld, status: 'ACTIVE', registeredAt: new Date(Date.now() - 200 * day), expiresAt: new Date(Date.now() + Number(days) * day) },
+    });
     console.log('{}');
   } else if (cmd === 'hosting-awaiting') {
     const [email, domain] = args as [string, string];

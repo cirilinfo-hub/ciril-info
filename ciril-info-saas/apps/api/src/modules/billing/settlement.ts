@@ -59,8 +59,15 @@ export async function settleInvoicePayment(tx: Tx, a: SettleArgs): Promise<Settl
 /** A paid domain order becomes a task for staff, who register the name. The event is handled by the worker. */
 async function requestDomainRegistration(tx: Tx, tenantId: string, invoiceId: string) {
   const domain = await tx.domain.findUnique({ where: { orderInvoiceId: invoiceId }, select: { id: true, name: true, status: true } });
-  if (!domain || domain.status !== 'PENDING_REGISTRATION') return;
-  await tx.outboxEvent.createMany({ data: { tenantId, type: 'domain.registration_requested', aggregateType: 'domain', aggregateId: domain.id, payload: { domainId: domain.id, name: domain.name } } });
+  if (domain && domain.status === 'PENDING_REGISTRATION') {
+    await tx.outboxEvent.createMany({ data: { tenantId, type: 'domain.registration_requested', aggregateType: 'domain', aggregateId: domain.id, payload: { domainId: domain.id, name: domain.name } } });
+    return;
+  }
+  // A paid renewal is a task for staff as well: they renew the name at the registrar.
+  const renewal = await tx.domainRenewal.findUnique({ where: { invoiceId }, select: { id: true, years: true, status: true, domain: { select: { id: true, name: true } } } });
+  if (renewal && renewal.status === 'PENDING') {
+    await tx.outboxEvent.createMany({ data: { tenantId, type: 'domain.renewal_requested', aggregateType: 'domain', aggregateId: renewal.domain.id, payload: { renewalId: renewal.id, domainId: renewal.domain.id, name: renewal.domain.name, years: renewal.years } } });
+  }
 }
 
 /** First payment activates the subscription; a later one renews it from the end of the paid period. */

@@ -9,6 +9,8 @@ export type EmailMessage =
   | { template: 'mfa-enabled'; to: string; data: { firstName: string } }
   | { template: 'hosting-ready'; to: string; data: { domain: string; link: string } }
   | { template: 'domain-registered'; to: string; data: { domain: string; link: string } }
+  | { template: 'domain-renewed'; to: string; data: { domain: string; expiresOn: string; link: string } }
+  | { template: 'domain-expiring'; to: string; data: { domain: string; when: string; link: string } }
   | { template: 'renewal-invoice'; to: string; data: { number: string; total: string; dueDate: string; link: string } }
   | { template: 'ticket-reply'; to: string; data: { firstName: string; ref: string; subject: string; link: string } }
   | { template: 'new-sign-in'; to: string; data: { firstName: string; when: string; ip: string; device: string } };

@@ -210,6 +210,91 @@ test.describe('Domains', () => {
     await expect(active).toContainText(/\d{1,2} \w{3} \d{4}/);
   });
 
+  test('a customer renews a domain, pays, and staff complete it; the new expiry shows', async ({ page, browser }, info) => {
+    test.skip(info.project.name !== 'desktop', 'runs once');
+    test.setTimeout(180_000);
+    const tld = `pw${rand()}`;
+    const name = `pwren${rand()}`;
+    const domain = `${name}.${tld}`;
+    fixture('add-tld', tld, '800', '1000', '700');
+    const email = await newCustomer('domrenew');
+    fixture('add-domain', email, name, tld, '25'); // ends in 25 days
+    await page.goto('/portal/login');
+    await page.getByLabel('Email address').fill(email);
+    await page.getByLabel('Password').fill(CUSTOMER_PASSWORD);
+    await page.getByRole('button', { name: 'Sign In' }).click();
+    await page.getByRole('complementary').getByRole('link', { name: 'Domains' }).click();
+
+    const mine = page.getByRole('row', { name: new RegExp(domain) });
+    await expect(mine.locator('.cf-badge', { hasText: 'Active' })).toBeVisible();
+    const endsBefore = (await mine.getByRole('cell').nth(2).innerText()).trim();
+    await mine.getByRole('button', { name: `Renew ${domain}` }).click();
+    const dlg = page.getByRole('dialog', { name: `Renew ${domain}` });
+    await dlg.getByLabel('Renew for').selectOption({ label: '2 years' });
+    await expect(dlg.getByText('₹2,000').first()).toBeVisible(); // 2 x the renewal price (1,000), not the registration price
+    await expect(dlg.getByText('New expiry date')).toBeVisible();
+    await dlg.getByRole('button', { name: 'Continue to payment' }).click();
+
+    await expect(page).toHaveURL(/\/portal\/invoices\//);
+    await page.getByRole('button', { name: /Pay .* \(test\)/ }).click();
+    await expect(page.getByText('Payment received.')).toBeVisible();
+
+    await page.getByRole('complementary').getByRole('link', { name: 'Domains' }).click();
+    await expect(mine).toContainText('Renewal paid. Our team is renewing it');
+    await expect(mine.getByRole('button', { name: `Renew ${domain}` })).toHaveCount(0); // one renewal at a time
+
+    const staffEmail = uniqueEmail('domadmin3');
+    const { secret } = fixture('create-staff-ready', staffEmail, STAFF_PASSWORD, 'SUPER_ADMIN') as { secret: string };
+    const ctx = await browser.newContext();
+    const staff = await ctx.newPage();
+    await staffSignIn(staff, staffEmail, secret);
+    await staff.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Domains', exact: true }).click();
+    await staff.getByRole('button', { name: 'Needs action' }).click();
+    await staff.getByRole('searchbox', { name: 'Search domains' }).fill(name);
+    const row = staff.getByRole('row', { name: new RegExp(domain) });
+    await expect(row).toContainText('Renewal: 2 years');
+    await row.getByRole('button', { name: `Mark ${domain} renewed` }).click();
+    const done = staff.getByRole('dialog', { name: 'Mark renewed' });
+    await done.getByRole('button', { name: 'Mark renewed' }).click();
+    await expect(staff.getByText(`${domain} is renewed. The customer has been told.`)).toBeVisible();
+    await ctx.close();
+
+    await page.reload();
+    const renewed = page.getByRole('row', { name: new RegExp(domain) });
+    await expect(renewed.locator('.cf-badge', { hasText: 'Active' })).toBeVisible();
+    await expect(renewed).not.toContainText('Renewal paid');
+    const endsAfter = (await renewed.getByRole('cell').nth(2).innerText()).trim();
+    expect(endsAfter).not.toBe(endsBefore); // two years further on
+    await expect(renewed.getByRole('button', { name: `Renew ${domain}` })).toBeVisible(); // can renew again
+  });
+
+  test('an unpaid renewal can be cancelled', async ({ page }, info) => {
+    test.skip(info.project.name !== 'desktop', 'runs once');
+    test.setTimeout(120_000);
+    const tld = `pw${rand()}`;
+    const name = `pwrc${rand()}`;
+    const domain = `${name}.${tld}`;
+    fixture('add-tld', tld, '500', '600', '400');
+    const email = await newCustomer('domrencancel');
+    fixture('add-domain', email, name, tld, '300');
+    await page.goto('/portal/login');
+    await page.getByLabel('Email address').fill(email);
+    await page.getByLabel('Password').fill(CUSTOMER_PASSWORD);
+    await page.getByRole('button', { name: 'Sign In' }).click();
+    await page.getByRole('complementary').getByRole('link', { name: 'Domains' }).click();
+    const row = page.getByRole('row', { name: new RegExp(domain) });
+    await row.getByRole('button', { name: `Renew ${domain}` }).click();
+    await page.getByRole('dialog', { name: `Renew ${domain}` }).getByRole('button', { name: 'Continue to payment' }).click();
+    await expect(page).toHaveURL(/\/portal\/invoices\//);
+
+    await page.getByRole('complementary').getByRole('link', { name: 'Domains' }).click();
+    await expect(row).toContainText('awaiting payment');
+    await row.getByRole('button', { name: `Cancel the renewal for ${domain}` }).click();
+    await page.getByRole('dialog', { name: 'Cancel this renewal?' }).getByRole('button', { name: 'Cancel renewal' }).click();
+    await expect(page.getByText(`The renewal for ${domain} was cancelled.`)).toBeVisible();
+    await expect(row.getByRole('button', { name: `Renew ${domain}` })).toBeVisible();
+  });
+
   test('an unpaid domain order can be cancelled, and a taken name is refused in the client area', async ({ page }, info) => {
     test.skip(info.project.name !== 'desktop', 'runs once');
     test.setTimeout(120_000);
