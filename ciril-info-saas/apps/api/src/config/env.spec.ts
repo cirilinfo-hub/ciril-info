@@ -20,6 +20,9 @@ const prodReal = {
   RAZORPAY_KEY_SECRET: 'secret',
   RAZORPAY_WEBHOOK_SECRET: 'whsec',
   HOSTING_PROVIDER: 'cpanel',
+  CPANEL_HOST: 'server.example.com',
+  CPANEL_USER: 'root',
+  CPANEL_API_TOKEN: 'token',
   REGISTRAR_PROVIDER: 'resellerclub',
   EMAIL_PROVIDER: 'resend',
 };
@@ -57,6 +60,26 @@ describe('validateEnv', () => {
     } catch (e) {
       expect((e as Error).message).not.toContain('super-secret-but-too-short');
     }
+  });
+});
+
+describe('validateEnv: cPanel', () => {
+  const dev = { ...base, HOSTING_PROVIDER: 'cpanel' };
+  it('needs the server, user and token', () => {
+    expect(() => validateEnv(dev)).toThrow(/CPANEL_HOST[\s\S]*required when HOSTING_PROVIDER=cpanel/);
+    expect(() => validateEnv({ ...dev, CPANEL_HOST: 'h', CPANEL_USER: 'root' })).toThrow(/CPANEL_API_TOKEN/);
+    expect(() => validateEnv({ ...dev, CPANEL_HOST: 'h', CPANEL_USER: 'root', CPANEL_API_TOKEN: 't' })).not.toThrow();
+  });
+  it('defaults to the WHM port and a verified certificate', () => {
+    const env = validateEnv({ ...dev, CPANEL_HOST: 'h', CPANEL_USER: 'root', CPANEL_API_TOKEN: 't' });
+    expect(env.CPANEL_PORT).toBe(2087);
+    expect(env.CPANEL_TLS).toBe('verify');
+  });
+  it('is not required for the other modes', () => {
+    expect(() => validateEnv({ ...base, HOSTING_PROVIDER: 'manual' })).not.toThrow();
+  });
+  it('does not allow plain HTTP in production', () => {
+    expect(() => validateEnv({ ...prodReal, CPANEL_TLS: 'off' })).toThrow(/production must talk to WHM over HTTPS/);
   });
 });
 

@@ -6,6 +6,9 @@ export type HostingProviderId = 'MOCK' | 'MANUAL' | 'CPANEL' | 'PLESK';
 
 /** A failure with a verdict: a retryable one (timeout, panel busy) is tried again later; any other goes to staff. */
 export class ProvisioningError extends Error {
+  /** Set by an adapter when the panel said the account does not exist, so a caller can treat that as an answer. */
+  notFound = false;
+
   constructor(
     message: string,
     readonly retryable: boolean,

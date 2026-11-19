@@ -69,6 +69,14 @@ export const envSchema = z
     RAZORPAY_API_BASE: z.url().default('https://api.razorpay.com/v1'),
     /** manual: no panel is called; each task goes to staff, who do it by hand and mark it done. */
     HOSTING_PROVIDER: z.enum(['mock', 'manual', 'cpanel', 'plesk']).default('mock'),
+    /** cPanel/WHM. The token goes in the server's .env only, never in chat, git or a screenshot. */
+    CPANEL_HOST: z.string().trim().default(''),
+    CPANEL_PORT: z.coerce.number().int().positive().default(2087),
+    /** The WHM user the token belongs to (root, or a reseller). */
+    CPANEL_USER: z.string().trim().default(''),
+    CPANEL_API_TOKEN: z.string().trim().default(''),
+    /** verify: normal HTTPS. skip: do not check the certificate (self-signed server). off: plain HTTP, tests only. */
+    CPANEL_TLS: z.enum(['verify', 'skip', 'off']).default('verify'),
     REGISTRAR_PROVIDER: z.string().default('mock'),
 
     STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
@@ -91,6 +99,14 @@ export const envSchema = z
       }
       if (env.RAZORPAY_KEY_ID && env.NODE_ENV !== 'production' && env.RAZORPAY_KEY_ID.startsWith('rzp_live_')) {
         ctx.addIssue({ code: 'custom', path: ['RAZORPAY_KEY_ID'], message: 'a live key must not be used outside production; use rzp_test_...' });
+      }
+    }
+    if (env.HOSTING_PROVIDER === 'cpanel') {
+      for (const key of ['CPANEL_HOST', 'CPANEL_USER', 'CPANEL_API_TOKEN'] as const) {
+        if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: 'required when HOSTING_PROVIDER=cpanel' });
+      }
+      if (env.NODE_ENV === 'production' && env.CPANEL_TLS === 'off') {
+        ctx.addIssue({ code: 'custom', path: ['CPANEL_TLS'], message: 'production must talk to WHM over HTTPS' });
       }
     }
     if (env.PAYMENT_PROVIDER === 'stripe') {
