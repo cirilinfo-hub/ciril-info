@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { toApiError } from '../../core/api/api-error';
 import { AuthService } from '../../core/auth/auth.service';
@@ -10,6 +10,9 @@ import { Field, describedBy } from '../../design-system/forms/field';
 import { applyServerErrors, clearServerErrors } from '../../design-system/forms/server-errors';
 import { Icon } from '../../design-system/icon/icon';
 import { AuthLayout } from '../../layouts/auth-layout/auth-layout';
+
+/** localStorage key for a plan picked on the website before the account existed. */
+export const PENDING_PLAN_KEY = 'ci.pending-plan';
 
 @Component({
   selector: 'ci-register-page',
@@ -61,12 +64,12 @@ import { AuthLayout } from '../../layouts/auth-layout/auth-layout';
           }
           <button class="cf-btn cf-btn-accent cf-btn-lg cf-btn-block" type="submit" [disabled]="busy()">{{ busy() ? 'Creating account…' : 'Create Account' }}</button>
         </form>
-        <p class="center">Already have an account? <a [routerLink]="auth.link('/login')">Sign in</a></p>
+        <p class="center">Already have an account? <a [routerLink]="auth.link('/login')" [queryParams]="returnTo()">Sign in</a></p>
       </ci-auth-layout>
     } @else {
       <ci-auth-layout heading="Check Your Email" [subheading]="'We sent a verification link to ' + form.controls.email.value + '. Open it to finish setting up your account.'">
         <div class="cf-alert cf-alert-info" role="status"><ci-icon name="mail" /><span>The link expires in 48 hours. Check your spam folder if you can’t find it.</span></div>
-        <a class="cf-btn cf-btn-secondary cf-btn-block" [routerLink]="auth.link('/login')">Back to Sign In</a>
+        <a class="cf-btn cf-btn-secondary cf-btn-block" [routerLink]="auth.link('/login')" [queryParams]="returnTo()">Back to Sign In</a>
       </ci-auth-layout>
     }
   `,
@@ -75,6 +78,15 @@ export class RegisterPage {
   protected readonly auth = inject(AuthService);
   private readonly http = inject(HttpClient);
   protected readonly describedBy = describedBy;
+  private readonly route = inject(ActivatedRoute);
+  /** A plan picked on the website survives sign-in: after login the customer lands on the order review. */
+  protected readonly returnTo = () => {
+    const q = this.route.snapshot.queryParamMap;
+    const plan = q.get('plan');
+    const cycle = q.get('cycle');
+    if (!plan || !/^[a-z0-9-]+\/[a-z0-9-]+$/.test(plan)) return {};
+    return { returnUrl: `${this.auth.link('/order')}?plan=${encodeURIComponent(plan)}${cycle && /^[a-z_]+$/.test(cycle) ? `&cycle=${cycle}` : ''}` };
+  };
   protected readonly site = RUNTIME_CONFIG.publicUrl;
   protected readonly form = inject(NonNullableFormBuilder).group({
     firstName: ['', [Validators.required, Validators.maxLength(80)]],
@@ -89,6 +101,13 @@ export class RegisterPage {
   protected readonly error = signal<string | null>(null);
   protected readonly done = signal(false);
 
+  /** Keep a plan chosen on the website so the dashboard can offer to continue the order after sign-in. */
+  private rememberPlan() {
+    const ret = this.returnTo().returnUrl;
+    if (!ret) return;
+    try { localStorage.setItem(PENDING_PLAN_KEY, JSON.stringify({ url: ret, at: Date.now() })); } catch { /* storage unavailable: the plan can be chosen again */ }
+  }
+
   clear() {
     clearServerErrors(this.form);
   }
@@ -101,6 +120,7 @@ export class RegisterPage {
     const v = this.form.getRawValue();
     try {
       await firstValueFrom(this.http.post(`${this.auth.api}/auth/register`, { ...v, phone: v.phone || undefined }));
+      this.rememberPlan();
       this.done.set(true);
     } catch (e) {
       const err = toApiError(e);

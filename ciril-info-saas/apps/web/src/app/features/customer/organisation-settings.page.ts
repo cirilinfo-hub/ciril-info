@@ -6,13 +6,14 @@ import { Field, describedBy } from '../../design-system/forms/field';
 import { applyServerErrors, clearServerErrors } from '../../design-system/forms/server-errors';
 import { Icon } from '../../design-system/icon/icon';
 import { PageHead } from '../../shared/components/page-head';
+import { AddressesCard } from './addresses-card';
 import { OrganisationApi } from './organisation.api';
 
 const GSTIN = /^[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][1-9A-Za-z][Zz][0-9A-Za-z]$/;
 
 @Component({
   selector: 'ci-organisation-settings',
-  imports: [ReactiveFormsModule, Field, Icon, PageHead],
+  imports: [ReactiveFormsModule, AddressesCard, Field, Icon, PageHead],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     form { display: grid; gap: var(--space-5); max-width: 640px; }
@@ -58,6 +59,7 @@ const GSTIN = /^[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][1-9A-Za-z][Zz][0-9A-Za-z]$/;
         <span class="ci-skeleton" style="height:320px"></span>
       }
     </section>
+    <ci-addresses-card />
   `,
 })
 export class OrganisationSettingsPage implements OnInit {

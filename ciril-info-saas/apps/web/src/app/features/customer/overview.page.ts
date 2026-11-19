@@ -4,6 +4,7 @@ import { RouterLink } from '@angular/router';
 import { toApiError } from '../../core/api/api-error';
 import { AuthService } from '../../core/auth/auth.service';
 import { RUNTIME_CONFIG } from '../../core/config/runtime-config';
+import { PENDING_PLAN_KEY } from '../auth/register.page';
 import { Icon } from '../../design-system/icon/icon';
 import { PageHead } from '../../shared/components/page-head';
 import { ACTIVITY_LABELS, type ActivityItem, type Organisation, OrganisationApi } from './organisation.api';
@@ -29,6 +30,10 @@ import { ACTIVITY_LABELS, type ActivityItem, type Organisation, OrganisationApi 
   template: `
     <ci-page-head [title]="'Welcome, ' + (auth.me()?.user?.firstName ?? '')" crumb="Dashboard" sub="Your Ciril Info account at a glance." />
     @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+
+    @if (pendingPlan(); as p) {
+      <div class="cf-alert cf-alert-info" role="status"><ci-icon name="info" /><span>You chose a plan before creating your account. <a [routerLink]="p.path" [queryParams]="p.query">Continue your order</a> or <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" (click)="dismissPlan()">dismiss</button></span></div>
+    }
 
     <div class="grid">
       <section class="cf-card card" aria-labelledby="org-h">
@@ -88,6 +93,7 @@ export class CustomerOverviewPage implements OnInit {
   protected readonly org = signal<Organisation | null>(null);
   protected readonly activity = signal<ActivityItem[] | null>(null);
   protected readonly error = signal<string | null>(null);
+  protected readonly pendingPlan = signal<{ path: string; query: Record<string, string> } | null>(this.readPendingPlan());
 
   async ngOnInit() {
     try {
@@ -97,6 +103,27 @@ export class CustomerOverviewPage implements OnInit {
     } catch (e) {
       this.error.set(toApiError(e).message);
     }
+  }
+
+  /** A plan remembered at registration (same browser, within 30 days). Only same-portal order links are accepted. */
+  private readPendingPlan() {
+    try {
+      const raw = localStorage.getItem(PENDING_PLAN_KEY);
+      if (!raw) return null;
+      const { url, at } = JSON.parse(raw) as { url: string; at: number };
+      if (Date.now() - at > 30 * 86_400_000) return null;
+      const u = new URL(url, 'https://x.invalid');
+      const plan = u.searchParams.get('plan');
+      if (u.pathname !== this.auth.link('/order') || !plan) return null;
+      return { path: u.pathname, query: { plan, cycle: u.searchParams.get('cycle') ?? 'yearly' } };
+    } catch {
+      return null;
+    }
+  }
+
+  protected dismissPlan() {
+    try { localStorage.removeItem(PENDING_PLAN_KEY); } catch { /* ignore */ }
+    this.pendingPlan.set(null);
   }
 
   protected label(action: string) {

@@ -5,6 +5,9 @@ import { ListQueryDto } from '../../common/http/pagination.js';
 import type { AuthUser, RequestMeta, TenantContext } from '../auth/auth.types.js';
 import { CurrentTenant, CurrentUser, Public, ReqMeta, RequirePlatform, RequirePortal, RequireTenant } from '../auth/decorators.js';
 import { AdminTenantsService } from './admin-tenants.service.js';
+import { GST_STATES } from '../../common/india/gst-states.js';
+import { AddressesService } from './addresses.service.js';
+import { AddressDto, AddressPatchDto } from './addresses.dto.js';
 import { OrganisationService } from './organisation.service.js';
 import {
   AcceptInvitationDto,
@@ -86,6 +89,44 @@ export class OrganisationController {
   @RequireTenant('account:read')
   activity(@CurrentTenant() ctx: TenantContext, @Query() q: ActivityQuery) {
     return this.org.activity(ctx, q);
+  }
+}
+
+/** Customer portal: billing addresses (the default one is printed on invoices). */
+@ApiTags('organisation')
+@Controller('organisation/addresses')
+export class AddressesController {
+  constructor(private readonly svc: AddressesService) {}
+
+  @Get('states')
+  @RequireTenant('account:read')
+  states() {
+    return GST_STATES;
+  }
+
+  @Get()
+  @RequireTenant('account:read')
+  list(@CurrentTenant() ctx: TenantContext) {
+    return this.svc.list(ctx);
+  }
+
+  @Post()
+  @RequireTenant('account:write')
+  create(@CurrentTenant() ctx: TenantContext, @Body() dto: AddressDto, @ReqMeta() meta: RequestMeta) {
+    return this.svc.create(ctx, dto, meta);
+  }
+
+  @Patch(':id')
+  @RequireTenant('account:write')
+  update(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @Body() dto: AddressPatchDto, @ReqMeta() meta: RequestMeta) {
+    return this.svc.update(ctx, id, dto, meta);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  @RequireTenant('account:write')
+  async remove(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) {
+    await this.svc.remove(ctx, id, meta);
   }
 }
 

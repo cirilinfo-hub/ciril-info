@@ -40,6 +40,20 @@ export interface ActivityItem {
   actor: { firstName: string; lastName: string; email: string } | null;
 }
 
+export interface Address {
+  id: string;
+  label: string;
+  line1: string;
+  line2: string | null;
+  city: string;
+  state: string;
+  stateCode: string | null;
+  postalCode: string;
+  country: string;
+  isDefault: boolean;
+}
+export type AddressInput = { label?: string; line1: string; line2?: string; city: string; stateCode: string; postalCode: string; isDefault?: boolean };
+
 /** Customer-portal organisation endpoints (X-Tenant-Id is added by the interceptor). */
 @Injectable()
 export class OrganisationApi {
@@ -69,6 +83,21 @@ export class OrganisationApi {
   }
   revokeInvitation(id: string) {
     return firstValueFrom(this.http.delete<void>(`${this.base}/invitations/${id}`));
+  }
+  addresses() {
+    return firstValueFrom(this.http.get<Address[]>(`${this.base}/addresses`));
+  }
+  states() {
+    return firstValueFrom(this.http.get<{ code: string; name: string }[]>(`${this.base}/addresses/states`));
+  }
+  createAddress(body: AddressInput) {
+    return firstValueFrom(this.http.post<Address>(`${this.base}/addresses`, body));
+  }
+  updateAddress(id: string, body: Partial<AddressInput>) {
+    return firstValueFrom(this.http.patch<Address>(`${this.base}/addresses/${id}`, body));
+  }
+  deleteAddress(id: string) {
+    return firstValueFrom(this.http.delete<void>(`${this.base}/addresses/${id}`));
   }
   activity(page = 1) {
     return firstValueFrom(

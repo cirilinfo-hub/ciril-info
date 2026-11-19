@@ -7,10 +7,20 @@ import { AuthService } from '../core/auth/auth.service';
 import type { NavSection } from '../layouts/portal-shell/portal-shell';
 import { AdminContentApi } from './admin/admin-content.api';
 import { AdminOpsApi } from './admin/admin-ops.api';
+import { BillingApi } from './customer/billing.api';
+import { AdminSupportApi, SupportApi } from './support/support.models';
 import { OrganisationApi } from './customer/organisation.api';
 
 const CUSTOMER_NAV: NavSection[] = [
   { label: 'Overview', items: [{ path: '/', label: 'Dashboard', icon: 'grid', exact: true }] },
+  {
+    label: 'Services & billing',
+    items: [
+      { path: '/services', label: 'Services', icon: 'layers', permission: 'services:read' },
+      { path: '/invoices', label: 'Invoices', icon: 'file', permission: 'billing:read' },
+      { path: '/support', label: 'Support', icon: 'life-buoy', permission: 'support:read' },
+    ],
+  },
   {
     label: 'Account',
     items: [
@@ -38,6 +48,7 @@ const ADMIN_NAV: NavSection[] = [
     label: 'Operations',
     items: [
       { path: '/customers', label: 'Customers', icon: 'building', permission: 'tenants:read' },
+      { path: '/support', label: 'Support inbox', icon: 'life-buoy', permission: 'support:read' },
       { path: '/inquiries', label: 'Enquiries', icon: 'inbox', permission: 'inquiries:read' },
       { path: '/staff', label: 'Staff', icon: 'users', permission: 'users:read' },
       { path: '/audit', label: 'Audit log', icon: 'activity', permission: 'audit:read' },
@@ -74,7 +85,7 @@ export function customerRoutes(base: string): Routes {
   return [
     {
       path: '',
-      providers: [...portalProviders('customer', base), OrganisationApi],
+      providers: [...portalProviders('customer', base), OrganisationApi, BillingApi, SupportApi],
       children: [
         ...authPages('customer'),
         { path: 'register', title: 'Create Account · Ciril Info', canActivate: [redirectIfSignedIn], loadComponent: () => import('./auth/register.page').then((m) => m.RegisterPage) },
@@ -87,6 +98,12 @@ export function customerRoutes(base: string): Routes {
           data: { nav: CUSTOMER_NAV, title: 'Client area' },
           children: [
             { path: '', title: 'Dashboard · Ciril Info', loadComponent: () => import('./customer/overview.page').then((m) => m.CustomerOverviewPage) },
+            { path: 'order', title: 'Order · Ciril Info', canActivate: [requirePermission('services:order')], loadComponent: () => import('./customer/order.page').then((m) => m.OrderPage) },
+            { path: 'services', title: 'Services · Ciril Info', canActivate: [requirePermission('services:read')], loadComponent: () => import('./customer/subscriptions.page').then((m) => m.SubscriptionsPage) },
+            { path: 'invoices', title: 'Invoices · Ciril Info', canActivate: [requirePermission('billing:read')], loadComponent: () => import('./customer/invoices.page').then((m) => m.InvoicesPage) },
+            { path: 'invoices/:id', title: 'Invoice · Ciril Info', canActivate: [requirePermission('billing:read')], loadComponent: () => import('./customer/invoice-detail.page').then((m) => m.InvoiceDetailPage) },
+            { path: 'support', title: 'Support · Ciril Info', canActivate: [requirePermission('support:read')], loadComponent: () => import('./support/customer-tickets.page').then((m) => m.CustomerTicketsPage) },
+            { path: 'support/:id', title: 'Ticket · Ciril Info', canActivate: [requirePermission('support:read')], loadComponent: () => import('./support/customer-ticket.page').then((m) => m.CustomerTicketPage) },
             { path: 'organisation', title: 'Organisation · Ciril Info', canActivate: [requirePermission('account:read')], loadComponent: () => import('./customer/organisation-settings.page').then((m) => m.OrganisationSettingsPage) },
             { path: 'team', title: 'Team · Ciril Info', canActivate: [requirePermission('members:read')], loadComponent: () => import('./customer/team.page').then((m) => m.TeamPage) },
             { path: 'security', title: 'Security · Ciril Info', loadComponent: () => import('./account/security-settings.page').then((m) => m.SecuritySettingsPage) },
@@ -101,7 +118,7 @@ export function adminRoutes(base: string): Routes {
   return [
     {
       path: '',
-      providers: [...portalProviders('admin', base), AdminContentApi, AdminOpsApi],
+      providers: [...portalProviders('admin', base), AdminContentApi, AdminOpsApi, AdminSupportApi],
       children: [
         ...authPages('admin'),
         { path: 'setup-account', title: 'Set Up Account · Ciril Info Admin', data: { mode: 'setup' }, loadComponent: () => import('./auth/new-password.page').then((m) => m.NewPasswordPage) },
@@ -121,6 +138,8 @@ export function adminRoutes(base: string): Routes {
             { path: 'claims', title: 'Website claims · Ciril Info Admin', canActivate: [requirePermission('content:read')], loadComponent: () => import('./admin/content/claims.page').then((m) => m.ClaimsPage) },
             { path: 'company', title: 'Company profile · Ciril Info Admin', canActivate: [requirePermission('content:read')], loadComponent: () => import('./admin/content/company.page').then((m) => m.CompanyPage) },
             { path: 'inquiries', title: 'Enquiries · Ciril Info Admin', canActivate: [requirePermission('inquiries:read')], loadComponent: () => import('./admin/content/inquiries.page').then((m) => m.InquiriesPage) },
+            { path: 'support', title: 'Support inbox · Ciril Info Admin', canActivate: [requirePermission('support:read')], loadComponent: () => import('./support/admin-tickets.page').then((m) => m.AdminTicketsPage) },
+            { path: 'support/:id', title: 'Ticket · Ciril Info Admin', canActivate: [requirePermission('support:read')], loadComponent: () => import('./support/admin-ticket.page').then((m) => m.AdminTicketPage) },
             { path: 'customers', title: 'Customers · Ciril Info Admin', canActivate: [requirePermission('tenants:read')], loadComponent: () => import('./admin/ops/customers.page').then((m) => m.CustomersPage) },
             { path: 'staff', title: 'Staff · Ciril Info Admin', canActivate: [requirePermission('users:read')], loadComponent: () => import('./admin/ops/staff.page').then((m) => m.StaffPage) },
             { path: 'audit', title: 'Audit log · Ciril Info Admin', canActivate: [requirePermission('audit:read')], loadComponent: () => import('./admin/ops/audit.page').then((m) => m.AuditPage) },

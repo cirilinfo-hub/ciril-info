@@ -82,6 +82,12 @@ async function main() {
     // Customers created by staff in the browser tests exist only as an invitation to their owner.
     const invited = await db.invitation.findMany({ where: { email: { startsWith: prefix, endsWith: '@example.test' } }, select: { tenantId: true } });
     tenantIds.push(...invited.map((i) => i.tenantId).filter((t): t is string => !!t));
+    // Orders placed by the browser tests: tenant deletion is restricted while billing records exist.
+    await db.supportTicket.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.invoice.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.subscription.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.outboxEvent.deleteMany({ where: { tenantId: { in: tenantIds }, type: 'subscription.activated' } });
     await db.tenant.deleteMany({ where: { id: { in: tenantIds } } });
     await db.invitation.deleteMany({ where: { email: { startsWith: prefix, endsWith: '@example.test' } } });
     await db.user.deleteMany({ where: { id: { in: users.map((u) => u.id) } } });

@@ -1342,3 +1342,12 @@ model PortfolioProject {
   @@index([isPublished, category, sortOrder])
   @@map("portfolio_projects")
 }
+
+/// Gap-free per-key counters (e.g. "invoice:2026-27"). Incremented under a row lock
+/// inside the same transaction that uses the number, so a rollback never leaves a gap.
+model DocumentCounter {
+  key   String @id @db.VarChar(64)
+  value Int    @default(0)
+
+  @@map("document_counters")
+}
