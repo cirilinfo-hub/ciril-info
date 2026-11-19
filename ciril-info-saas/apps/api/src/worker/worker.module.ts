@@ -4,13 +4,17 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 import { type Env, validateEnv } from '../config/env.js';
 import { DatabaseModule } from '../database/database.module.js';
+import { AuditService } from '../modules/audit/audit.service.js';
+import { BillingLifecycleService } from '../modules/billing/billing-lifecycle.service.js';
+import { MailService } from '../modules/mail/mail.service.js';
+import { BillingLifecycleRunner } from './billing-lifecycle.runner.js';
 import { EventsProcessor } from './email.processor.js';
 import { EVENTS_QUEUE, OutboxRelayService } from './outbox-relay.service.js';
 
 /**
  * Background worker process (separate container from the API).
- * Phase 6 adds processors for provisioning, registrar jobs, renewals,
- * invoice generation, payment reconciliation and email delivery.
+ * Today: outbox relay, email delivery and the billing lifecycle (renewal invoices, overdue, expiry).
+ * Phase 6 adds provisioning, registrar jobs and payment reconciliation.
  */
 @Module({
   imports: [
@@ -42,6 +46,6 @@ import { EVENTS_QUEUE, OutboxRelayService } from './outbox-relay.service.js';
     BullModule.registerQueue({ name: EVENTS_QUEUE }),
     DatabaseModule,
   ],
-  providers: [OutboxRelayService, EventsProcessor],
+  providers: [OutboxRelayService, EventsProcessor, AuditService, MailService, BillingLifecycleService, BillingLifecycleRunner],
 })
 export class WorkerModule {}

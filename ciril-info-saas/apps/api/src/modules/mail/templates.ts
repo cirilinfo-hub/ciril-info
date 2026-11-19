@@ -53,6 +53,8 @@ export function renderEmail(m: EmailMessage): RenderedEmail {
       return build('You’re invited to the Ciril Info admin portal', 'Join the Ciril Info team', [`${m.data.inviterName} invited you to the admin portal as ${m.data.roleName}. You will set a password and two-step verification. The invitation expires in 7 days.`], { label: 'Accept Invitation', url: m.data.link }, IGNORE);
     case 'mfa-enabled':
       return build('Two-step verification is on', 'Two-step verification is on', [`Hi ${m.data.firstName}, two-step verification is now protecting your account. Keep your recovery codes somewhere safe.`]);
+    case 'renewal-invoice':
+      return build(`Renewal invoice ${m.data.number}`, 'Your renewal invoice is ready', [`Invoice ${m.data.number} for ${m.data.total} is due on ${m.data.dueDate}.`, 'Pay it before the due date so your service continues without interruption.'], { label: 'View Invoice', url: m.data.link });
     case 'ticket-reply':
       return build(`New reply on ${m.data.ref}`, `We replied to ${m.data.ref}`, [`Hi ${m.data.firstName}, our support team replied to your ticket “${m.data.subject}”.`, 'For your security the reply is shown in your client area, not in this email.'], { label: 'View Reply', url: m.data.link });
     case 'new-sign-in':

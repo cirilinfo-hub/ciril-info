@@ -52,6 +52,11 @@ export const envSchema = z
     SMTP_HOST: z.string().default('localhost'),
     SMTP_PORT: z.coerce.number().int().default(1025),
 
+    /** Renewal invoices are issued this many days before a subscription's period ends. */
+    RENEWAL_LEAD_DAYS: z.coerce.number().int().min(1).max(60).default(14),
+    /** After the period ends unpaid, a subscription stays past due for this many days, then expires. */
+    PAST_DUE_GRACE_DAYS: z.coerce.number().int().min(0).max(60).default(7),
+
     PAYMENT_PROVIDER: z.enum(['mock', 'razorpay', 'stripe']).default('mock'),
     HOSTING_PROVIDER: z.enum(['mock', 'cpanel', 'plesk']).default('mock'),
     REGISTRAR_PROVIDER: z.string().default('mock'),

@@ -6,9 +6,11 @@ import { PlatformPrisma, type Tx, TenantPrisma } from '../../database/prisma-cli
 import type { BillingCycle, InvoiceStatus, Prisma, SubscriptionStatus } from '../../generated/prisma/client.js';
 import { orderBy, page, skipTake } from '../../common/http/pagination.js';
 import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
-import { addCycle, computeTotals, financialYear, invoiceNumber, toPaise } from './billing.logic.js';
+import { addCycle, computeTotals, toPaise } from './billing.logic.js';
 import type { BillingListQuery, PayInvoiceDto, QuoteDto } from './billing.dto.js';
 import { PaymentGateway } from './payment-gateway.js';
+import { nextInvoiceNumber } from './numbering.js';
+import { readSeller } from './seller.js';
 
 const DUE_DAYS = 7;
 const UNPAID: InvoiceStatus[] = ['ISSUED', 'OVERDUE', 'PARTIALLY_PAID'];
@@ -70,34 +72,8 @@ export class BillingService {
     });
   }
 
-  /** Atomic and gap-free per financial year: the counter row stays locked until this transaction ends. */
-  private async nextInvoiceNumber(tx: Tx, at: Date) {
-    const fy = financialYear(at);
-    const rows = await tx.$queryRaw<{ value: number }[]>`
-      INSERT INTO document_counters ("key", "value") VALUES (${`invoice:${fy}`}, 1)
-      ON CONFLICT ("key") DO UPDATE SET "value" = document_counters."value" + 1
-      RETURNING "value"`;
-    return invoiceNumber(fy, rows[0]!.value);
-  }
-
-  /**
-   * Seller details printed on the invoice, copied from the company profile the admins maintain. Only what has
-   * been filled in is kept, so nothing is invented, and later profile edits never rewrite an issued invoice.
-   */
-  private async seller() {
-    const row = await this.platform.systemSetting.findUnique({ where: { key: 'company.profile' } });
-    const v = (row?.value ?? {}) as Record<string, unknown>;
-    const text = (x: unknown) => (typeof x === 'string' && x.trim() ? x.trim() : undefined);
-    const a = (v['address'] ?? {}) as Record<string, unknown>;
-    const address = Object.fromEntries(['line1', 'line2', 'city', 'state', 'stateCode', 'postalCode'].map((k) => [k, text(a[k])]).filter(([, x]) => x));
-    return Object.fromEntries(
-      Object.entries({ name: text(v['legalName']) ?? text(v['brandName']), gstin: text(v['gstin']), email: text(v['email']), phone: text(v['phone']), address: Object.keys(address).length ? address : undefined })
-        .filter(([, x]) => x !== undefined),
-    ) as Prisma.InputJsonObject;
-  }
-
   async order(ctx: TenantContext, dto: QuoteDto, meta: RequestMeta) {
-    const seller = await this.seller();
+    const seller = await readSeller(this.platform);
     return this.db.run(ctx, async (tx) => {
       const account = await tx.customerAccount.findUnique({ where: { tenantId: ctx.tenantId } });
       if (!account) throw new ConflictException({ code: 'NO_BILLING_PROFILE', message: 'Complete your billing details before ordering.' });
@@ -107,7 +83,7 @@ export class BillingService {
       // A tax invoice needs the buyer's address (place of supply), so ordering requires one.
       if (!address) throw new ConflictException({ code: 'NO_BILLING_ADDRESS', message: 'Add a billing address in Organisation settings before ordering.' });
       const now = new Date();
-      const number = await this.nextInvoiceNumber(tx, now);
+      const number = await nextInvoiceNumber(tx, now);
 
       const subscription = await tx.subscription.create({
         data: {
@@ -233,7 +209,7 @@ export class BillingService {
 
   /** First payment activates the subscription; a later one renews it from the end of the paid period. */
   private async activate(tx: Tx, ctx: TenantContext, sub: { id: string; status: SubscriptionStatus; billingCycle: BillingCycle; currentPeriodEnd: Date | null }, at: Date) {
-    const renewing = sub.status === 'ACTIVE' && sub.currentPeriodEnd !== null;
+    const renewing = (sub.status === 'ACTIVE' || sub.status === 'PAST_DUE') && sub.currentPeriodEnd !== null;
     const start = renewing ? sub.currentPeriodEnd! : at;
     await tx.subscription.update({
       where: { id: sub.id },
