@@ -24,7 +24,8 @@ export class ReplyDto {
 
 export class StaffReplyDto extends ReplyDto {
   @ApiPropertyOptional({ description: 'Internal notes are never shown to the customer.' })
-  @IsOptional() @IsBoolean() isInternal?: boolean;
+  // A multipart form sends every field as text, so "true" and "false" are accepted too.
+  @IsOptional() @Transform(({ value }) => (value === 'true' ? true : value === 'false' ? false : value)) @IsBoolean() isInternal?: boolean;
 }
 
 export class TicketListQuery extends ListQueryDto {

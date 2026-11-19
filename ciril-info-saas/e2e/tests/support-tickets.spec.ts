@@ -1,6 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import { fixture, linkFromEmail, totp, uniqueEmail } from './support/helpers';
 
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+
 const CUSTOMER_PASSWORD = 'Correct-Horse-42!';
 const STAFF_PASSWORD = 'Staff-Strong-Passphrase-9';
 
@@ -52,9 +54,19 @@ test.describe('Support tickets', () => {
     await dialog.getByLabel('Subject').fill('PW My email stopped working');
     await dialog.getByLabel('Topic').selectOption('EMAIL');
     await dialog.getByLabel('Message').fill('I cannot send email since this morning. Please help.');
+    // Attachments: an unsupported file is refused straight away, a screenshot is accepted.
+    await dialog.getByLabel('Attach files').setInputFiles({ name: 'tool.exe', mimeType: 'application/octet-stream', buffer: Buffer.from('MZ') });
+    await expect(dialog.getByText('is not a supported file')).toBeVisible();
+    await dialog.getByLabel('Attach files').setInputFiles({ name: 'screenshot.png', mimeType: 'image/png', buffer: PNG });
+    await expect(dialog.getByRole('list', { name: 'Files to send' }).getByText('screenshot.png')).toBeVisible();
     await dialog.getByRole('button', { name: 'Send ticket' }).click();
     await expect(page.getByRole('heading', { name: 'PW My email stopped working', level: 1 })).toBeVisible();
     await expect(page.getByText(/^TKT-\d+$/).first()).toBeVisible();
+    // The file is on the ticket and downloads as the same bytes.
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download screenshot.png' }).click()]);
+    expect(dl.suggestedFilename()).toBe('screenshot.png');
+    const { readFile } = await import('node:fs/promises');
+    expect(Buffer.compare(await readFile(await dl.path()), PNG)).toBe(0);
     const ticketUrl = page.url();
 
     // --- Support agent answers, with a private note first
@@ -67,13 +79,17 @@ test.describe('Support tickets', () => {
     await staff.getByRole('searchbox', { name: 'Search tickets' }).fill('PW My email stopped');
     await staff.getByRole('link', { name: 'PW My email stopped working' }).click();
     await expect(staff.getByText('I cannot send email since this morning.')).toBeVisible();
+    const [staffDl] = await Promise.all([staff.waitForEvent('download'), staff.getByRole('button', { name: 'Download screenshot.png' }).click()]);
+    expect(staffDl.suggestedFilename()).toBe('screenshot.png');
 
     await staff.getByLabel('Reply').fill('PW private: check the mail server logs');
     await staff.getByLabel('Internal note').check();
+    await staff.getByLabel('Attach files').setInputFiles({ name: 'private-server.log', mimeType: 'text/plain', buffer: Buffer.from('mail server log\n') });
     await staff.getByRole('button', { name: 'Add note' }).click();
     await expect(staff.getByText('Internal note, not visible to the customer')).toBeVisible();
 
     await staff.getByLabel('Reply').fill('We found the problem and fixed your mailbox. Please try again.');
+    await staff.getByLabel('Attach files').setInputFiles({ name: 'fix-steps.txt', mimeType: 'text/plain', buffer: Buffer.from('1. Open settings\n2. Save\n') });
     await staff.getByRole('button', { name: 'Send reply' }).click();
     await expect(staff.getByText('Reply sent. The customer has been notified.')).toBeVisible();
     // Replying assigns the ticket to the agent; they can still change its priority.
@@ -95,6 +111,9 @@ test.describe('Support tickets', () => {
     await expect(page.getByText('We found the problem and fixed your mailbox.')).toBeVisible();
     await expect(page.getByText('(Ciril Info Support)')).toBeVisible();
     await expect(page.getByText('private: check the mail server logs')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Download private-server.log' })).toHaveCount(0);
+    const [fix] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download fix-steps.txt' }).click()]);
+    expect(fix.suggestedFilename()).toBe('fix-steps.txt');
     await expect(page.locator('.cf-badge', { hasText: 'Waiting for you' })).toBeVisible();
 
     await page.getByLabel('Reply to our team').fill('Works again, thank you!');

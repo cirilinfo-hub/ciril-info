@@ -8,11 +8,12 @@ import { Dialog } from '../../design-system/dialogs/dialog';
 import { Field, describedBy } from '../../design-system/forms/field';
 import { Icon } from '../../design-system/icon/icon';
 import { PageHead } from '../../shared/components/page-head';
+import { FilePicker } from './file-picker';
 import { CATEGORIES, CATEGORY_LABEL, STATUSES, STATUS_LABEL, SupportApi, type TicketCategory, type TicketPriority, type TicketRow, type TicketStatus } from './support.models';
 
 @Component({
   selector: 'ci-customer-tickets',
-  imports: [DatePipe, ReactiveFormsModule, RouterLink, Dialog, Field, Icon, PageHead],
+  imports: [DatePipe, ReactiveFormsModule, RouterLink, Dialog, Field, FilePicker, Icon, PageHead],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     form { display: grid; gap: var(--space-4); }
@@ -80,6 +81,7 @@ import { CATEGORIES, CATEGORY_LABEL, STATUSES, STATUS_LABEL, SupportApi, type Ti
           <ci-field label="Message" for="tk-msg" [control]="form.controls.message" [required]="true" errorLabel="a message (at least 10 characters)" hint="Never include passwords in a ticket.">
             <textarea id="tk-msg" class="cf-input" rows="6" formControlName="message" [attr.aria-describedby]="describedBy('tk-msg', form.controls.message, true)"></textarea>
           </ci-field>
+          <ci-file-picker inputId="tk-files" [(files)]="files" [disabled]="busy()" />
         </form>
         <ng-container actions>
           <button type="button" class="cf-btn cf-btn-secondary" (click)="createOpen.set(false)">Cancel</button>
@@ -106,6 +108,7 @@ export class CustomerTicketsPage implements OnInit {
   protected readonly page = signal(1);
   protected readonly pageCount = signal(1);
   protected readonly createOpen = signal(false);
+  protected readonly files = signal<File[]>([]);
   protected readonly form = inject(NonNullableFormBuilder).group({
     subject: ['', [Validators.required, Validators.minLength(5), Validators.maxLength(200)]],
     category: ['TECHNICAL' as TicketCategory, [Validators.required]],
@@ -142,6 +145,7 @@ export class CustomerTicketsPage implements OnInit {
   protected openNew() {
     this.error.set(null);
     this.form.reset({ subject: '', category: 'TECHNICAL', priority: 'MEDIUM', message: '' });
+    this.files.set([]);
     this.createOpen.set(true);
   }
 
@@ -151,7 +155,7 @@ export class CustomerTicketsPage implements OnInit {
     this.busy.set(true);
     this.error.set(null);
     try {
-      const t = await this.api.create(this.form.getRawValue());
+      const t = await this.api.create(this.form.getRawValue(), this.files());
       this.createOpen.set(false);
       await this.router.navigate([this.auth.link('/support'), t.id]);
     } catch (e) {

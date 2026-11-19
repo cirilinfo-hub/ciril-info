@@ -84,6 +84,8 @@ async function main() {
     const invited = await db.invitation.findMany({ where: { email: { startsWith: prefix, endsWith: '@example.test' } }, select: { tenantId: true } });
     tenantIds.push(...invited.map((i) => i.tenantId).filter((t): t is string => !!t));
     // Orders placed by the browser tests: tenant deletion is restricted while billing records exist.
+    // Ticket attachments live on disk, outside the database.
+    for (const t of tenantIds) await rm(join(resolve(process.cwd(), process.env['STORAGE_LOCAL_DIR'] ?? './storage'), 'tickets', t), { recursive: true, force: true });
     await db.supportTicket.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.refund.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });

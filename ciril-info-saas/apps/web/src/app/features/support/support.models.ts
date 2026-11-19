@@ -37,6 +37,32 @@ export interface TicketRow {
   lastReplyAt: string | null;
 }
 
+export interface Attachment {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+}
+
+/** Hands a downloaded file to the browser. The file needs the sign-in token, so a plain link cannot be used. */
+export function saveBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+const toForm = (fields: Record<string, string>, files: File[]) => {
+  const f = new FormData();
+  for (const [k, v] of Object.entries(fields)) f.append(k, v);
+  for (const file of files) f.append('files', file, file.name);
+  return f;
+};
+
 export interface TicketMessage {
   id: string;
   body: string;
@@ -45,6 +71,7 @@ export interface TicketMessage {
   authorName: string;
   isYou?: boolean;
   isInternal?: boolean;
+  attachments: Attachment[];
 }
 
 export interface TicketDetail extends TicketRow {
@@ -69,11 +96,14 @@ export class SupportApi {
   get(id: string) {
     return firstValueFrom(this.http.get<TicketDetail>(`${this.base}/${id}`));
   }
-  create(body: { subject: string; category: TicketCategory; priority: TicketPriority; message: string }) {
-    return firstValueFrom(this.http.post<TicketRow>(this.base, body));
+  create(body: { subject: string; category: TicketCategory; priority: TicketPriority; message: string }, files: File[] = []) {
+    return firstValueFrom(this.http.post<TicketRow>(this.base, files.length ? toForm(body, files) : body));
   }
-  reply(id: string, body: string) {
-    return firstValueFrom(this.http.post<TicketDetail>(`${this.base}/${id}/messages`, { body }));
+  reply(id: string, body: string, files: File[] = []) {
+    return firstValueFrom(this.http.post<TicketDetail>(`${this.base}/${id}/messages`, files.length ? toForm({ body }, files) : { body }));
+  }
+  download(ticketId: string, fileId: string) {
+    return firstValueFrom(this.http.get(`${this.base}/${ticketId}/attachments/${fileId}`, { responseType: 'blob' }));
   }
   close(id: string) {
     return firstValueFrom(this.http.post<TicketDetail>(`${this.base}/${id}/close`, {}));
@@ -104,8 +134,11 @@ export class AdminSupportApi {
   get(id: string) {
     return firstValueFrom(this.http.get<AdminTicketDetail>(`${this.base}/${id}`));
   }
-  reply(id: string, body: string, isInternal: boolean) {
-    return firstValueFrom(this.http.post<AdminTicketDetail>(`${this.base}/${id}/messages`, { body, isInternal }));
+  reply(id: string, body: string, isInternal: boolean, files: File[] = []) {
+    return firstValueFrom(this.http.post<AdminTicketDetail>(`${this.base}/${id}/messages`, files.length ? toForm({ body, isInternal: String(isInternal) }, files) : { body, isInternal }));
+  }
+  download(ticketId: string, fileId: string) {
+    return firstValueFrom(this.http.get(`${this.base}/${ticketId}/attachments/${fileId}`, { responseType: 'blob' }));
   }
   update(id: string, patch: { status?: TicketStatus; priority?: TicketPriority; assigneeId?: string | null }) {
     return firstValueFrom(this.http.patch<AdminTicketDetail>(`${this.base}/${id}`, patch));

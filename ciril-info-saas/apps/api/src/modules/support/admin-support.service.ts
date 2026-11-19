@@ -7,6 +7,7 @@ import { orderBy, page, skipTake } from '../../common/http/pagination.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthUser, RequestMeta } from '../auth/auth.types.js';
 import { MailService } from '../mail/mail.service.js';
+import { AttachmentStore, type UploadedFileLike } from './attachment-store.js';
 import type { AdminTicketListQuery, StaffReplyDto, TicketPatchDto } from './support.dto.js';
 import { ticketRef } from './support.service.js';
 
@@ -21,6 +22,7 @@ export class AdminSupportService {
     private readonly db: PlatformPrisma,
     private readonly audit: AuditService,
     private readonly mail: MailService,
+    private readonly store: AttachmentStore,
     config: ConfigService<Env, true>,
   ) {
     this.portalUrl = config.get('CUSTOMER_PORTAL_URL', { infer: true }).replace(/\/$/, '');
@@ -58,24 +60,44 @@ export class AdminSupportService {
       select: {
         id: true, number: true, subject: true, category: true, priority: true, status: true, createdAt: true, lastReplyAt: true, resolvedAt: true,
         tenant: { select: { id: true, name: true } }, openedBy: person, assignee: person,
-        messages: { orderBy: { createdAt: 'asc' }, select: { id: true, body: true, isInternal: true, createdAt: true, author: { select: { id: true, firstName: true, lastName: true, platformRoleId: true } } } },
+        messages: { orderBy: { createdAt: 'asc' }, select: { id: true, body: true, isInternal: true, createdAt: true, author: { select: { id: true, firstName: true, lastName: true, platformRoleId: true } }, attachments: { select: { id: true, fileName: true, contentType: true, sizeBytes: true } } } },
       },
     });
     if (!t) throw new NotFoundException({ code: 'TICKET_NOT_FOUND', message: 'Ticket not found.' });
     return {
       ...t, ref: ticketRef(t.number),
-      messages: t.messages.map((m) => ({ id: m.id, body: m.body, isInternal: m.isInternal, createdAt: m.createdAt, fromStaff: m.author.platformRoleId !== null, authorName: `${m.author.firstName} ${m.author.lastName}` })),
+      messages: t.messages.map((m) => ({ id: m.id, body: m.body, isInternal: m.isInternal, createdAt: m.createdAt, attachments: m.attachments, fromStaff: m.author.platformRoleId !== null, authorName: `${m.author.firstName} ${m.author.lastName}` })),
     };
   }
 
-  async reply(user: AuthUser, id: string, dto: StaffReplyDto, meta: RequestMeta) {
+  async reply(user: AuthUser, id: string, dto: StaffReplyDto, files: readonly UploadedFileLike[] | undefined, meta: RequestMeta) {
     const t = await this.db.supportTicket.findUnique({ where: { id }, select: { id: true, tenantId: true, number: true, subject: true, status: true, openedBy: { select: { id: true, email: true, firstName: true } } } });
     if (!t) throw new NotFoundException({ code: 'TICKET_NOT_FOUND', message: 'Ticket not found.' });
     if (t.status === 'CLOSED') throw new ConflictException({ code: 'TICKET_CLOSED', message: 'This ticket is closed. Reopen it to reply.' });
     const internal = dto.isInternal === true;
+    const stored = await this.store.saveAll(t.tenantId, this.store.prepare(files));
 
+    try {
+      await this.saveReply(user, t, id, dto, internal, stored, meta);
+    } catch (e) {
+      await this.store.removeAll(stored.map((s) => s.storageKey));
+      throw e;
+    }
+    return this.get(id);
+  }
+
+  private async saveReply(
+    user: AuthUser,
+    t: { tenantId: string; number: number; subject: string; openedBy: { id: string; email: string; firstName: string } },
+    id: string,
+    dto: StaffReplyDto,
+    internal: boolean,
+    stored: Awaited<ReturnType<AttachmentStore['saveAll']>>,
+    meta: RequestMeta,
+  ) {
     await this.db.$transaction(async (tx) => {
-      await tx.ticketMessage.create({ data: { tenantId: t.tenantId, ticketId: id, authorId: user.id, body: dto.body, isInternal: internal } });
+      const message = await tx.ticketMessage.create({ data: { tenantId: t.tenantId, ticketId: id, authorId: user.id, body: dto.body, isInternal: internal }, select: { id: true } });
+      if (stored.length) await tx.ticketAttachment.createMany({ data: stored.map((f) => ({ ...f, tenantId: t.tenantId, ticketId: id, messageId: message.id })) });
       if (!internal) {
         const status: TicketStatus = 'AWAITING_CUSTOMER';
         await tx.supportTicket.update({ where: { id }, data: { status, lastReplyAt: new Date(), assigneeId: user.id } });
@@ -88,9 +110,14 @@ export class AdminSupportService {
           tx, t.tenantId,
         );
       }
-      await this.audit.record({ action: internal ? 'ticket.note' : 'ticket.staff_reply', actorId: user.id, tenantId: t.tenantId, entityType: 'ticket', entityId: id, meta }, tx);
+      await this.audit.record({ action: internal ? 'ticket.note' : 'ticket.staff_reply', actorId: user.id, tenantId: t.tenantId, entityType: 'ticket', entityId: id, metadata: { files: stored.length }, meta }, tx);
     });
-    return this.get(id);
+  }
+
+  async download(ticketId: string, attachmentId: string) {
+    const a = await this.db.ticketAttachment.findFirst({ where: { id: attachmentId, ticketId }, select: { fileName: true, contentType: true, sizeBytes: true, storageKey: true } });
+    if (!a) throw new NotFoundException({ code: 'FILE_NOT_FOUND', message: 'File not found.' });
+    return { ...a, stream: await this.store.open(a.storageKey) };
   }
 
   async update(user: AuthUser, id: string, dto: TicketPatchDto, meta: RequestMeta) {

@@ -5,12 +5,13 @@ import { AuthService } from '../../core/auth/auth.service';
 import { Icon } from '../../design-system/icon/icon';
 import { PageHead } from '../../shared/components/page-head';
 import { AdminPage } from '../admin/shared/admin-page';
-import { AdminSupportApi, type AdminTicketDetail, CATEGORY_LABEL, PRIORITIES, PRIORITY_LABEL, STAFF_STATUS_LABEL, STATUSES, type TicketPriority, type TicketStatus } from './support.models';
+import { FilePicker } from './file-picker';
+import { type Attachment, AdminSupportApi, type AdminTicketDetail, CATEGORY_LABEL, PRIORITIES, PRIORITY_LABEL, STAFF_STATUS_LABEL, STATUSES, type TicketPriority, type TicketStatus, saveBlob } from './support.models';
 import { TicketThread } from './ticket-thread';
 
 @Component({
   selector: 'ci-admin-ticket',
-  imports: [ReactiveFormsModule, RouterLink, Icon, PageHead, TicketThread],
+  imports: [ReactiveFormsModule, RouterLink, FilePicker, Icon, PageHead, TicketThread],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .layout { display: grid; gap: var(--space-6); grid-template-columns: 1fr; }
@@ -32,7 +33,7 @@ import { TicketThread } from './ticket-thread';
     @if (t(); as tk) {
       <div class="layout">
         <div style="display:grid;gap:var(--space-5)">
-          <ci-ticket-thread [messages]="tk.messages" />
+          <ci-ticket-thread [messages]="tk.messages" (download)="save(tk.id, $event)" />
           @if (canWrite()) {
             @if (tk.status === 'CLOSED') {
               <div class="cf-alert cf-alert-info"><ci-icon name="info" /><span>This ticket is closed. Reopen it to reply.</span></div>
@@ -40,6 +41,7 @@ import { TicketThread } from './ticket-thread';
               <form [formGroup]="form" (ngSubmit)="send()" novalidate>
                 <label for="reply" class="ts-heading-6">Reply</label>
                 <textarea id="reply" class="cf-input" rows="5" formControlName="body" maxlength="10000"></textarea>
+                <ci-file-picker inputId="reply-files" [(files)]="files" [disabled]="busy()" />
                 <label class="cf-check"><input type="checkbox" formControlName="internal" /><span>Internal note (the customer cannot see it)</span></label>
                 <div class="row"><button type="submit" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ form.controls.internal.value ? 'Add note' : 'Send reply' }}</button></div>
               </form>
@@ -85,6 +87,7 @@ export class AdminTicketPage extends AdminPage implements OnInit {
   protected readonly pri = PRIORITY_LABEL;
   protected readonly cat = CATEGORY_LABEL;
   protected readonly t = signal<AdminTicketDetail | null>(null);
+  protected readonly files = signal<File[]>([]);
   protected readonly canWrite = computed(() => this.auth.can('support:write'));
   protected readonly me = computed(() => this.auth.me()?.user?.id ?? null);
   protected readonly form = inject(NonNullableFormBuilder).group({ body: ['', [Validators.required, Validators.maxLength(10_000)]], internal: [false] });
@@ -99,11 +102,16 @@ export class AdminTicketPage extends AdminPage implements OnInit {
     const body = this.form.controls.body.value.trim();
     if (!body) return;
     const internal = this.form.controls.internal.value;
-    const ok = await this.run(async () => this.t.set(await this.api.reply(this.id, body, internal)));
+    const ok = await this.run(async () => this.t.set(await this.api.reply(this.id, body, internal, this.files())));
     if (ok) {
       this.form.reset({ body: '', internal: false });
+      this.files.set([]);
       this.toast.set(internal ? 'Note added.' : 'Reply sent. The customer has been notified.');
     }
+  }
+
+  protected async save(ticketId: string, a: Attachment) {
+    await this.run(async () => saveBlob(await this.api.download(ticketId, a.id), a.fileName));
   }
 
   protected async patch(p: { status?: TicketStatus; priority?: TicketPriority; assigneeId?: string | null }) {

@@ -1,6 +1,7 @@
 import { DatePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
-import type { TicketMessage } from './support.models';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { formatSize } from './file-picker';
+import type { Attachment, TicketMessage } from './support.models';
 
 /** The conversation on a ticket. Used by both portals; staff-only notes are labelled and shaded. */
 @Component({
@@ -16,6 +17,9 @@ import type { TicketMessage } from './support.models';
     header strong { color: var(--ink-900); }
     p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 24px; }
     .tag { font-weight: 600; color: var(--color-text-brand); }
+    .files { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
+    .files li { border: 0; padding: 0; background: none; }
+    .files small { color: var(--color-text-secondary); margin-left: var(--space-1); }
   `,
   template: `
     <ol aria-label="Conversation">
@@ -26,6 +30,13 @@ import type { TicketMessage } from './support.models';
             <time [attr.datetime]="m.createdAt">{{ m.createdAt | date: 'd MMM y, h:mm a' }}</time>
           </header>
           <p>{{ m.body }}</p>
+          @if (m.attachments.length) {
+            <ul class="files" aria-label="Attached files">
+              @for (a of m.attachments; track a.id) {
+                <li><button type="button" class="cf-btn cf-btn-secondary cf-btn-sm" [attr.aria-label]="'Download ' + a.fileName" (click)="download.emit(a)">{{ a.fileName }}<small>{{ size(a.sizeBytes) }}</small></button></li>
+              }
+            </ul>
+          }
         </li>
       }
     </ol>
@@ -33,4 +44,7 @@ import type { TicketMessage } from './support.models';
 })
 export class TicketThread {
   readonly messages = input.required<TicketMessage[]>();
+  /** Asks the page to fetch and save a file. */
+  readonly download = output<Attachment>();
+  protected size = formatSize;
 }

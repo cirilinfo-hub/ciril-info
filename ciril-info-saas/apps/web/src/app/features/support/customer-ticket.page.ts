@@ -5,12 +5,13 @@ import { toApiError } from '../../core/api/api-error';
 import { AuthService } from '../../core/auth/auth.service';
 import { Icon } from '../../design-system/icon/icon';
 import { PageHead } from '../../shared/components/page-head';
-import { CATEGORY_LABEL, STATUS_LABEL, SupportApi, type TicketDetail } from './support.models';
+import { FilePicker } from './file-picker';
+import { type Attachment, CATEGORY_LABEL, STATUS_LABEL, SupportApi, type TicketDetail, saveBlob } from './support.models';
 import { TicketThread } from './ticket-thread';
 
 @Component({
   selector: 'ci-customer-ticket',
-  imports: [ReactiveFormsModule, RouterLink, Icon, PageHead, TicketThread],
+  imports: [ReactiveFormsModule, RouterLink, FilePicker, Icon, PageHead, TicketThread],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .wrap { display: grid; gap: var(--space-5); max-width: 760px; }
@@ -31,7 +32,7 @@ import { TicketThread } from './ticket-thread';
           <span class="cf-badge" [class]="'cf-badge ' + labels[tk.status].cls">{{ labels[tk.status].label }}</span>
           <span>{{ cat[tk.category] }}</span>
         </div>
-        <ci-ticket-thread [messages]="tk.messages" />
+        <ci-ticket-thread [messages]="tk.messages" (download)="save(tk.id, $event)" />
 
         @if (tk.status === 'CLOSED') {
           <div class="cf-alert cf-alert-info"><ci-icon name="info" /><span>This ticket is closed. <a [routerLink]="auth.link('/support')">Open a new ticket</a> if you still need help.</span></div>
@@ -39,6 +40,7 @@ import { TicketThread } from './ticket-thread';
           <form [formGroup]="form" (ngSubmit)="send()" novalidate>
             <label for="reply" class="ts-heading-6">{{ tk.status === 'AWAITING_CUSTOMER' ? 'Reply to our team' : 'Add a message' }}</label>
             <textarea id="reply" class="cf-input" rows="5" formControlName="body" maxlength="10000"></textarea>
+            <ci-file-picker inputId="reply-files" [(files)]="files" [disabled]="busy()" />
             <div class="row">
               <button type="submit" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Sending…' : 'Send reply' }}</button>
               <button type="button" class="cf-btn cf-btn-secondary" [disabled]="busy()" (click)="close()">Close ticket</button>
@@ -60,6 +62,7 @@ export class CustomerTicketPage implements OnInit {
   protected readonly t = signal<TicketDetail | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly busy = signal(false);
+  protected readonly files = signal<File[]>([]);
   protected readonly form = inject(NonNullableFormBuilder).group({ body: ['', [Validators.required, Validators.maxLength(10_000)]] });
   private id = '';
 
@@ -76,9 +79,19 @@ export class CustomerTicketPage implements OnInit {
     const body = this.form.controls.body.value.trim();
     if (!body) return;
     await this.act(async () => {
-      this.t.set(await this.api.reply(this.id, body));
+      this.t.set(await this.api.reply(this.id, body, this.files()));
       this.form.reset({ body: '' });
+      this.files.set([]);
     });
+  }
+
+  protected async save(ticketId: string, a: Attachment) {
+    this.error.set(null);
+    try {
+      saveBlob(await this.api.download(ticketId, a.id), a.fileName);
+    } catch (e) {
+      this.error.set(toApiError(e).message);
+    }
   }
 
   protected close() {
