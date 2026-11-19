@@ -161,7 +161,7 @@ export class AdminBillingService {
       this.db.subscription.findMany({
         where, ...skipTake(q), orderBy: { createdAt: 'desc' },
         select: {
-          id: true, status: true, billingCycle: true, currency: true, currentPeriodStart: true, currentPeriodEnd: true, cancelAtPeriodEnd: true, createdAt: true,
+          id: true, status: true, billingCycle: true, currency: true, currentPeriodStart: true, currentPeriodEnd: true, cancelAtPeriodEnd: true, createdAt: true, scheduledPlan: { select: { id: true, name: true } },
           tenant: { select: { id: true, name: true } }, items: { select: { description: true, unitPrice: true, renewalPrice: true } },
         },
       }),

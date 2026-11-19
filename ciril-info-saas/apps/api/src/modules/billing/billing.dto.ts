@@ -20,6 +20,13 @@ export class QuoteDto {
 
 export class OrderDto extends QuoteDto {}
 
+/** The plan to move to at the next renewal. Send the plan id or its product/plan reference. */
+export class ChangePlanDto {
+  @ApiPropertyOptional() @ValidateIf((o: ChangePlanDto) => !o.planRef) @IsUUID('4') planId?: string;
+  @ApiPropertyOptional({ example: 'web-hosting/business' })
+  @ValidateIf((o: ChangePlanDto) => !o.planId) @Matches(/^[a-z0-9-]{1,120}\/[a-z0-9-]{1,120}$/, { message: 'Use the form product-slug/plan-slug.' }) planRef?: string;
+}
+
 export class PayInvoiceDto {
   @ApiPropertyOptional({ description: 'Resend the same value to retry safely; a repeated key never charges twice.' })
   @IsOptional() @IsString() @Length(8, 80) idempotencyKey?: string;

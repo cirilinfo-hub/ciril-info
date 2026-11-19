@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env.js';
 import { PlatformPrisma, type Tx } from '../../database/prisma-clients.js';
-import type { InvoiceStatus } from '../../generated/prisma/client.js';
+import type { BillingCycle, InvoiceStatus } from '../../generated/prisma/client.js';
 import { AuditService } from '../audit/audit.service.js';
 import { MailService } from '../mail/mail.service.js';
 import { computeTotals, toPaise } from './billing.logic.js';
@@ -90,7 +90,7 @@ export class BillingLifecycleService {
       if (!locked.length) return null;
       const sub = await tx.subscription.findUnique({
         where: { id: subscriptionId },
-        select: { id: true, tenantId: true, status: true, currency: true, currentPeriodEnd: true, autoRenew: true, cancelAtPeriodEnd: true, items: { select: { description: true, renewalPrice: true, quantity: true } } },
+        select: { id: true, tenantId: true, status: true, currency: true, billingCycle: true, scheduledPlanId: true, currentPeriodEnd: true, autoRenew: true, cancelAtPeriodEnd: true, items: { select: { description: true, renewalPrice: true, quantity: true } } },
       });
       if (!sub || sub.status !== 'ACTIVE' || !sub.autoRenew || sub.cancelAtPeriodEnd || !sub.currentPeriodEnd || !sub.items.length) return null;
 
@@ -103,8 +103,12 @@ export class BillingLifecycleService {
       if (!account) return null;
       const address = await tx.customerAddress.findFirst({ where: { tenantId: sub.tenantId }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }] });
       const tax = await tx.taxRate.findFirst({ where: { isActive: true, isDefault: true, country: 'IN' }, orderBy: { createdAt: 'desc' } });
+      // A plan change the customer scheduled is priced here. If that plan is no longer sold, the renewal stays on the current plan.
+      const change = sub.scheduledPlanId ? await this.scheduledChange(tx, sub.id, sub.scheduledPlanId, sub.billingCycle, now) : null;
       const totals = computeTotals(
-        sub.items.map((i) => ({ description: `${i.description} (renewal)`, unitPaise: toPaise(i.renewalPrice), quantity: i.quantity })),
+        change
+          ? [{ description: `${change.description} (renewal)`, unitPaise: toPaise(change.renewalPrice), quantity: 1 }]
+          : sub.items.map((i) => ({ description: `${i.description} (renewal)`, unitPaise: toPaise(i.renewalPrice), quantity: i.quantity })),
         tax ? Number(tax.rate.toString()) : 0,
       );
       const number = await nextInvoiceNumber(tx, now);
@@ -113,7 +117,7 @@ export class BillingLifecycleService {
           tenantId: sub.tenantId, subscriptionId, number, status: 'ISSUED', currency: sub.currency,
           subtotal: totals.subtotal, taxTotal: totals.taxTotal, total: totals.total, issuedAt: now, dueAt: sub.currentPeriodEnd,
           billingSnapshot: {
-            renewalFor: marker, seller,
+            renewalFor: marker, seller, ...(change ? { planChange: change } : {}),
             buyer: {
               accountNo: account.accountNo, name: account.companyName, email: account.billingEmail, gstin: account.gstin,
               address: address ? { line1: address.line1, line2: address.line2, city: address.city, state: address.state, stateCode: address.stateCode, postalCode: address.postalCode, country: address.country } : null,
@@ -136,6 +140,25 @@ export class BillingLifecycleService {
       return true;
     });
     return result === true;
+  }
+
+  private async scheduledChange(tx: Tx, subscriptionId: string, planId: string, cycle: BillingCycle, now: Date) {
+    const plan = await tx.plan.findFirst({ where: { id: planId, status: 'PUBLISHED', product: { status: 'PUBLISHED' } }, select: { id: true, name: true, product: { select: { name: true } } } });
+    const version = plan
+      ? await tx.pricingVersion.findFirst({
+          where: { planId, billingCycle: cycle, effectiveFrom: { lte: now }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: now } }] },
+          orderBy: { effectiveFrom: 'desc' },
+        })
+      : null;
+    if (!plan || !version) {
+      await tx.subscription.update({ where: { id: subscriptionId }, data: { scheduledPlanId: null, scheduledAt: null } });
+      await this.audit.record({ action: 'subscription.plan_change_dropped', entityType: 'subscription', entityId: subscriptionId, metadata: { planId } }, tx);
+      return null;
+    }
+    return {
+      planId: plan.id, pricingVersionId: version.id, description: `${plan.product.name} - ${plan.name} (${cycle.toLowerCase().replace('_', ' ')})`,
+      unitPrice: version.price.toString(), renewalPrice: version.renewalPrice.toString(),
+    };
   }
 
   // ───────────────────────────── overdue ─────────────────────────────

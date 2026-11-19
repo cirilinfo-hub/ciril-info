@@ -40,6 +40,7 @@ export interface AdminSubscriptionRow {
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
   createdAt: string;
+  scheduledPlan: { id: string; name: string } | null;
   tenant: { id: string; name: string };
   items: { description: string; unitPrice: string; renewalPrice: string }[];
 }

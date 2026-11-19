@@ -47,7 +47,7 @@ const FILTERS: { key: SubscriptionStatus | ''; label: string }[] = [
             <tr>
               <td>{{ s.tenant.name }}</td>
               <td>{{ s.items[0]?.description }}</td>
-              <td><span class="cf-badge" [class]="'cf-badge ' + badge(s.status).cls">{{ badge(s.status).label }}</span>@if (s.cancelAtPeriodEnd) { <small>ends at period end</small> }</td>
+              <td><span class="cf-badge" [class]="'cf-badge ' + badge(s.status).cls">{{ badge(s.status).label }}</span>@if (s.cancelAtPeriodEnd) { <small>ends at period end</small> }@if (s.scheduledPlan; as sp) { <small>moving to {{ sp.name }} at renewal</small> }</td>
               <td>{{ s.billingCycle.charAt(0) + s.billingCycle.slice(1).toLowerCase() }}</td>
               <td>{{ s.currentPeriodEnd ? (s.currentPeriodEnd | date: 'd MMM y') : '—' }}</td>
               <td class="amt">{{ s.items[0] ? fmt(s.items[0].renewalPrice, s.currency) : '—' }}</td>

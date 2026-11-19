@@ -537,6 +537,7 @@ model Plan {
   pricingVersions   PricingVersion[]
   subscriptionItems SubscriptionItem[]
   hostingAccounts   HostingAccount[]
+  scheduledChanges  Subscription[]     @relation("ScheduledPlan")
 
   @@unique([productId, slug])
   @@index([status, sortOrder])
@@ -897,10 +898,14 @@ model Subscription {
   autoRenew          Boolean            @default(true) @map("auto_renew")
   cancelAtPeriodEnd  Boolean            @default(false) @map("cancel_at_period_end")
   cancelledAt        DateTime?          @map("cancelled_at") @db.Timestamptz(3)
+  /// A plan change the customer asked for. It takes effect when the next renewal is paid; until then the current plan stays.
+  scheduledPlanId    String?            @map("scheduled_plan_id") @db.Uuid
+  scheduledAt        DateTime?          @map("scheduled_at") @db.Timestamptz(3)
   createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  scheduledPlan   Plan?                 @relation("ScheduledPlan", fields: [scheduledPlanId], references: [id], onDelete: SetNull)
   items           SubscriptionItem[]
   history         SubscriptionHistory[]
   invoices        Invoice[]
@@ -909,6 +914,7 @@ model Subscription {
 
   @@index([tenantId, status])
   @@index([status, currentPeriodEnd])
+  @@index([scheduledPlanId])
   @@map("subscriptions")
 }
 

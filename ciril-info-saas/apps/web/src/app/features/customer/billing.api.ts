@@ -54,7 +54,18 @@ export interface SubscriptionRow {
   autoRenew: boolean;
   cancelAtPeriodEnd: boolean;
   createdAt: string;
+  scheduledAt: string | null;
+  scheduledPlan: { id: string; name: string } | null;
   items: { description: string; unitPrice: string; renewalPrice: string }[];
+}
+
+export interface PlanOption {
+  planId: string;
+  name: string;
+  description: string | null;
+  renewalPrice: string;
+  currency: string;
+  isCurrent: boolean;
 }
 
 export interface Paged<T> {
@@ -92,6 +103,15 @@ export class BillingApi {
   }
   subscriptions(page = 1) {
     return firstValueFrom(this.http.get<Paged<SubscriptionRow>>(`${this.base}/subscriptions`, { params: { page, pageSize: 20 } }));
+  }
+  planOptions(id: string) {
+    return firstValueFrom(this.http.get<{ billingCycle: string; scheduledPlanId: string | null; plans: PlanOption[] }>(`${this.base}/subscriptions/${id}/plan-options`));
+  }
+  schedulePlanChange(id: string, planId: string) {
+    return firstValueFrom(this.http.post<{ scheduledPlanName: string; effectiveAt: string }>(`${this.base}/subscriptions/${id}/plan-change`, { planId }));
+  }
+  cancelPlanChange(id: string) {
+    return firstValueFrom(this.http.delete<void>(`${this.base}/subscriptions/${id}/plan-change`));
   }
   cancel(id: string, reason?: string) {
     return firstValueFrom(this.http.post<{ id: string; status: SubscriptionStatus; cancelAtPeriodEnd: boolean }>(`${this.base}/subscriptions/${id}/cancel`, { reason }));

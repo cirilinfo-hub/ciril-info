@@ -204,7 +204,7 @@ export class BillingService {
 
       // Lock the invoice row so two simultaneous requests cannot both charge it.
       await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${id}::uuid FOR UPDATE`;
-      const invoice = await tx.invoice.findUnique({ where: { id }, select: { ...invoiceSelect, subscription: { select: { id: true, status: true, billingCycle: true, currentPeriodEnd: true } } } });
+      const invoice = await tx.invoice.findUnique({ where: { id }, select: { ...invoiceSelect, billingSnapshot: true, subscription: { select: { id: true, status: true, billingCycle: true, currentPeriodEnd: true } } } });
       if (!invoice) throw new NotFoundException({ code: 'INVOICE_NOT_FOUND', message: 'Invoice not found.' });
       if (!UNPAID.includes(invoice.status)) {
         throw new ConflictException({ code: 'INVOICE_NOT_PAYABLE', message: invoice.status === 'PAID' ? 'This invoice is already paid.' : 'This invoice cannot be paid.' });
@@ -230,7 +230,7 @@ export class BillingService {
       } else {
         const paidAt = new Date();
         await tx.invoice.update({ where: { id }, data: { status: 'PAID', amountPaid: invoice.total, paidAt } });
-        if (invoice.subscription) await this.activate(tx, ctx, invoice.subscription, paidAt);
+        if (invoice.subscription) await this.activate(tx, ctx, invoice.subscription, paidAt, invoice.billingSnapshot);
         await audit('payment.succeeded', { paymentId: payment.id, provider: result.provider });
         await tx.notification.createMany({
           data: { userId: ctx.userId, tenantId: ctx.tenantId, type: 'payment.succeeded', title: `Payment received for ${invoice.number}`, body: 'Your service is being set up.', link: `/invoices/${id}` },
@@ -241,7 +241,7 @@ export class BillingService {
   }
 
   /** First payment activates the subscription; a later one renews it from the end of the paid period. */
-  private async activate(tx: Tx, ctx: TenantContext, sub: { id: string; status: SubscriptionStatus; billingCycle: BillingCycle; currentPeriodEnd: Date | null }, at: Date) {
+  private async activate(tx: Tx, ctx: TenantContext, sub: { id: string; status: SubscriptionStatus; billingCycle: BillingCycle; currentPeriodEnd: Date | null }, at: Date, snapshot: unknown) {
     const renewing = (sub.status === 'ACTIVE' || sub.status === 'PAST_DUE') && sub.currentPeriodEnd !== null;
     const start = renewing ? sub.currentPeriodEnd! : at;
     await tx.subscription.update({
@@ -251,8 +251,27 @@ export class BillingService {
     await tx.subscriptionHistory.create({
       data: { tenantId: ctx.tenantId, subscriptionId: sub.id, event: renewing ? 'RENEWED' : 'ACTIVATED', fromStatus: sub.status, toStatus: 'ACTIVE', actorUserId: ctx.userId },
     });
+    if (renewing) await this.applyPlanChange(tx, ctx, sub.id, snapshot);
     // Provisioning is a Phase 6 worker concern; it will read this event.
     await tx.outboxEvent.createMany({ data: { tenantId: ctx.tenantId, type: 'subscription.activated', aggregateType: 'subscription', aggregateId: sub.id, payload: { subscriptionId: sub.id, renewal: renewing } } });
+  }
+
+  /** A renewal invoice issued for a scheduled plan change switches the subscription to that plan once it is paid. */
+  private async applyPlanChange(tx: Tx, ctx: TenantContext, subscriptionId: string, snapshot: unknown) {
+    const change = (snapshot as { planChange?: { planId: string; pricingVersionId: string; description: string; unitPrice: string; renewalPrice: string } } | null)?.planChange;
+    if (!change) return;
+    const item = await tx.subscriptionItem.findFirst({ where: { subscriptionId }, orderBy: { createdAt: 'asc' } });
+    if (!item || item.planId === change.planId) return;
+    const upgrade = Number(change.renewalPrice) > Number(item.renewalPrice.toString());
+    await tx.subscriptionItem.update({
+      where: { id: item.id },
+      data: { planId: change.planId, pricingVersionId: change.pricingVersionId, description: change.description, unitPrice: change.unitPrice, renewalPrice: change.renewalPrice },
+    });
+    await tx.subscription.update({ where: { id: subscriptionId }, data: { scheduledPlanId: null, scheduledAt: null } });
+    await tx.subscriptionHistory.create({
+      data: { tenantId: ctx.tenantId, subscriptionId, event: upgrade ? 'UPGRADED' : 'DOWNGRADED', fromStatus: 'ACTIVE', toStatus: 'ACTIVE', actorUserId: ctx.userId, details: { fromPlanId: item.planId, toPlanId: change.planId } },
+    });
+    await tx.outboxEvent.createMany({ data: { tenantId: ctx.tenantId, type: 'subscription.plan_changed', aggregateType: 'subscription', aggregateId: subscriptionId, payload: { subscriptionId, fromPlanId: item.planId, toPlanId: change.planId } } });
   }
 
   // ─── Subscriptions ───
@@ -263,7 +282,7 @@ export class BillingService {
       const [rows, total] = await Promise.all([
         tx.subscription.findMany({
           where, orderBy: { createdAt: 'desc' }, ...skipTake(q),
-          select: { id: true, status: true, billingCycle: true, currency: true, currentPeriodStart: true, currentPeriodEnd: true, autoRenew: true, cancelAtPeriodEnd: true, createdAt: true, items: { select: { description: true, unitPrice: true, renewalPrice: true } } },
+          select: { id: true, status: true, billingCycle: true, currency: true, currentPeriodStart: true, currentPeriodEnd: true, autoRenew: true, cancelAtPeriodEnd: true, createdAt: true, scheduledAt: true, scheduledPlan: { select: { id: true, name: true } }, items: { select: { description: true, unitPrice: true, renewalPrice: true } } },
         }),
         tx.subscription.count({ where }),
       ]);

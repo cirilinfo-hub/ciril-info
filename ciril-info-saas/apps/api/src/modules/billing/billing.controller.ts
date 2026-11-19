@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { AuthUser, RequestMeta, TenantContext } from '../auth/auth.types.js';
@@ -8,7 +8,8 @@ import { CouponDto, CouponPatchDto } from './admin-coupons.dto.js';
 import { AdminCouponsService } from './admin-coupons.service.js';
 import { AdminBillingService } from './admin-billing.service.js';
 import { AdminInvoiceListQuery, AdminSubscriptionListQuery, RefundDto, VoidInvoiceDto } from './admin-billing.dto.js';
-import { BillingListQuery, CancelSubscriptionDto, OrderDto, PayInvoiceDto, QuoteDto } from './billing.dto.js';
+import { BillingListQuery, CancelSubscriptionDto, ChangePlanDto, OrderDto, PayInvoiceDto, QuoteDto } from './billing.dto.js';
+import { PlanChangeService } from './plan-change.service.js';
 import { BillingService } from './billing.service.js';
 
 const uuid = new ParseUUIDPipe({ version: '4' });
@@ -17,7 +18,10 @@ const uuid = new ParseUUIDPipe({ version: '4' });
 @ApiTags('billing')
 @Controller()
 export class BillingController {
-  constructor(private readonly billing: BillingService) {}
+  constructor(
+    private readonly billing: BillingService,
+    private readonly planChange: PlanChangeService,
+  ) {}
 
   @Post('orders/quote')
   @HttpCode(200)
@@ -44,6 +48,26 @@ export class BillingController {
   @RequireTenant('services:manage')
   cancel(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @Body() dto: CancelSubscriptionDto, @ReqMeta() meta: RequestMeta) {
     return this.billing.cancel(ctx, id, dto.reason, meta);
+  }
+
+  @Get('subscriptions/:id/plan-options')
+  @RequireTenant('services:read')
+  planOptions(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string) {
+    return this.planChange.options(ctx, id);
+  }
+
+  @Post('subscriptions/:id/plan-change')
+  @HttpCode(200)
+  @RequireTenant('services:manage')
+  schedulePlanChange(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @Body() dto: ChangePlanDto, @ReqMeta() meta: RequestMeta) {
+    return this.planChange.schedule(ctx, id, dto, meta);
+  }
+
+  @Delete('subscriptions/:id/plan-change')
+  @HttpCode(204)
+  @RequireTenant('services:manage')
+  async cancelPlanChange(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) {
+    await this.planChange.cancel(ctx, id, meta);
   }
 
   @Get('invoices')

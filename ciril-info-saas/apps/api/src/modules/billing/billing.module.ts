@@ -5,10 +5,11 @@ import { AdminCouponsService } from './admin-coupons.service.js';
 import { AdminBillingController, AdminCouponsController, BillingController } from './billing.controller.js';
 import { BillingService } from './billing.service.js';
 import { PaymentGateway } from './payment-gateway.js';
+import { PlanChangeService } from './plan-change.service.js';
 
 @Module({
   controllers: [BillingController, AdminBillingController, AdminCouponsController],
-  providers: [BillingService, AdminBillingService, AdminCouponsService, BillingLifecycleService, PaymentGateway],
+  providers: [BillingService, AdminBillingService, AdminCouponsService, BillingLifecycleService, PlanChangeService, PaymentGateway],
   exports: [BillingLifecycleService],
 })
 export class BillingModule {}
