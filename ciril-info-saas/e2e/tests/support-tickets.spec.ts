@@ -81,6 +81,15 @@ test.describe('Support tickets', () => {
     await staff.getByLabel('Priority').selectOption('HIGH');
     await expect(staff.getByText('Ticket updated.')).toBeVisible();
 
+    // --- The bell tells the customer, and clicking the notice opens the ticket and clears the badge
+    await page.goto('/portal/');
+    const bell = page.getByRole('button', { name: /^Notifications, 1 unread$/ });
+    await expect(bell).toBeVisible();
+    await bell.click();
+    await page.getByRole('button', { name: /New reply on TKT-\d+/ }).click();
+    await expect(page).toHaveURL(/\/portal\/support\/[0-9a-f-]{36}$/);
+    await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible();
+
     // --- Customer sees the reply (not the private note), is told it is waiting on them, replies, then closes
     await page.goto(ticketUrl.replace(/^https?:\/\/[^/]+/, ''));
     await expect(page.getByText('We found the problem and fixed your mailbox.')).toBeVisible();

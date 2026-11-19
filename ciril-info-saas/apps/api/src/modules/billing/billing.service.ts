@@ -223,6 +223,9 @@ export class BillingService {
         await tx.invoice.update({ where: { id }, data: { status: 'PAID', amountPaid: invoice.total, paidAt } });
         if (invoice.subscription) await this.activate(tx, ctx, invoice.subscription, paidAt);
         await audit('payment.succeeded', { paymentId: payment.id, provider: result.provider });
+        await tx.notification.createMany({
+          data: { userId: ctx.userId, tenantId: ctx.tenantId, type: 'payment.succeeded', title: `Payment received for ${invoice.number}`, body: 'Your service is being set up.', link: `/invoices/${id}` },
+        });
       }
       return { paymentId: payment.id, status: payment.status, failureReason: payment.failureReason, invoice: await tx.invoice.findUniqueOrThrow({ where: { id }, select: invoiceSelect }) };
     });

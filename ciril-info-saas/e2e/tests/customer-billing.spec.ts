@@ -93,6 +93,11 @@ test.describe('Customer ordering', () => {
     await page.getByRole('button', { name: 'Yes, cancel' }).click();
     await expect(page.getByText('ends at period end')).toBeVisible();
 
+    // The payment left a notice for the payer.
+    await page.goto('/portal/notifications');
+    await expect(page.getByRole('heading', { name: 'Notifications', level: 1 })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Payment received for INV-/ })).toBeVisible();
+
     await page.getByRole('link', { name: 'Invoices', exact: true }).click();
     await expect(page.getByRole('cell', { name: /^INV-/ })).toHaveCount(1);
     await page.screenshot({ path: 'screenshots/customer-invoices.png', fullPage: true });

@@ -20,6 +20,7 @@ import { AuthService } from '../../core/auth/auth.service';
 import { RUNTIME_CONFIG } from '../../core/config/runtime-config';
 import { Icon } from '../../design-system/icon/icon';
 import type { IconName } from '../../design-system/icon/icon-paths';
+import { NotificationBell } from '../../features/customer/notification-bell';
 
 export interface NavItem {
   path: string;
@@ -40,7 +41,7 @@ export interface NavSection {
  */
 @Component({
   selector: 'ci-portal-shell',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, Icon],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, Icon, NotificationBell],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .org-switch { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
@@ -99,6 +100,7 @@ export interface NavSection {
           <span class="spacer"></span>
 
           <div class="hx-topbar-right">
+            @if (auth.portal === 'customer') { <ci-notification-bell /> }
             <div class="hx-hdr-pop" #menuRoot>
               <button type="button" class="hx-profile-btn" aria-haspopup="menu" [attr.aria-expanded]="menuOpen()" (click)="menuOpen.set(!menuOpen())">
                 <span class="cf-avatar" style="width:32px;height:32px;font-size:12px" aria-hidden="true">{{ initials() }}</span>

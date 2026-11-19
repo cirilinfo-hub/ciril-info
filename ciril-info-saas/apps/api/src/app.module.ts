@@ -13,6 +13,7 @@ import { AuditModule } from './modules/audit/audit.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { MailModule } from './modules/mail/mail.module.js';
+import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { PublicModule } from './modules/public/public.module.js';
 import { SupportModule } from './modules/support/support.module.js';
 import { TenantsModule } from './modules/tenants/tenants.module.js';
@@ -80,6 +81,7 @@ import { UsersModule } from './modules/users/users.module.js';
     TenantsModule,
     BillingModule,
     SupportModule,
+    NotificationsModule,
     UsersModule,
   ],
   providers: [

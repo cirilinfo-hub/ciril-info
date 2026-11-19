@@ -9,6 +9,7 @@ import { AdminContentApi } from './admin/admin-content.api';
 import { AdminOpsApi } from './admin/admin-ops.api';
 import { BillingApi } from './customer/billing.api';
 import { AdminSupportApi, SupportApi } from './support/support.models';
+import { NotificationsApi } from './customer/notifications.api';
 import { OrganisationApi } from './customer/organisation.api';
 
 const CUSTOMER_NAV: NavSection[] = [
@@ -85,7 +86,7 @@ export function customerRoutes(base: string): Routes {
   return [
     {
       path: '',
-      providers: [...portalProviders('customer', base), OrganisationApi, BillingApi, SupportApi],
+      providers: [...portalProviders('customer', base), OrganisationApi, BillingApi, SupportApi, NotificationsApi],
       children: [
         ...authPages('customer'),
         { path: 'register', title: 'Create Account · Ciril Info', canActivate: [redirectIfSignedIn], loadComponent: () => import('./auth/register.page').then((m) => m.RegisterPage) },
@@ -98,6 +99,7 @@ export function customerRoutes(base: string): Routes {
           data: { nav: CUSTOMER_NAV, title: 'Client area' },
           children: [
             { path: '', title: 'Dashboard · Ciril Info', loadComponent: () => import('./customer/overview.page').then((m) => m.CustomerOverviewPage) },
+            { path: 'notifications', title: 'Notifications · Ciril Info', loadComponent: () => import('./customer/notifications.page').then((m) => m.NotificationsPage) },
             { path: 'order', title: 'Order · Ciril Info', canActivate: [requirePermission('services:order')], loadComponent: () => import('./customer/order.page').then((m) => m.OrderPage) },
             { path: 'services', title: 'Services · Ciril Info', canActivate: [requirePermission('services:read')], loadComponent: () => import('./customer/subscriptions.page').then((m) => m.SubscriptionsPage) },
             { path: 'invoices', title: 'Invoices · Ciril Info', canActivate: [requirePermission('billing:read')], loadComponent: () => import('./customer/invoices.page').then((m) => m.InvoicesPage) },
