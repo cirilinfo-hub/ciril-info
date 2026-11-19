@@ -41,6 +41,7 @@ export interface InvoiceDetail extends InvoiceRow {
   discountTotal: string;
   items: Quote['lines'];
   payments: { id: string; provider: string; status: string; amount: string; method: string | null; failureReason: string | null; createdAt: string }[];
+  refunds: { id: string; amount: string; reason: string; createdAt: string }[];
 }
 
 export interface SubscriptionRow {

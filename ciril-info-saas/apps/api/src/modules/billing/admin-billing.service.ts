@@ -4,7 +4,9 @@ import type { InvoiceStatus, Prisma, SubscriptionStatus } from '../../generated/
 import { orderBy, page, skipTake } from '../../common/http/pagination.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthUser, RequestMeta } from '../auth/auth.types.js';
-import type { AdminInvoiceListQuery, AdminSubscriptionListQuery } from './admin-billing.dto.js';
+import type { AdminInvoiceListQuery, AdminSubscriptionListQuery, RefundDto } from './admin-billing.dto.js';
+import { toPaise } from './billing.logic.js';
+import { PaymentGateway } from './payment-gateway.js';
 
 const UNPAID: InvoiceStatus[] = ['ISSUED', 'OVERDUE', 'PARTIALLY_PAID'];
 const DAY = 86_400_000;
@@ -16,6 +18,7 @@ export class AdminBillingService {
   constructor(
     private readonly db: PlatformPrisma,
     private readonly audit: AuditService,
+    private readonly gateway: PaymentGateway,
   ) {}
 
   async listInvoices(q: AdminInvoiceListQuery) {
@@ -43,6 +46,7 @@ export class AdminBillingService {
         tenant: { select: { id: true, name: true } },
         items: { select: { id: true, description: true, quantity: true, unitPrice: true, taxRate: true, taxAmount: true, lineTotal: true } },
         payments: { orderBy: { createdAt: 'desc' }, select: { id: true, provider: true, status: true, amount: true, method: true, failureReason: true, providerPaymentId: true, createdAt: true } },
+        refunds: { orderBy: { createdAt: 'desc' }, select: { id: true, amount: true, status: true, reason: true, createdAt: true } },
       },
     });
     if (!inv) throw new NotFoundException({ code: 'INVOICE_NOT_FOUND', message: 'Invoice not found.' });
@@ -71,6 +75,81 @@ export class AdminBillingService {
       await this.audit.record({ action: 'invoice.void', actorId: user.id, tenantId: inv.tenantId, entityType: 'invoice', entityId: id, metadata: { reason, number: inv.number }, meta }, tx);
     });
     return this.getInvoice(id);
+  }
+
+  /**
+   * Refund a paid invoice, in full or in part. Two phases so a real provider call never sits inside a database
+   * transaction: first the refund is recorded as PROCESSING (which already counts against what can still be
+   * refunded), then the gateway is asked, then the result is recorded.
+   */
+  async refundInvoice(user: AuthUser, invoiceId: string, dto: RefundDto, meta: RequestMeta) {
+    const started = await this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${invoiceId}::uuid FOR UPDATE`;
+      const inv = await tx.invoice.findUnique({ where: { id: invoiceId }, select: { id: true, tenantId: true, number: true, status: true, currency: true } });
+      if (!inv) throw new NotFoundException({ code: 'INVOICE_NOT_FOUND', message: 'Invoice not found.' });
+      const payment = await tx.payment.findFirst({ where: { invoiceId, status: { in: ['SUCCEEDED', 'PARTIALLY_REFUNDED', 'REFUNDED'] } }, orderBy: { createdAt: 'desc' } });
+      if (!payment) throw new ConflictException({ code: 'NOTHING_TO_REFUND', message: 'This invoice has no payment to refund.' });
+      const used = await tx.refund.aggregate({ where: { paymentId: payment.id, status: { in: ['REQUESTED', 'APPROVED', 'PROCESSING', 'SUCCEEDED'] } }, _sum: { amount: true } });
+      const remaining = toPaise(payment.amount) - toPaise(used._sum.amount ?? 0);
+      if (remaining <= 0) throw new ConflictException({ code: 'ALREADY_REFUNDED', message: 'This payment has already been refunded in full.' });
+      const wanted = dto.amount === undefined ? remaining : toPaise(dto.amount);
+      if (wanted > remaining) {
+        throw new ConflictException({ code: 'REFUND_TOO_LARGE', message: `At most ${(remaining / 100).toFixed(2)} can still be refunded on this payment.` });
+      }
+      const refund = await tx.refund.create({
+        data: { tenantId: inv.tenantId, paymentId: payment.id, invoiceId, amount: (wanted / 100).toFixed(2), currency: inv.currency, reason: dto.reason, status: 'PROCESSING', requestedById: user.id, approvedById: user.id },
+        select: { id: true },
+      });
+      return { inv, payment, refundId: refund.id, wanted };
+    });
+
+    // The provider call happens outside any transaction.
+    let result: { ok: boolean; providerRefundId: string | null; failureReason: string | null };
+    try {
+      result = await this.gateway.refund({ providerPaymentId: started.payment.providerPaymentId, amountPaise: started.wanted, currency: started.inv.currency, idempotencyKey: started.refundId });
+    } catch (e) {
+      await this.db.refund.update({ where: { id: started.refundId }, data: { status: 'FAILED' } });
+      throw e;
+    }
+
+    await this.db.$transaction(async (tx) => {
+      if (!result.ok) {
+        await tx.refund.update({ where: { id: started.refundId }, data: { status: 'FAILED' } });
+        await this.audit.record({ action: 'refund.failed', actorId: user.id, tenantId: started.inv.tenantId, entityType: 'invoice', entityId: invoiceId, metadata: { reason: result.failureReason }, meta }, tx);
+        return;
+      }
+      await tx.refund.update({ where: { id: started.refundId }, data: { status: 'SUCCEEDED', providerRefundId: result.providerRefundId } });
+      const refunded = await tx.refund.aggregate({ where: { paymentId: started.payment.id, status: 'SUCCEEDED' }, _sum: { amount: true } });
+      const fully = toPaise(refunded._sum.amount ?? 0) >= toPaise(started.payment.amount);
+      await tx.payment.update({ where: { id: started.payment.id }, data: { status: fully ? 'REFUNDED' : 'PARTIALLY_REFUNDED' } });
+      if (fully) await tx.invoice.update({ where: { id: invoiceId }, data: { status: 'REFUNDED' } });
+
+      let cancelled = false;
+      if (fully && dto.cancelService) {
+        const sub = await tx.subscription.findFirst({ where: { invoices: { some: { id: invoiceId } }, status: { in: ['ACTIVE', 'PAST_DUE', 'PENDING'] } }, select: { id: true, status: true } });
+        if (sub) {
+          await tx.subscription.update({ where: { id: sub.id }, data: { status: 'CANCELLED', cancelledAt: new Date(), autoRenew: false } });
+          await tx.subscriptionHistory.create({ data: { tenantId: started.inv.tenantId, subscriptionId: sub.id, event: 'CANCELLED', fromStatus: sub.status, toStatus: 'CANCELLED', actorUserId: user.id, details: { reason: 'refunded', invoice: started.inv.number } } });
+          // Phase 6 listens for this to suspend the hosting.
+          await tx.outboxEvent.createMany({ data: { tenantId: started.inv.tenantId, type: 'subscription.cancelled', aggregateType: 'subscription', aggregateId: sub.id, payload: { subscriptionId: sub.id, reason: 'refunded' } } });
+          cancelled = true;
+        }
+      }
+
+      const owners = await tx.tenantMembership.findMany({ where: { tenantId: started.inv.tenantId, status: 'ACTIVE', role: { key: 'TENANT_OWNER' } }, select: { userId: true } });
+      if (owners.length) {
+        await tx.notification.createMany({
+          data: owners.map((o) => ({ userId: o.userId, tenantId: started.inv.tenantId, type: 'refund.issued', title: `Refund issued for ${started.inv.number}`, body: `${started.inv.currency} ${(started.wanted / 100).toFixed(2)} was refunded.`, link: `/invoices/${invoiceId}` })),
+        });
+      }
+      await this.audit.record(
+        { action: 'refund.issue', actorId: user.id, tenantId: started.inv.tenantId, entityType: 'invoice', entityId: invoiceId, metadata: { amount: (started.wanted / 100).toFixed(2), reason: dto.reason, full: fully, serviceCancelled: cancelled }, meta },
+        tx,
+      );
+    });
+
+    if (!result.ok) throw new ConflictException({ code: 'REFUND_FAILED', message: result.failureReason ?? 'The payment provider did not accept the refund.' });
+    return this.getInvoice(invoiceId);
   }
 
   async listSubscriptions(q: AdminSubscriptionListQuery) {

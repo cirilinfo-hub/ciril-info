@@ -85,6 +85,7 @@ async function main() {
     tenantIds.push(...invited.map((i) => i.tenantId).filter((t): t is string => !!t));
     // Orders placed by the browser tests: tenant deletion is restricted while billing records exist.
     await db.supportTicket.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.refund.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.invoice.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.subscription.deleteMany({ where: { tenantId: { in: tenantIds } } });

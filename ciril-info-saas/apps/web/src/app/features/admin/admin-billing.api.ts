@@ -28,6 +28,7 @@ export interface AdminInvoiceDetail extends AdminInvoiceRow {
   billingSnapshot: { buyer?: { name?: string | null; email?: string; gstin?: string | null; address?: { line1: string; city: string; state: string; postalCode: string } | null } } | null;
   items: { id: string; description: string; quantity: number; unitPrice: string; taxRate: string; taxAmount: string; lineTotal: string }[];
   payments: { id: string; provider: string; status: string; amount: string; method: string | null; failureReason: string | null; providerPaymentId: string | null; createdAt: string }[];
+  refunds: { id: string; amount: string; status: string; reason: string; createdAt: string }[];
 }
 
 export interface AdminSubscriptionRow {
@@ -93,6 +94,9 @@ export class AdminBillingApi {
   }
   voidInvoice(id: string, reason: string) {
     return firstValueFrom(this.http.post<AdminInvoiceDetail>(`${this.base}/invoices/${id}/void`, { reason }));
+  }
+  refundInvoice(id: string, body: { amount?: number; reason: string; cancelService?: boolean }) {
+    return firstValueFrom(this.http.post<AdminInvoiceDetail>(`${this.base}/invoices/${id}/refunds`, body));
   }
   subscriptions(page: number, status: string, search: string) {
     return firstValueFrom(this.http.get<Paged<AdminSubscriptionRow>>(`${this.base}/subscriptions`, { params: { page, pageSize: 20, ...(status ? { status } : {}), ...(search ? { search } : {}) } }));

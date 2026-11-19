@@ -104,6 +104,17 @@ const FILTERS: { key: InvoiceStatus | ''; label: string }[] = [
             <tr><td colspan="2"><strong>Total</strong></td><td class="amt"><strong>{{ fmt(d.total, d.currency) }}</strong></td></tr>
           </tbody>
         </table>
+        @if (d.refunds.length) {
+          <h3 class="ts-heading-6">Refunds</h3>
+          <table class="inner">
+            <thead><tr><th scope="col">When</th><th scope="col">Reason</th><th scope="col">Status</th><th scope="col" class="amt">Amount</th></tr></thead>
+            <tbody>
+              @for (r of d.refunds; track r.id) {
+                <tr><td>{{ r.createdAt | date: 'd MMM y, h:mm a' }}</td><td>{{ r.reason }}</td><td>{{ r.status === 'SUCCEEDED' ? 'Refunded' : r.status === 'FAILED' ? 'Failed' : 'Processing' }}</td><td class="amt">{{ fmt(r.amount, d.currency) }}</td></tr>
+              }
+            </tbody>
+          </table>
+        }
         @if (d.payments.length) {
           <h3 class="ts-heading-6">Payments</h3>
           <table class="inner">
@@ -120,7 +131,30 @@ const FILTERS: { key: InvoiceStatus | ''; label: string }[] = [
           @if (canVoid() && (d.status === 'ISSUED' || d.status === 'OVERDUE' || d.status === 'PARTIALLY_PAID')) {
             <button type="button" class="cf-btn cf-btn-secondary" (click)="openVoid()">Void invoice</button>
           }
+          @if (canRefund() && refundable(d) > 0) {
+            <button type="button" class="cf-btn cf-btn-secondary" (click)="openRefund()">Refund</button>
+          }
           <button type="button" class="cf-btn cf-btn-primary" (click)="detail.set(null)">Close</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
+    @if (refundOpen() && detail(); as d) {
+      <ci-dialog [heading]="'Refund ' + d.number" [description]="'Up to ' + fmt(refundable(d), d.currency) + ' can still be refunded. The customer is notified and the reason is saved in the audit log.'" icon="warning" tone="danger" [dismissable]="false" (closed)="refundOpen.set(false)">
+        <form id="refund-form" [formGroup]="refundForm" (ngSubmit)="confirmRefund(d)" novalidate>
+          @if (d.testMode) { <div class="cf-alert cf-alert-info"><ci-icon name="info" /><span>This was a test-mode payment, so no real money moves.</span></div> }
+          @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+          <ci-field label="Amount (₹)" for="rf-amount" [control]="refundForm.controls.amount" [optional]="true" hint="Leave empty to refund everything that is left.">
+            <input id="rf-amount" class="cf-input" inputmode="decimal" formControlName="amount" [attr.aria-describedby]="describedBy('rf-amount', refundForm.controls.amount, true)" />
+          </ci-field>
+          <ci-field label="Reason" for="rf-reason" [control]="refundForm.controls.reason" [required]="true" hint="At least 3 characters.">
+            <textarea id="rf-reason" class="cf-input" rows="3" formControlName="reason" [attr.aria-describedby]="describedBy('rf-reason', refundForm.controls.reason, true)"></textarea>
+          </ci-field>
+          <label class="cf-check"><input type="checkbox" formControlName="cancelService" /><span>Also cancel the service (only on a full refund)</span></label>
+        </form>
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="refundOpen.set(false)">Cancel</button>
+          <button type="submit" form="refund-form" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Refunding…' : 'Issue refund' }}</button>
         </ng-container>
       </ci-dialog>
     }
@@ -155,6 +189,13 @@ export class AdminInvoicesPage extends AdminPage implements OnInit {
   protected readonly pageCount = signal(1);
   protected readonly detail = signal<AdminInvoiceDetail | null>(null);
   protected readonly voidOpen = signal(false);
+  protected readonly refundOpen = signal(false);
+  protected readonly canRefund = computed(() => this.auth.can('billing:refund'));
+  protected readonly refundForm = inject(NonNullableFormBuilder).group({
+    amount: ['', [Validators.pattern(/^\d+(\.\d{1,2})?$/)]],
+    reason: ['', [Validators.required, Validators.minLength(3), Validators.maxLength(255)]],
+    cancelService: [false],
+  });
   protected readonly voidForm = inject(NonNullableFormBuilder).group({ reason: ['', [Validators.required, Validators.minLength(3), Validators.maxLength(255)]] });
   protected fmt = money;
   protected badge = (s: InvoiceStatus) => INVOICE_BADGE[s];
@@ -199,6 +240,39 @@ export class AdminInvoicesPage extends AdminPage implements OnInit {
       this.detail.set(await this.api.invoice(i.id));
     } catch (e) {
       this.error.set(toApiError(e).message);
+    }
+  }
+
+  /** What can still be refunded: what was paid, less refunds already made or in progress. Zero unless the invoice was paid. */
+  protected refundable(d: AdminInvoiceDetail) {
+    if (d.status !== 'PAID' && d.status !== 'REFUNDED') return 0;
+    const paid = d.payments.filter((p) => p.status === 'SUCCEEDED' || p.status === 'PARTIALLY_REFUNDED' || p.status === 'REFUNDED').reduce((t, p) => t + Number(p.amount), 0);
+    const refunded = d.refunds.filter((r) => r.status !== 'FAILED').reduce((t, r) => t + Number(r.amount), 0);
+    return Math.max(0, Math.round((paid - refunded) * 100) / 100);
+  }
+
+  protected openRefund() {
+    this.error.set(null);
+    this.refundForm.reset({ amount: '', reason: '', cancelService: false });
+    this.refundOpen.set(true);
+  }
+
+  protected async confirmRefund(d: AdminInvoiceDetail) {
+    this.refundForm.markAllAsTouched();
+    if (this.refundForm.invalid) return;
+    const v = this.refundForm.getRawValue();
+    const amount = v.amount ? Number(v.amount) : undefined;
+    if (amount !== undefined && amount > this.refundable(d)) {
+      this.error.set(`At most ${money(this.refundable(d), d.currency)} can still be refunded.`);
+      return;
+    }
+    const ok = await this.run(async () => {
+      this.detail.set(await this.api.refundInvoice(d.id, { amount, reason: v.reason.trim(), cancelService: v.cancelService }));
+    });
+    if (ok) {
+      this.refundOpen.set(false);
+      this.toast.set(`Refund issued for ${d.number}.`);
+      await this.load();
     }
   }
 

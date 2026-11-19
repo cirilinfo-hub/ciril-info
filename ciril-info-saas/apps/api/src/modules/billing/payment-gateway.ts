@@ -21,6 +21,19 @@ export interface ChargeResult {
   failureReason: string | null;
 }
 
+export interface RefundRequest {
+  providerPaymentId: string | null;
+  amountPaise: number;
+  currency: string;
+  idempotencyKey: string;
+}
+
+export interface RefundResult {
+  ok: boolean;
+  providerRefundId: string | null;
+  failureReason: string | null;
+}
+
 /**
  * Payment provider boundary. Real Razorpay/Stripe adapters arrive in Phase 6, where card/UPI
  * capture happens on the provider's hosted page and success is confirmed by a signed webhook.
@@ -47,5 +60,13 @@ export class PaymentGateway {
       return { provider: 'MOCK', ok: false, providerOrderId: orderId, providerPaymentId: null, method: 'mock', failureReason: 'Simulated payment failure (test mode).' };
     }
     return { provider: 'MOCK', ok: true, providerOrderId: orderId, providerPaymentId: `mock_pay_${randomUUID().slice(0, 12)}`, method: 'mock', failureReason: null };
+  }
+
+  /** Returns money for a captured payment. The mock only pretends to; a real adapter calls the provider and may fail. */
+  async refund(req: RefundRequest): Promise<RefundResult> {
+    if (this.provider !== 'mock') {
+      throw new ServiceUnavailableException({ code: 'PAYMENTS_NOT_CONFIGURED', message: 'Refunds are not available yet.' });
+    }
+    return { ok: true, providerRefundId: `mock_refund_${randomUUID().slice(0, 12)}`, failureReason: null };
   }
 }

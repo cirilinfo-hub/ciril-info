@@ -183,6 +183,7 @@ export class BillingService {
           ...invoiceSelect, billingSnapshot: true,
           items: { select: { id: true, description: true, quantity: true, unitPrice: true, taxRate: true, taxAmount: true, lineTotal: true } },
           payments: { select: { id: true, provider: true, status: true, amount: true, method: true, failureReason: true, createdAt: true }, orderBy: { createdAt: 'desc' } },
+          refunds: { where: { status: 'SUCCEEDED' }, select: { id: true, amount: true, reason: true, createdAt: true }, orderBy: { createdAt: 'desc' } },
         },
       });
       if (!invoice) throw new NotFoundException({ code: 'INVOICE_NOT_FOUND', message: 'Invoice not found.' });
