@@ -257,6 +257,9 @@ test.describe('Admin operations', () => {
     // --- Staff: invite, change role, disable
     await nav.getByRole('link', { name: 'Staff' }).click();
     await expect(page.getByRole('heading', { name: 'Staff', level: 1 })).toBeVisible();
+    // The list shows the first 20 people (other tests add staff too), so find people by searching.
+    const find = page.getByRole('searchbox', { name: 'Search staff' });
+    await find.fill(email);
     await expect(page.getByRole('row', { name: new RegExp(email) }).getByText('You')).toBeVisible();
     const invitee = uniqueEmail('invitee');
     await page.getByRole('button', { name: 'Invite Staff' }).click();
@@ -267,6 +270,7 @@ test.describe('Admin operations', () => {
     await inv.getByLabel('Role').selectOption('FINANCE_ADMIN');
     await inv.getByRole('button', { name: 'Send Invitation' }).click();
     await expect(page.getByText(`Invitation sent to ${invitee}.`)).toBeVisible();
+    await find.fill(invitee);
     const staffRow = page.getByRole('row', { name: new RegExp(invitee) });
     await expect(staffRow.getByText('Invited')).toBeVisible();
     await staffRow.getByLabel('Role for Ivy').selectOption('SUPPORT_AGENT');
@@ -275,6 +279,7 @@ test.describe('Admin operations', () => {
     await page.getByRole('dialog', { name: 'Disable Ivy?' }).getByRole('button', { name: 'Disable' }).click();
     await expect(page.getByText(/Ivy was disabled/)).toBeVisible();
     // A Super Admin cannot change their own role or disable themselves from here.
+    await find.fill(email);
     await expect(page.getByRole('row', { name: new RegExp(email) }).getByRole('button')).toHaveCount(0);
 
     // --- Audit log shows what was just done

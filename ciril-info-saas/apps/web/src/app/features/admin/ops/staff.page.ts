@@ -29,6 +29,7 @@ const STATUS_LABEL = { ACTIVE: 'Active', INVITED: 'Invited', SUSPENDED: 'Suspend
     .role h3 { margin: 0 0 var(--space-1); }
     .role p { margin: 0; color: var(--color-text-secondary); font-size: 14px; }
     .hint { color: var(--color-text-secondary); font-size: 14px; margin: 0; }
+    .search { max-width: 360px; }
   `,
   template: `
     <ci-page-head title="Staff" sub="People who can sign in to this admin portal, and what each role may do.">
@@ -40,6 +41,10 @@ const STATUS_LABEL = { ACTIVE: 'Active', INVITED: 'Invited', SUSPENDED: 'Suspend
 
     <section aria-labelledby="st-h">
       <h2 id="st-h" class="ts-heading-5">Team</h2>
+      <div class="search">
+        <label for="st-search" class="cx-sr">Search staff</label>
+        <input id="st-search" class="cf-input" type="search" placeholder="Name or email" [value]="search()" (input)="onSearch($any($event.target).value)" />
+      </div>
       <div class="cf-table-wrap">
         <table class="cf-table">
           <thead><tr><th scope="col">Name</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Last sign-in</th><th scope="col"><span class="cx-sr">Actions</span></th></tr></thead>
@@ -155,9 +160,19 @@ export class StaffPage extends AdminPage implements OnInit {
     await this.load();
   }
 
+  /** The list shows the first 20 people, so finding someone is by search. */
+  protected readonly search = signal('');
+  private timer: ReturnType<typeof setTimeout> | undefined;
+
+  protected onSearch(v: string) {
+    this.search.set(v.trim());
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => void this.load(), 300);
+  }
+
   private async load() {
     try {
-      const [s, r] = await Promise.all([this.api.staff(1), this.api.roles()]);
+      const [s, r] = await Promise.all([this.api.staff(1, this.search()), this.api.roles()]);
       this.rows.set(s.data);
       this.roles.set(r.data);
     } catch (e) {

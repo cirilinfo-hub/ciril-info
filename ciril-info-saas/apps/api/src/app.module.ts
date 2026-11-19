@@ -12,6 +12,7 @@ import { BillingModule } from './modules/billing/billing.module.js';
 import { AuditModule } from './modules/audit/audit.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { DomainsModule } from './modules/domains/domains.module.js';
+import { ReadinessModule } from './modules/readiness/readiness.service.js';
 import { HostingModule } from './modules/hosting/hosting.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { MailModule } from './modules/mail/mail.module.js';
@@ -85,6 +86,7 @@ import { UsersModule } from './modules/users/users.module.js';
     SupportModule,
     HostingModule,
     DomainsModule,
+    ReadinessModule,
     NotificationsModule,
     UsersModule,
   ],

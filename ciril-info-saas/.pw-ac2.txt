@@ -1,0 +1,230 @@
+
+Running 221 tests using 2 workers
+
+  ok   2 [desktop] › tests\add-product.spec.ts:63:3 › An existing customer adds another product › a visitor who is not signed in still gets the sign-up page with the plan attached (1.5s)
+[WebServer] (node:18216) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+[WebServer] (Use `node --trace-deprecation ...` to show where the warning was created)
+  ok   1 [desktop] › tests\add-product.spec.ts:22:3 › An existing customer adds another product › Choose Plan on the website leads a signed-in customer to the order review for that plan (13.0s)
+  ok   3 [desktop] › tests\admin-billing.spec.ts:42:3 › Admin billing › finance finds a customer order, sees it on the dashboard, and voids it (14.2s)
+  ok   5 [desktop] › tests\admin-billing.spec.ts:164:3 › Admin billing › a support agent sees invoices but no Refund button (9.4s)
+  ok   6 [desktop] › tests\admin-billing.spec.ts:182:3 › Admin billing › billing pages need a staff sign-in (1.1s)
+  ok   4 [desktop] › tests\admin-billing.spec.ts:85:3 › Admin billing › finance refunds a paid invoice in two steps and the customer sees it (17.7s)
+  ok   8 [desktop] › tests\admin-portal.spec.ts:84:3 › Admin portal › admin pages require sign-in (1.2s)
+  ok   9 [desktop] › tests\coupons.spec.ts:37:3 › Coupons › an admin creates a coupon and a customer uses it on an order (13.0s)
+  ok  10 [desktop] › tests\coupons.spec.ts:101:3 › Coupons › coupon pages need a staff sign-in (596ms)
+  ok   7 [desktop] › tests\admin-portal.spec.ts:13:3 › Admin portal › staff first sign-in: password change → two-step setup → dashboard → code required next time (23.3s)
+  ok  12 [desktop] › tests\customer-billing.spec.ts:106:3 › Customer ordering › the order page needs a plan and signing in (1.6s)
+  ok  11 [desktop] › tests\customer-billing.spec.ts:12:3 › Customer ordering › choose a plan, pay the invoice in test mode and see the active service (14.5s)
+  ok  13 [desktop] › tests\customer-portal.spec.ts:15:3 › Customer portal › register, verify by email, and sign in (11.4s)
+  ok  15 [desktop] › tests\customer-portal.spec.ts:99:3 › Customer portal › protected pages redirect to sign-in (1.2s)
+  -   16 [desktop] › tests\customer-portal.spec.ts:104:3 › Customer portal › sign-in pages fit small screens
+  ok  17 [desktop] › tests\domains.spec.ts:133:3 › Domains › the Domains menu item opens the Domains page, with the price list and a search box (3.9s)
+  ok  18 [desktop] › tests\domains.spec.ts:144:3 › Domains › a search address can be opened directly and repeated with the back button (4.9s)
+  ok  14 [desktop] › tests\domains.spec.ts:49:3 › Domains › the home page searches, the Domains page answers, and staff control what is sold (18.3s)
+  ok  19 [desktop] › tests\domains.spec.ts:150:3 › Domains › a customer registers a domain from the public site through the client area, and staff complete it (20.5s)
+  ok  20 [desktop] › tests\domains.spec.ts:213:3 › Domains › a customer renews a domain, pays, and staff complete it; the new expiry shows (23.8s)
+  ok  22 [desktop] › tests\domains.spec.ts:335:3 › Domains › a customer manages the DNS records of a registered domain (15.0s)
+  ok  21 [desktop] › tests\domains.spec.ts:271:3 › Domains › a customer transfers a domain in; staff start and complete it, and the code is shown only to them (24.3s)
+  ok  24 [desktop] › tests\domains.spec.ts:421:3 › Domains › an unpaid domain order can be cancelled, and a taken name is refused in the client area (11.8s)
+  ok  23 [desktop] › tests\domains.spec.ts:394:3 › Domains › an unpaid renewal can be cancelled (13.8s)
+[02:01:01] [33mWARN[39m (18688): [36mprovisioning CREATE failed for pw-bad-1795120253855.fail.test: The panel refused this domain.[39m [90m{"context":"HostingJobsService"}[39m
+  ok  26 [desktop] › tests\hosting.spec.ts:118:3 › Hosting › when the panel refuses, the customer is reassured and staff see the reason (17.8s)
+  ok  25 [desktop] › tests\hosting.spec.ts:47:3 › Hosting › a customer sets up hosting, it comes online by itself, and staff can suspend and restore it (26.9s)
+  ok  28 [desktop] › tests\hosting.spec.ts:196:3 › Hosting › hosting pages need a sign-in (1.4s)
+  ok  29 [desktop] › tests\launch.spec.ts:19:3 › Launch checklist and tax rates › staff see what is still in test mode, follow a link to fix it, and manage GST rates (12.1s)
+  ok  27 [desktop] › tests\hosting.spec.ts:145:3 › Hosting › manual mode: a task waits for staff, who mark it done with the panel username, and the customer sees it Active (21.8s)
+  ok  31 [desktop] › tests\public-pages.spec.ts:28:5 › Every public page › / renders, has one H1 and does not overflow (1.8s)
+  ok  32 [desktop] › tests\public-pages.spec.ts:28:5 › Every public page › /about renders, has one H1 and does not overflow (2.1s)
+  ok  33 [desktop] › tests\public-pages.spec.ts:28:5 › Every public page › /services renders, has one H1 and does not overflow (1.9s)
+  ok  30 [desktop] › tests\plan-change.spec.ts:18:3 › Plan change at renewal › a customer schedules a plan change, sees it on the service, and withdraws it (7.9s)
+  ok  34 [desktop] › tests\public-pages.spec.ts:28:5 › Every public page › /services/web-design renders, has one H1 and does not overflow (1.8s)
+  ok  35 [desktop] › tests\public-pages.spec.ts:28:5 › Every public page › /services/domain-services renders, has one H1 and does not overflow (2.0s)
+  ok  36 [desktop] › tests\public-pages.spec.ts:28:5 › Every public page › /our-work renders, has one H1 and does not overflow (2.4s)
+  ok  37 [desktop] › tests\public-pages.spec.ts:28:5 › Every public page › /contact renders, has one H1 and does not overflow (1.8s)
+  ok  38 [desktop] › tests\public-pages.spec.ts:28:5 › Every public page › /pricing renders, has one H1 and does not overflow (2.4s)
+  ok  39 [desktop] › tests\public-pages.spec.ts:28:5 › Every public page › /hosting renders, has one H1 and does not overflow (2.2s)
+  ok  40 [desktop] › tests\public-pages.spec.ts:28:5 › Every public page › /hosting/pw-hosting renders, has one H1 and does not overflow (2.1s)
+  ok  41 [desktop] › tests\public-pages.spec.ts:28:5 › Every public page › /refund-policy renders, has one H1 and does not overflow (1.7s)
+  ok  42 [desktop] › tests\public-pages.spec.ts:28:5 › Every public page › /sla renders, has one H1 and does not overflow (1.5s)
+  ok  43 [desktop] › tests\public-pages.spec.ts:28:5 › Every public page › /no-such-page renders, has one H1 and does not overflow (1.6s)
+  ok  45 [desktop] › tests\public-pages.spec.ts:65:3 › Services › FAQ accordion opens one answer at a time with correct ARIA state (2.9s)
+  ok  44 [desktop] › tests\public-pages.spec.ts:54:3 › Services › home lists the five services and links to each one (4.4s)
+  ok  46 [desktop] › tests\public-pages.spec.ts:76:3 › Services › "Request a quote" pre-selects the service on the contact form (2.4s)
+  ok  47 [desktop] › tests\public-pages.spec.ts:85:3 › Our Work › filters by category and opens a details dialog that returns focus (4.6s)
+  ok  48 [desktop] › tests\public-pages.spec.ts:112:3 › Pricing and hosting come from the published catalogue › plan cards show intro, list, saving and renewal prices and switch billing period (4.4s)
+  ok  49 [desktop] › tests\public-pages.spec.ts:130:3 › Pricing and hosting come from the published catalogue › comparison table lines features up across plans (1.5s)
+  ok  50 [desktop] › tests\public-pages.spec.ts:139:3 › Pricing and hosting come from the published catalogue › "Choose Plan" starts real sign-up in the customer portal with the plan attached (3.0s)
+  ok  51 [desktop] › tests\public-pages.spec.ts:145:3 › Pricing and hosting come from the published catalogue › hosting page lists the hosting plans; published testimonial and FAQ render (3.5s)
+  ok  52 [desktop] › tests\public-pages.spec.ts:155:3 › Pricing and hosting come from the published catalogue › a product with no published plans says so instead of inventing any (1.5s)
+  ok  53 [desktop] › tests\public-pages.spec.ts:164:3 › Contact form › validates required fields, the email format and consent (2.3s)
+  ok  55 [desktop] › tests\public-pages.spec.ts:193:3 › Contact form › contact details show "to be added" until configured, and WhatsApp stays disabled (2.2s)
+  ok  54 [desktop] › tests\public-pages.spec.ts:179:3 › Contact form › sends the enquiry to the API and confirms (3.7s)
+  ok  57 [desktop] › tests\public-pages.spec.ts:214:3 › Legal pages › the footer links only to legal pages that are published (1.9s)
+  ok  56 [desktop] › tests\public-pages.spec.ts:204:3 › Legal pages › a published page shows its sections; an unpublished one says it is being prepared (2.1s)
+  ok  59 [desktop] › tests\public-shell.spec.ts:4:3 › Public website shell › home renders the hero and primary calls to action (2.2s)
+  ok  58 [desktop] › tests\public-pages.spec.ts:223:3 › Navigation › main navigation reaches every top-level page on desktop (4.6s)
+  ok  60 [desktop] › tests\public-shell.spec.ts:15:3 › Public website shell › never scrolls horizontally and no element overflows the viewport (3.6s)
+  ok  61 [desktop] › tests\public-shell.spec.ts:34:3 › Public website shell › skip link moves focus to main content (3.0s)
+  ok  62 [desktop] › tests\public-shell.spec.ts:42:3 › Public website shell › desktop shows main navigation with Home marked current (2.3s)
+  -   63 [desktop] › tests\public-shell.spec.ts:51:3 › Public website shell › mobile menu opens, traps focus and closes on Escape
+  ok  64 [desktop] › tests\public-shell.spec.ts:64:3 › Public website shell › footer shows placeholders instead of invented contact details (2.0s)
+  ok  65 [desktop] › tests\public-shell.spec.ts:71:3 › Public website shell › visual snapshot for design comparison (4.4s)
+  ok  66 [desktop] › tests\public-shell.spec.ts:78:3 › Public website shell › visitors can reach the customer and admin sign-in pages (3.8s)
+  ok  68 [desktop] › tests\razorpay-checkout-ui.spec.ts:103:3 › Paying with Razorpay (page behaviour) › closing the window without paying says so plainly and does not call the server to confirm (5.3s)
+  ok  67 [desktop] › tests\razorpay-checkout-ui.spec.ts:84:3 › Paying with Razorpay (page behaviour) › the customer pays in the Razorpay window; the page sends only the three signed values and shows success (7.1s)
+  ok  70 [desktop] › tests\razorpay-checkout-ui.spec.ts:127:3 › Paying with Razorpay (page behaviour) › a declined payment shows the reason (6.4s)
+  ok  69 [desktop] › tests\razorpay-checkout-ui.spec.ts:115:3 › Paying with Razorpay (page behaviour) › a payment the bank has not confirmed yet is shown as pending, then paid by itself (10.0s)
+  ok  72 [desktop] › tests\support-tickets.spec.ts:140:3 › Support tickets › support pages need a signed-in customer (1.2s)
+  -   73 [tablet] › tests\add-product.spec.ts:22:3 › An existing customer adds another product › Choose Plan on the website leads a signed-in customer to the order review for that plan
+  ok  74 [tablet] › tests\add-product.spec.ts:63:3 › An existing customer adds another product › a visitor who is not signed in still gets the sign-up page with the plan attached (1.2s)
+  -   75 [tablet] › tests\admin-billing.spec.ts:42:3 › Admin billing › finance finds a customer order, sees it on the dashboard, and voids it
+  -   76 [tablet] › tests\admin-billing.spec.ts:85:3 › Admin billing › finance refunds a paid invoice in two steps and the customer sees it
+  -   77 [tablet] › tests\admin-billing.spec.ts:164:3 › Admin billing › a support agent sees invoices but no Refund button
+  ok  78 [tablet] › tests\admin-billing.spec.ts:182:3 › Admin billing › billing pages need a staff sign-in (1.3s)
+  -   79 [tablet] › tests\admin-portal.spec.ts:13:3 › Admin portal › staff first sign-in: password change → two-step setup → dashboard → code required next time
+  ok  80 [tablet] › tests\admin-portal.spec.ts:84:3 › Admin portal › admin pages require sign-in (1.3s)
+  -   81 [tablet] › tests\coupons.spec.ts:37:3 › Coupons › an admin creates a coupon and a customer uses it on an order
+  ok  82 [tablet] › tests\coupons.spec.ts:101:3 › Coupons › coupon pages need a staff sign-in (1.5s)
+  -   83 [tablet] › tests\customer-billing.spec.ts:12:3 › Customer ordering › choose a plan, pay the invoice in test mode and see the active service
+  ok  84 [tablet] › tests\customer-billing.spec.ts:106:3 › Customer ordering › the order page needs a plan and signing in (1.6s)
+  -   85 [tablet] › tests\customer-portal.spec.ts:15:3 › Customer portal › register, verify by email, and sign in
+  ok  86 [tablet] › tests\customer-portal.spec.ts:99:3 › Customer portal › protected pages redirect to sign-in (1.3s)
+  -   87 [tablet] › tests\customer-portal.spec.ts:104:3 › Customer portal › sign-in pages fit small screens
+  -   88 [tablet] › tests\domains.spec.ts:49:3 › Domains › the home page searches, the Domains page answers, and staff control what is sold
+  ok  89 [tablet] › tests\domains.spec.ts:133:3 › Domains › the Domains menu item opens the Domains page, with the price list and a search box (1.7s)
+  ok  90 [tablet] › tests\domains.spec.ts:144:3 › Domains › a search address can be opened directly and repeated with the back button (1.3s)
+  -   91 [tablet] › tests\domains.spec.ts:150:3 › Domains › a customer registers a domain from the public site through the client area, and staff complete it
+  ok  71 [desktop] › tests\support-tickets.spec.ts:41:3 › Support tickets › customer and support agent talk through a ticket (26.7s)
+  -   92 [tablet] › tests\domains.spec.ts:213:3 › Domains › a customer renews a domain, pays, and staff complete it; the new expiry shows
+  -   93 [tablet] › tests\domains.spec.ts:335:3 › Domains › a customer manages the DNS records of a registered domain
+  -   94 [tablet] › tests\domains.spec.ts:394:3 › Domains › an unpaid renewal can be cancelled
+  -   95 [tablet] › tests\domains.spec.ts:421:3 › Domains › an unpaid domain order can be cancelled, and a taken name is refused in the client area
+  -   96 [tablet] › tests\hosting.spec.ts:47:3 › Hosting › a customer sets up hosting, it comes online by itself, and staff can suspend and restore it
+  -   97 [tablet] › tests\hosting.spec.ts:118:3 › Hosting › when the panel refuses, the customer is reassured and staff see the reason
+  -   98 [tablet] › tests\hosting.spec.ts:145:3 › Hosting › manual mode: a task waits for staff, who mark it done with the panel username, and the customer sees it Active
+  ok  99 [tablet] › tests\hosting.spec.ts:196:3 › Hosting › hosting pages need a sign-in (1.5s)
+  -  100 [tablet] › tests\launch.spec.ts:19:3 › Launch checklist and tax rates › staff see what is still in test mode, follow a link to fix it, and manage GST rates
+  -  102 [tablet] › tests\plan-change.spec.ts:18:3 › Plan change at renewal › a customer schedules a plan change, sees it on the service, and withdraws it
+  -  101 [tablet] › tests\domains.spec.ts:271:3 › Domains › a customer transfers a domain in; staff start and complete it, and the code is shown only to them
+  ok 103 [tablet] › tests\public-pages.spec.ts:28:5 › Every public page › / renders, has one H1 and does not overflow (2.4s)
+  ok 104 [tablet] › tests\public-pages.spec.ts:28:5 › Every public page › /about renders, has one H1 and does not overflow (2.9s)
+  ok 105 [tablet] › tests\public-pages.spec.ts:28:5 › Every public page › /services renders, has one H1 and does not overflow (2.0s)
+  ok 106 [tablet] › tests\public-pages.spec.ts:28:5 › Every public page › /services/web-design renders, has one H1 and does not overflow (2.1s)
+  ok 107 [tablet] › tests\public-pages.spec.ts:28:5 › Every public page › /services/domain-services renders, has one H1 and does not overflow (2.3s)
+  ok 108 [tablet] › tests\public-pages.spec.ts:28:5 › Every public page › /our-work renders, has one H1 and does not overflow (1.9s)
+  ok 109 [tablet] › tests\public-pages.spec.ts:28:5 › Every public page › /contact renders, has one H1 and does not overflow (2.1s)
+  ok 110 [tablet] › tests\public-pages.spec.ts:28:5 › Every public page › /pricing renders, has one H1 and does not overflow (2.4s)
+  ok 111 [tablet] › tests\public-pages.spec.ts:28:5 › Every public page › /hosting renders, has one H1 and does not overflow (2.6s)
+  ok 112 [tablet] › tests\public-pages.spec.ts:28:5 › Every public page › /hosting/pw-hosting renders, has one H1 and does not overflow (2.7s)
+  ok 113 [tablet] › tests\public-pages.spec.ts:28:5 › Every public page › /refund-policy renders, has one H1 and does not overflow (1.6s)
+  ok 114 [tablet] › tests\public-pages.spec.ts:28:5 › Every public page › /sla renders, has one H1 and does not overflow (1.8s)
+  -  116 [tablet] › tests\public-pages.spec.ts:54:3 › Services › home lists the five services and links to each one
+  ok 115 [tablet] › tests\public-pages.spec.ts:28:5 › Every public page › /no-such-page renders, has one H1 and does not overflow (1.4s)
+  ok 118 [tablet] › tests\public-pages.spec.ts:76:3 › Services › "Request a quote" pre-selects the service on the contact form (2.3s)
+  ok 117 [tablet] › tests\public-pages.spec.ts:65:3 › Services › FAQ accordion opens one answer at a time with correct ARIA state (2.5s)
+  -  119 [tablet] › tests\public-pages.spec.ts:85:3 › Our Work › filters by category and opens a details dialog that returns focus
+  ok 120 [tablet] › tests\public-pages.spec.ts:112:3 › Pricing and hosting come from the published catalogue › plan cards show intro, list, saving and renewal prices and switch billing period (3.4s)
+  ok 121 [tablet] › tests\public-pages.spec.ts:130:3 › Pricing and hosting come from the published catalogue › comparison table lines features up across plans (3.1s)
+  ok 122 [tablet] › tests\public-pages.spec.ts:139:3 › Pricing and hosting come from the published catalogue › "Choose Plan" starts real sign-up in the customer portal with the plan attached (2.9s)
+  ok 123 [tablet] › tests\public-pages.spec.ts:145:3 › Pricing and hosting come from the published catalogue › hosting page lists the hosting plans; published testimonial and FAQ render (2.9s)
+  ok 124 [tablet] › tests\public-pages.spec.ts:155:3 › Pricing and hosting come from the published catalogue › a product with no published plans says so instead of inventing any (2.3s)
+  ok 125 [tablet] › tests\public-pages.spec.ts:164:3 › Contact form › validates required fields, the email format and consent (2.4s)
+  -  126 [tablet] › tests\public-pages.spec.ts:179:3 › Contact form › sends the enquiry to the API and confirms
+  ok 127 [tablet] › tests\public-pages.spec.ts:193:3 › Contact form › contact details show "to be added" until configured, and WhatsApp stays disabled (1.4s)
+  ok 128 [tablet] › tests\public-pages.spec.ts:204:3 › Legal pages › a published page shows its sections; an unpublished one says it is being prepared (2.1s)
+  -  130 [tablet] › tests\public-pages.spec.ts:223:3 › Navigation › main navigation reaches every top-level page on desktop
+  ok 129 [tablet] › tests\public-pages.spec.ts:214:3 › Legal pages › the footer links only to legal pages that are published (1.6s)
+  ok 131 [tablet] › tests\public-shell.spec.ts:4:3 › Public website shell › home renders the hero and primary calls to action (2.0s)
+  ok 132 [tablet] › tests\public-shell.spec.ts:15:3 › Public website shell › never scrolls horizontally and no element overflows the viewport (1.9s)
+  -  134 [tablet] › tests\public-shell.spec.ts:42:3 › Public website shell › desktop shows main navigation with Home marked current
+  -  135 [tablet] › tests\public-shell.spec.ts:51:3 › Public website shell › mobile menu opens, traps focus and closes on Escape
+  ok 133 [tablet] › tests\public-shell.spec.ts:34:3 › Public website shell › skip link moves focus to main content (2.3s)
+  ok 136 [tablet] › tests\public-shell.spec.ts:64:3 › Public website shell › footer shows placeholders instead of invented contact details (2.4s)
+  ok 137 [tablet] › tests\public-shell.spec.ts:71:3 › Public website shell › visual snapshot for design comparison (3.8s)
+  -  139 [tablet] › tests\razorpay-checkout-ui.spec.ts:84:3 › Paying with Razorpay (page behaviour) › the customer pays in the Razorpay window; the page sends only the three signed values and shows success
+  -  140 [tablet] › tests\razorpay-checkout-ui.spec.ts:103:3 › Paying with Razorpay (page behaviour) › closing the window without paying says so plainly and does not call the server to confirm
+  ok 138 [tablet] › tests\public-shell.spec.ts:78:3 › Public website shell › visitors can reach the customer and admin sign-in pages (3.8s)
+  -  141 [tablet] › tests\razorpay-checkout-ui.spec.ts:115:3 › Paying with Razorpay (page behaviour) › a payment the bank has not confirmed yet is shown as pending, then paid by itself
+  -  142 [tablet] › tests\razorpay-checkout-ui.spec.ts:127:3 › Paying with Razorpay (page behaviour) › a declined payment shows the reason
+  -  143 [tablet] › tests\support-tickets.spec.ts:41:3 › Support tickets › customer and support agent talk through a ticket
+  ok 144 [tablet] › tests\support-tickets.spec.ts:140:3 › Support tickets › support pages need a signed-in customer (1.2s)
+  -  146 [mobile] › tests\add-product.spec.ts:22:3 › An existing customer adds another product › Choose Plan on the website leads a signed-in customer to the order review for that plan
+  -  147 [mobile] › tests\admin-billing.spec.ts:42:3 › Admin billing › finance finds a customer order, sees it on the dashboard, and voids it
+  ok 145 [mobile] › tests\add-product.spec.ts:63:3 › An existing customer adds another product › a visitor who is not signed in still gets the sign-up page with the plan attached (1.3s)
+  -  148 [mobile] › tests\admin-billing.spec.ts:85:3 › Admin billing › finance refunds a paid invoice in two steps and the customer sees it
+  -  149 [mobile] › tests\admin-billing.spec.ts:164:3 › Admin billing › a support agent sees invoices but no Refund button
+  -  151 [mobile] › tests\admin-portal.spec.ts:13:3 › Admin portal › staff first sign-in: password change → two-step setup → dashboard → code required next time
+  ok 150 [mobile] › tests\admin-billing.spec.ts:182:3 › Admin billing › billing pages need a staff sign-in (1.4s)
+  -  153 [mobile] › tests\coupons.spec.ts:37:3 › Coupons › an admin creates a coupon and a customer uses it on an order
+  ok 152 [mobile] › tests\admin-portal.spec.ts:84:3 › Admin portal › admin pages require sign-in (1.2s)
+  -  155 [mobile] › tests\customer-billing.spec.ts:12:3 › Customer ordering › choose a plan, pay the invoice in test mode and see the active service
+  ok 154 [mobile] › tests\coupons.spec.ts:101:3 › Coupons › coupon pages need a staff sign-in (1.1s)
+  -  157 [mobile] › tests\customer-portal.spec.ts:15:3 › Customer portal › register, verify by email, and sign in
+  ok 156 [mobile] › tests\customer-billing.spec.ts:106:3 › Customer ordering › the order page needs a plan and signing in (1.2s)
+  -  159 [mobile] › tests\domains.spec.ts:49:3 › Domains › the home page searches, the Domains page answers, and staff control what is sold
+  ok 158 [mobile] › tests\customer-portal.spec.ts:99:3 › Customer portal › protected pages redirect to sign-in (983ms)
+  ok 160 [mobile] › tests\domains.spec.ts:133:3 › Domains › the Domains menu item opens the Domains page, with the price list and a search box (2.6s)
+  ok 161 [mobile] › tests\customer-portal.spec.ts:104:3 › Customer portal › sign-in pages fit small screens (2.5s)
+  -  163 [mobile] › tests\domains.spec.ts:150:3 › Domains › a customer registers a domain from the public site through the client area, and staff complete it
+  -  164 [mobile] › tests\domains.spec.ts:213:3 › Domains › a customer renews a domain, pays, and staff complete it; the new expiry shows
+  -  165 [mobile] › tests\domains.spec.ts:271:3 › Domains › a customer transfers a domain in; staff start and complete it, and the code is shown only to them
+  -  166 [mobile] › tests\domains.spec.ts:335:3 › Domains › a customer manages the DNS records of a registered domain
+  ok 162 [mobile] › tests\domains.spec.ts:144:3 › Domains › a search address can be opened directly and repeated with the back button (1.8s)
+  -  167 [mobile] › tests\domains.spec.ts:394:3 › Domains › an unpaid renewal can be cancelled
+  -  168 [mobile] › tests\domains.spec.ts:421:3 › Domains › an unpaid domain order can be cancelled, and a taken name is refused in the client area
+  -  169 [mobile] › tests\hosting.spec.ts:47:3 › Hosting › a customer sets up hosting, it comes online by itself, and staff can suspend and restore it
+  -  170 [mobile] › tests\hosting.spec.ts:118:3 › Hosting › when the panel refuses, the customer is reassured and staff see the reason
+  -  171 [mobile] › tests\hosting.spec.ts:145:3 › Hosting › manual mode: a task waits for staff, who mark it done with the panel username, and the customer sees it Active
+  -  173 [mobile] › tests\launch.spec.ts:19:3 › Launch checklist and tax rates › staff see what is still in test mode, follow a link to fix it, and manage GST rates
+  -  174 [mobile] › tests\plan-change.spec.ts:18:3 › Plan change at renewal › a customer schedules a plan change, sees it on the service, and withdraws it
+  ok 172 [mobile] › tests\hosting.spec.ts:196:3 › Hosting › hosting pages need a sign-in (1.5s)
+  ok 175 [mobile] › tests\public-pages.spec.ts:28:5 › Every public page › / renders, has one H1 and does not overflow (2.3s)
+  ok 176 [mobile] › tests\public-pages.spec.ts:28:5 › Every public page › /about renders, has one H1 and does not overflow (2.3s)
+  ok 177 [mobile] › tests\public-pages.spec.ts:28:5 › Every public page › /services renders, has one H1 and does not overflow (1.9s)
+  ok 178 [mobile] › tests\public-pages.spec.ts:28:5 › Every public page › /services/web-design renders, has one H1 and does not overflow (1.9s)
+  ok 179 [mobile] › tests\public-pages.spec.ts:28:5 › Every public page › /services/domain-services renders, has one H1 and does not overflow (1.7s)
+  ok 180 [mobile] › tests\public-pages.spec.ts:28:5 › Every public page › /our-work renders, has one H1 and does not overflow (1.9s)
+  ok 181 [mobile] › tests\public-pages.spec.ts:28:5 › Every public page › /contact renders, has one H1 and does not overflow (1.9s)
+  ok 182 [mobile] › tests\public-pages.spec.ts:28:5 › Every public page › /pricing renders, has one H1 and does not overflow (2.4s)
+  ok 183 [mobile] › tests\public-pages.spec.ts:28:5 › Every public page › /hosting renders, has one H1 and does not overflow (2.6s)
+  ok 184 [mobile] › tests\public-pages.spec.ts:28:5 › Every public page › /hosting/pw-hosting renders, has one H1 and does not overflow (2.4s)
+  ok 185 [mobile] › tests\public-pages.spec.ts:28:5 › Every public page › /refund-policy renders, has one H1 and does not overflow (1.7s)
+  ok 186 [mobile] › tests\public-pages.spec.ts:28:5 › Every public page › /sla renders, has one H1 and does not overflow (1.5s)
+  -  188 [mobile] › tests\public-pages.spec.ts:54:3 › Services › home lists the five services and links to each one
+  ok 187 [mobile] › tests\public-pages.spec.ts:28:5 › Every public page › /no-such-page renders, has one H1 and does not overflow (1.7s)
+  ok 189 [mobile] › tests\public-pages.spec.ts:65:3 › Services › FAQ accordion opens one answer at a time with correct ARIA state (2.4s)
+  ok 190 [mobile] › tests\public-pages.spec.ts:76:3 › Services › "Request a quote" pre-selects the service on the contact form (2.3s)
+  -  191 [mobile] › tests\public-pages.spec.ts:85:3 › Our Work › filters by category and opens a details dialog that returns focus
+  ok 193 [mobile] › tests\public-pages.spec.ts:130:3 › Pricing and hosting come from the published catalogue › comparison table lines features up across plans (2.0s)
+  ok 194 [mobile] › tests\public-pages.spec.ts:139:3 › Pricing and hosting come from the published catalogue › "Choose Plan" starts real sign-up in the customer portal with the plan attached (1.4s)
+  ok 192 [mobile] › tests\public-pages.spec.ts:112:3 › Pricing and hosting come from the published catalogue › plan cards show intro, list, saving and renewal prices and switch billing period (4.9s)
+  ok 195 [mobile] › tests\public-pages.spec.ts:145:3 › Pricing and hosting come from the published catalogue › hosting page lists the hosting plans; published testimonial and FAQ render (2.4s)
+  ok 196 [mobile] › tests\public-pages.spec.ts:155:3 › Pricing and hosting come from the published catalogue › a product with no published plans says so instead of inventing any (1.6s)
+  -  198 [mobile] › tests\public-pages.spec.ts:179:3 › Contact form › sends the enquiry to the API and confirms
+  ok 197 [mobile] › tests\public-pages.spec.ts:164:3 › Contact form › validates required fields, the email format and consent (2.6s)
+  ok 199 [mobile] › tests\public-pages.spec.ts:193:3 › Contact form › contact details show "to be added" until configured, and WhatsApp stays disabled (1.9s)
+  ok 200 [mobile] › tests\public-pages.spec.ts:204:3 › Legal pages › a published page shows its sections; an unpublished one says it is being prepared (2.0s)
+  ok 201 [mobile] › tests\public-pages.spec.ts:214:3 › Legal pages › the footer links only to legal pages that are published (1.6s)
+  -  202 [mobile] › tests\public-pages.spec.ts:223:3 › Navigation › main navigation reaches every top-level page on desktop
+  ok 203 [mobile] › tests\public-shell.spec.ts:4:3 › Public website shell › home renders the hero and primary calls to action (2.2s)
+  ok 204 [mobile] › tests\public-shell.spec.ts:15:3 › Public website shell › never scrolls horizontally and no element overflows the viewport (1.9s)
+  -  206 [mobile] › tests\public-shell.spec.ts:42:3 › Public website shell › desktop shows main navigation with Home marked current
+  ok 205 [mobile] › tests\public-shell.spec.ts:34:3 › Public website shell › skip link moves focus to main content (2.7s)
+  ok 207 [mobile] › tests\public-shell.spec.ts:51:3 › Public website shell › mobile menu opens, traps focus and closes on Escape (2.3s)
+  ok 208 [mobile] › tests\public-shell.spec.ts:64:3 › Public website shell › footer shows placeholders instead of invented contact details (2.0s)
+  ok 209 [mobile] › tests\public-shell.spec.ts:71:3 › Public website shell › visual snapshot for design comparison (4.5s)
+  -  211 [mobile] › tests\razorpay-checkout-ui.spec.ts:84:3 › Paying with Razorpay (page behaviour) › the customer pays in the Razorpay window; the page sends only the three signed values and shows success
+  -  212 [mobile] › tests\razorpay-checkout-ui.spec.ts:103:3 › Paying with Razorpay (page behaviour) › closing the window without paying says so plainly and does not call the server to confirm
+  ok 210 [mobile] › tests\public-shell.spec.ts:78:3 › Public website shell › visitors can reach the customer and admin sign-in pages (3.8s)
+  -  213 [mobile] › tests\razorpay-checkout-ui.spec.ts:115:3 › Paying with Razorpay (page behaviour) › a payment the bank has not confirmed yet is shown as pending, then paid by itself
+  -  214 [mobile] › tests\razorpay-checkout-ui.spec.ts:127:3 › Paying with Razorpay (page behaviour) › a declined payment shows the reason
+  -  215 [mobile] › tests\support-tickets.spec.ts:41:3 › Support tickets › customer and support agent talk through a ticket
+  ok 216 [mobile] › tests\support-tickets.spec.ts:140:3 › Support tickets › support pages need a signed-in customer (1.3s)
+  ok 217 [content] › tests\admin-content.spec.ts:21:3 › Admin website content › a Super Admin manages testimonials, FAQs and products; the website follows (12.6s)
+  ok 218 [content] › tests\admin-content.spec.ts:132:3 › Admin website content › projects: choose an image from this computer, see a preview, and it appears on the website (5.2s)
+  ok 219 [content] › tests\admin-content.spec.ts:184:3 › Admin website content › legal pages: a page is public only after it is published (3.4s)
+  ok 220 [content] › tests\admin-content.spec.ts:195:3 › Admin website content › a support agent can triage enquiries but cannot edit website content (3.0s)
+  ok 221 [content] › tests\admin-content.spec.ts:214:3 › Admin operations › a Super Admin adds and suspends a customer, invites staff, and finds it all in the audit log (9.1s)
+
+  64 skipped
+  157 passed (6.8m)

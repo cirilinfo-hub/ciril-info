@@ -3,6 +3,7 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
 import { BillingLifecycleService } from './billing-lifecycle.service.js';
 import { AdminBillingService } from './admin-billing.service.js';
 import { AdminCouponsService } from './admin-coupons.service.js';
+import { AdminTaxController, AdminTaxService } from './admin-tax.service.js';
 import { AdminBillingController, AdminCouponsController, BillingController } from './billing.controller.js';
 import { BillingService } from './billing.service.js';
 import { PaymentGateway } from './payment-gateway.js';
@@ -13,8 +14,8 @@ import { WebhooksController } from './webhooks.controller.js';
 
 @Module({
   imports: [NotificationsModule],
-  controllers: [BillingController, AdminBillingController, AdminCouponsController, WebhooksController],
-  providers: [BillingService, AdminBillingService, AdminCouponsService, BillingLifecycleService, PlanChangeService, PaymentGateway, PaymentSettlementService, PaymentWebhookService],
+  controllers: [BillingController, AdminBillingController, AdminCouponsController, AdminTaxController, WebhooksController],
+  providers: [BillingService, AdminBillingService, AdminCouponsService, AdminTaxService, BillingLifecycleService, PlanChangeService, PaymentGateway, PaymentSettlementService, PaymentWebhookService],
   exports: [BillingLifecycleService],
 })
 export class BillingModule {}
