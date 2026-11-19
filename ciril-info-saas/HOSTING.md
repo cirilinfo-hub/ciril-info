@@ -52,6 +52,18 @@ Each plan has a **Panel package** field (Admin > Products & Pricing). It must be
 - **After fixing the cause** (for example creating the missing package), use **Retry** on the task in Admin > Hosting.
 - **Removing** an account also removes its DNS zone.
 
+## DNS records (customers editing their domain's DNS)
+
+Customers can add, change and delete DNS records for a registered domain from **Domains > DNS** in the client area. The zone on the panel is the source of truth: the page always shows what is live, and each change is checked (record type rules, CNAME clashes, duplicates, one TTL per name and type) before it is sent.
+
+To use your WHM server's zones, set `DNS_PROVIDER=cpanel` (it uses the same `CPANEL_*` settings as hosting) and give the API token the DNS zone editing privilege (WHM lists it with the DNS functions). Production refuses `DNS_PROVIDER=mock`.
+
+- The domain's own name servers are shown but cannot be changed. The zone's start-of-authority record is hidden.
+- If the domain has no zone on the panel (it is registered with us but not hosted there), the page says DNS is not set up yet and asks the customer to contact you.
+- WHM addresses records by line number, and line numbers move when the zone changes, so each record is found again by its content just before it is edited or removed. If someone else changed it first, the customer is asked to reload.
+- Long TXT values (such as DKIM keys) are sent as one value and WHM splits them.
+- **Not yet tried against a real WHM.** The field names used for each record type follow WHM's zone functions but were only tested against a pretend server. Try adding one record of each type on a test domain before relying on it.
+
 ## Not built yet
 
-Plesk, and picking between several servers. Domain registration and DNS are separate (see the README).
+Plesk, and picking between several servers. DNS for domains that are registered with us but not hosted on the panel (their DNS lives at the registrar) waits for the registrar adapter.

@@ -23,6 +23,28 @@ export interface CustomerDomain {
   renewal: { id: string; years: number; stage: 'AWAITING_PAYMENT' | 'RENEWING'; invoice: { id: string; number: string; status: string; total: string; currency: string } } | null;
 }
 
+export type DnsType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SRV' | 'CAA';
+
+export interface DnsRecordView {
+  id: string;
+  type: DnsType;
+  /** Relative to the domain: "@" for the domain itself. */
+  name: string;
+  content: string;
+  ttl: number;
+  priority?: number | null;
+  /** Needed for the domain to work (its own name servers): shown, not editable. */
+  readonly: boolean;
+}
+
+export interface DnsRecordBody {
+  type: DnsType;
+  name: string;
+  content: string;
+  ttl: number;
+  priority?: number;
+}
+
 export interface RenewalQuote {
   domain: string;
   years: number;
@@ -76,6 +98,18 @@ export class DomainsApi {
   }
   order(domain: string, years: number) {
     return firstValueFrom(this.http.post<{ domain: CustomerDomain; invoice: { id: string; number: string } }>(`${this.base}/orders`, { domain, years }));
+  }
+  dns(domainId: string) {
+    return firstValueFrom(this.http.get<{ domain: string; records: DnsRecordView[] }>(`${this.base}/${domainId}/dns`));
+  }
+  addDns(domainId: string, body: DnsRecordBody) {
+    return firstValueFrom(this.http.post<DnsRecordView>(`${this.base}/${domainId}/dns`, body));
+  }
+  updateDns(domainId: string, recordId: string, body: DnsRecordBody) {
+    return firstValueFrom(this.http.put<DnsRecordView>(`${this.base}/${domainId}/dns/${recordId}`, body));
+  }
+  removeDns(domainId: string, recordId: string) {
+    return firstValueFrom(this.http.delete<{ id: string; removed: boolean }>(`${this.base}/${domainId}/dns/${recordId}`));
   }
   renewalQuote(id: string, years: number) {
     return firstValueFrom(this.http.get<RenewalQuote>(`${this.base}/${id}/renew/quote`, { params: { years } }));

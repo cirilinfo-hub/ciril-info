@@ -69,6 +69,8 @@ export const envSchema = z
     RAZORPAY_API_BASE: z.url().default('https://api.razorpay.com/v1'),
     /** manual: no panel is called; each task goes to staff, who do it by hand and mark it done. */
     HOSTING_PROVIDER: z.enum(['mock', 'manual', 'cpanel', 'plesk']).default('mock'),
+    /** Where DNS zones live. mock keeps them in memory (development only); cpanel edits the zones on the WHM server below. */
+    DNS_PROVIDER: z.enum(['mock', 'cpanel']).default('mock'),
     /** cPanel/WHM. The token goes in the server's .env only, never in chat, git or a screenshot. */
     CPANEL_HOST: z.string().trim().default(''),
     CPANEL_PORT: z.coerce.number().int().positive().default(2087),
@@ -101,9 +103,9 @@ export const envSchema = z
         ctx.addIssue({ code: 'custom', path: ['RAZORPAY_KEY_ID'], message: 'a live key must not be used outside production; use rzp_test_...' });
       }
     }
-    if (env.HOSTING_PROVIDER === 'cpanel') {
+    if (env.HOSTING_PROVIDER === 'cpanel' || env.DNS_PROVIDER === 'cpanel') {
       for (const key of ['CPANEL_HOST', 'CPANEL_USER', 'CPANEL_API_TOKEN'] as const) {
-        if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: 'required when HOSTING_PROVIDER=cpanel' });
+        if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: 'required when HOSTING_PROVIDER=cpanel or DNS_PROVIDER=cpanel' });
       }
       if (env.NODE_ENV === 'production' && env.CPANEL_TLS === 'off') {
         ctx.addIssue({ code: 'custom', path: ['CPANEL_TLS'], message: 'production must talk to WHM over HTTPS' });
@@ -114,7 +116,7 @@ export const envSchema = z
     }
     if (env.NODE_ENV !== 'production') return;
     // Rule 7/8 of the brief: never fake payments or provisioning in production.
-    for (const key of ['PAYMENT_PROVIDER', 'HOSTING_PROVIDER', 'REGISTRAR_PROVIDER'] as const) {
+    for (const key of ['PAYMENT_PROVIDER', 'HOSTING_PROVIDER', 'REGISTRAR_PROVIDER', 'DNS_PROVIDER'] as const) {
       if (env[key] === 'mock') {
         ctx.addIssue({ code: 'custom', path: [key], message: 'mock adapters are not allowed in production' });
       }

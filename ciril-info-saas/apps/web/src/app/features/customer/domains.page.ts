@@ -106,6 +106,7 @@ const YEARS = [1, 2, 3, 4, 5];
                 </td>
                 <td>{{ d.expiresAt ? (d.expiresAt | date: 'd MMM y') : '—' }}</td>
                 <td class="row-actions">
+                  @if (d.stage === 'ACTIVE') { <a class="cf-btn cf-btn-tertiary cf-btn-sm" [routerLink]="[auth.link('/domains'), d.id, 'dns']" [attr.aria-label]="'Manage DNS for ' + d.name">DNS</a> }
                   @if (d.renewal?.stage === 'AWAITING_PAYMENT') {
                     @if (auth.can('billing:read')) { <a class="cf-btn cf-btn-primary cf-btn-sm" [routerLink]="[auth.link('/invoices'), d.renewal!.invoice.id]" [attr.aria-label]="'Pay the renewal for ' + d.name">Pay renewal</a> }
                     @if (auth.can('services:manage')) { <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="cancelRenewalFor.set(d)" [attr.aria-label]="'Cancel the renewal for ' + d.name">Cancel renewal</button> }

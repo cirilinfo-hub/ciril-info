@@ -268,6 +268,65 @@ test.describe('Domains', () => {
     await expect(renewed.getByRole('button', { name: `Renew ${domain}` })).toBeVisible(); // can renew again
   });
 
+  test('a customer manages the DNS records of a registered domain', async ({ page }, info) => {
+    test.skip(info.project.name !== 'desktop', 'runs once');
+    test.setTimeout(120_000);
+    const tld = `pw${rand()}`;
+    const name = `pwdns${rand()}`;
+    const domain = `${name}.${tld}`;
+    const email = await newCustomer('domdns');
+    fixture('add-domain', email, name, tld, '300');
+    await page.goto('/portal/login');
+    await page.getByLabel('Email address').fill(email);
+    await page.getByLabel('Password').fill(CUSTOMER_PASSWORD);
+    await page.getByRole('button', { name: 'Sign In' }).click();
+    await page.getByRole('complementary').getByRole('link', { name: 'Domains' }).click();
+    await page.getByRole('link', { name: `Manage DNS for ${domain}` }).click();
+
+    await expect(page.getByRole('heading', { name: 'DNS records' })).toBeVisible();
+    const table = page.getByRole('table');
+    await expect(table.getByRole('row', { name: /NS/ }).first()).toContainText('Managed by us'); // the domain's own name servers are not editable
+
+    // Add an A record; a wrong value is explained and the dialog stays open.
+    await page.getByRole('button', { name: 'Add record' }).click();
+    const add = page.getByRole('dialog', { name: 'Add a record' });
+    await add.getByLabel('Name').fill('www');
+    await add.getByLabel('Points to').fill('not-an-ip');
+    await add.getByRole('button', { name: 'Add record' }).click();
+    await expect(add.getByText(/needs an IPv4 address/)).toBeVisible();
+    await add.getByLabel('Points to').fill('203.0.113.10');
+    await add.getByRole('button', { name: 'Add record' }).click();
+    await expect(page.getByText('The record was added.')).toBeVisible();
+    const www = table.getByRole('row', { name: /www/ });
+    await expect(www).toContainText('203.0.113.10');
+
+    // An MX record asks for a priority.
+    await page.getByRole('button', { name: 'Add record' }).click();
+    const mx = page.getByRole('dialog', { name: 'Add a record' });
+    await mx.getByLabel('Type').selectOption({ label: 'MX (email)' });
+    await mx.getByLabel('Name').fill('@');
+    await mx.getByLabel('Points to').fill('mail.example.net');
+    await mx.getByLabel('Priority').fill('10');
+    await mx.getByRole('button', { name: 'Add record' }).click();
+    await expect(page.getByText('The record was added.')).toBeVisible();
+    await expect(table.getByRole('row', { name: /MX/ })).toContainText('Priority 10');
+
+    // Edit it.
+    await www.getByRole('button', { name: /Edit A record www/ }).click();
+    const edit = page.getByRole('dialog', { name: 'Edit record' });
+    await expect(edit.getByLabel('Type')).toBeDisabled(); // a record's type is fixed
+    await edit.getByLabel('Points to').fill('203.0.113.11');
+    await edit.getByRole('button', { name: 'Save changes' }).click();
+    await expect(page.getByText('The record was changed.')).toBeVisible();
+    await expect(table.getByRole('row', { name: /www/ })).toContainText('203.0.113.11');
+
+    // Delete it.
+    await table.getByRole('row', { name: /www/ }).getByRole('button', { name: /Delete A record www/ }).click();
+    await page.getByRole('dialog', { name: 'Delete this record?' }).getByRole('button', { name: 'Delete record' }).click();
+    await expect(page.getByText('The record was deleted.')).toBeVisible();
+    await expect(table.getByRole('row', { name: /www/ })).toHaveCount(0);
+  });
+
   test('an unpaid renewal can be cancelled', async ({ page }, info) => {
     test.skip(info.project.name !== 'desktop', 'runs once');
     test.setTimeout(120_000);

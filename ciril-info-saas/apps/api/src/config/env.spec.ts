@@ -20,6 +20,7 @@ const prodReal = {
   RAZORPAY_KEY_SECRET: 'secret',
   RAZORPAY_WEBHOOK_SECRET: 'whsec',
   HOSTING_PROVIDER: 'cpanel',
+  DNS_PROVIDER: 'cpanel',
   CPANEL_HOST: 'server.example.com',
   CPANEL_USER: 'root',
   CPANEL_API_TOKEN: 'token',
@@ -74,6 +75,10 @@ describe('validateEnv: cPanel', () => {
     const env = validateEnv({ ...dev, CPANEL_HOST: 'h', CPANEL_USER: 'root', CPANEL_API_TOKEN: 't' });
     expect(env.CPANEL_PORT).toBe(2087);
     expect(env.CPANEL_TLS).toBe('verify');
+  });
+  it('is also needed when only DNS uses cPanel', () => {
+    expect(() => validateEnv({ ...base, DNS_PROVIDER: 'cpanel' })).toThrow(/required when HOSTING_PROVIDER=cpanel or DNS_PROVIDER=cpanel/);
+    expect(() => validateEnv({ ...base, DNS_PROVIDER: 'cpanel', CPANEL_HOST: 'h', CPANEL_USER: 'root', CPANEL_API_TOKEN: 't' })).not.toThrow();
   });
   it('is not required for the other modes', () => {
     expect(() => validateEnv({ ...base, HOSTING_PROVIDER: 'manual' })).not.toThrow();

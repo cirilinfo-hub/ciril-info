@@ -114,6 +114,7 @@ export function customerRoutes(base: string): Routes {
             { path: '', title: 'Dashboard · Ciril Info', loadComponent: () => import('./customer/overview.page').then((m) => m.CustomerOverviewPage) },
             { path: 'hosting', title: 'Hosting · Ciril Info', canActivate: [requirePermission('services:read')], loadComponent: () => import('./customer/hosting.page').then((m) => m.HostingPage) },
             { path: 'domains', title: 'Domains · Ciril Info', canActivate: [requirePermission('services:read')], loadComponent: () => import('./customer/domains.page').then((m) => m.DomainsPage) },
+            { path: 'domains/:id/dns', title: 'DNS records · Ciril Info', canActivate: [requirePermission('services:read')], loadComponent: () => import('./customer/dns.page').then((m) => m.DnsPage) },
             { path: 'notifications', title: 'Notifications · Ciril Info', loadComponent: () => import('./customer/notifications.page').then((m) => m.NotificationsPage) },
             { path: 'order', title: 'Order · Ciril Info', canActivate: [requirePermission('services:order')], loadComponent: () => import('./customer/order.page').then((m) => m.OrderPage) },
             { path: 'services', title: 'Services · Ciril Info', canActivate: [requirePermission('services:read')], loadComponent: () => import('./customer/subscriptions.page').then((m) => m.SubscriptionsPage) },
