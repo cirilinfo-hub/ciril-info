@@ -163,6 +163,9 @@ export class Contact {
   /** `?service=web-design` pre-selects that service (set by "Request a quote" links). */
   readonly service = input<string>();
 
+  /** `?domain=acme.com` (from a domain search result) pre-fills the message with a registration request. */
+  readonly domain = input<string>();
+
   protected readonly form = inject(NonNullableFormBuilder).group({
     name: ['', [Validators.required, Validators.minLength(2), Validators.maxLength(120)]],
     email: ['', [Validators.required, Validators.email, Validators.maxLength(254)]],
@@ -192,6 +195,14 @@ export class Contact {
       const s = this.service();
       const match = SERVICES.find((x) => x.slug === s)?.name ?? INQUIRY_SERVICES.find((x) => x === s);
       if (match) untracked(() => this.form.controls.service.setValue(match));
+    });
+    effect(() => {
+      const d = this.domain()?.toLowerCase();
+      if (d && /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(d)) {
+        untracked(() => {
+          if (!this.form.controls.message.value) this.form.controls.message.setValue(`I would like to register ${d}.`);
+        });
+      }
     });
   }
 

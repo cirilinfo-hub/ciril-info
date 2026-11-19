@@ -8,6 +8,7 @@ import { AuditService } from '../modules/audit/audit.service.js';
 import { BillingLifecycleService } from '../modules/billing/billing-lifecycle.service.js';
 import { PaymentGateway } from '../modules/billing/payment-gateway.js';
 import { PaymentSettlementService } from '../modules/billing/payment-settlement.service.js';
+import { DomainEventsHandler } from '../modules/domains/domain-events.handler.js';
 import { HostingEventsHandler } from '../modules/hosting/hosting-events.handler.js';
 import { HostingGateway } from '../modules/hosting/hosting-gateway.js';
 import { HostingJobsService } from '../modules/hosting/hosting-jobs.service.js';
@@ -53,6 +54,6 @@ import { EVENTS_QUEUE, OutboxRelayService } from './outbox-relay.service.js';
     BullModule.registerQueue({ name: EVENTS_QUEUE }),
     DatabaseModule,
   ],
-  providers: [OutboxRelayService, EventsProcessor, AuditService, MailService, StaffNotifier, PaymentGateway, PaymentSettlementService, BillingLifecycleService, BillingLifecycleRunner, HostingGateway, HostingJobsService, HostingEventsHandler, HostingProvisionerRunner],
+  providers: [OutboxRelayService, EventsProcessor, AuditService, MailService, StaffNotifier, PaymentGateway, PaymentSettlementService, BillingLifecycleService, BillingLifecycleRunner, HostingGateway, HostingJobsService, HostingEventsHandler, HostingProvisionerRunner, DomainEventsHandler],
 })
 export class WorkerModule {}

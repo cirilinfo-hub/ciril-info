@@ -40,6 +40,7 @@ export async function settleInvoicePayment(tx: Tx, a: SettleArgs): Promise<Settl
   });
   await tx.invoice.update({ where: { id: a.invoiceId }, data: { status: 'PAID', amountPaid: invoice.total, paidAt: a.now } });
   if (invoice.subscription) await activate(tx, a.tenantId, a.actorUserId, invoice.subscription, a.now, invoice.billingSnapshot);
+  await requestDomainRegistration(tx, a.tenantId, a.invoiceId);
 
   const recipients = a.actorUserId
     ? [a.actorUserId]
@@ -53,6 +54,13 @@ export async function settleInvoicePayment(tx: Tx, a: SettleArgs): Promise<Settl
     data: { action: 'payment.succeeded', actorId: a.actorUserId, tenantId: a.tenantId, entityType: 'invoice', entityId: a.invoiceId, metadata: { paymentId: a.paymentId, via: a.via } as Prisma.InputJsonValue },
   });
   return 'SETTLED';
+}
+
+/** A paid domain order becomes a task for staff, who register the name. The event is handled by the worker. */
+async function requestDomainRegistration(tx: Tx, tenantId: string, invoiceId: string) {
+  const domain = await tx.domain.findUnique({ where: { orderInvoiceId: invoiceId }, select: { id: true, name: true, status: true } });
+  if (!domain || domain.status !== 'PENDING_REGISTRATION') return;
+  await tx.outboxEvent.createMany({ data: { tenantId, type: 'domain.registration_requested', aggregateType: 'domain', aggregateId: domain.id, payload: { domainId: domain.id, name: domain.name } } });
 }
 
 /** First payment activates the subscription; a later one renews it from the end of the paid period. */

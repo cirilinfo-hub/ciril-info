@@ -18,7 +18,7 @@ export class AdminDashboardService {
     const d7 = new Date(now - 7 * DAY);
     const d30 = new Date(now - 30 * DAY);
 
-    const [customers, enquiries, content, staff, recentEnquiries, recentActivity, tickets, hosting] = await Promise.all([
+    const [customers, enquiries, content, staff, recentEnquiries, recentActivity, tickets, hosting, domains] = await Promise.all([
       can('tenants:read')
         ? Promise.all([
             this.db.tenant.count(),
@@ -70,7 +70,9 @@ export class AdminDashboardService {
             this.db.provisioningJob.count({ where: { status: 'FAILED', hostingAccount: { status: { notIn: ['CANCELLED', 'TERMINATED'] } } } }),
           ]).then(([waiting, failed]) => ({ waiting, failed }))
         : null,
+      // Paid domain orders waiting for staff to register them.
+      can('domains:read') ? this.db.domain.count({ where: { status: 'PENDING_REGISTRATION', orderInvoice: { status: 'PAID' } } }).then((waiting) => ({ waiting })) : null,
     ]);
-    return { customers, enquiries, content, staff, recentEnquiries, recentActivity, tickets, hosting };
+    return { customers, enquiries, content, staff, recentEnquiries, recentActivity, tickets, hosting, domains };
   }
 }

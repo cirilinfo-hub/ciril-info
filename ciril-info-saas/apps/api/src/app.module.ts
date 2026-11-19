@@ -11,6 +11,7 @@ import { AdminContentModule } from './modules/admin-content/admin-content.module
 import { BillingModule } from './modules/billing/billing.module.js';
 import { AuditModule } from './modules/audit/audit.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
+import { DomainsModule } from './modules/domains/domains.module.js';
 import { HostingModule } from './modules/hosting/hosting.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { MailModule } from './modules/mail/mail.module.js';
@@ -83,6 +84,7 @@ import { UsersModule } from './modules/users/users.module.js';
     BillingModule,
     SupportModule,
     HostingModule,
+    DomainsModule,
     NotificationsModule,
     UsersModule,
   ],

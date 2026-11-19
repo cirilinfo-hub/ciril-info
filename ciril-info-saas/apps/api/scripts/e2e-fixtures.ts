@@ -4,6 +4,7 @@
  *   tsx scripts/e2e-fixtures.ts create-staff-ready <email> <password> <ROLE_KEY>   (password set, two-step on; prints the secret)
  *   tsx scripts/e2e-fixtures.ts cleanup <email-prefix>
  *   tsx scripts/e2e-fixtures.ts seed-public | cleanup-public   (website content used by the public-page tests)
+ *   tsx scripts/e2e-fixtures.ts add-tld <pw-ending> <register> <renew> <transfer>   (a domain ending the browser tests can sell)
  *   tsx scripts/e2e-fixtures.ts hosting-awaiting <customer-email> <domain>   (a hosting set-up waiting for staff, as in manual mode)
  * Refuses to run when NODE_ENV=production and only touches @example.test addresses.
  */
@@ -32,6 +33,7 @@ const pwLegal = {
 
 async function cleanupPublic() {
   await db.coupon.deleteMany({ where: { code: { startsWith: 'PW-' } } });
+  await db.tldPrice.deleteMany({ where: { tld: { startsWith: 'pw' } } });
   const planIds = (await db.plan.findMany({ where: { slug: { startsWith: 'pw-' } }, select: { id: true } })).map((p) => p.id);
   await db.pricingVersion.deleteMany({ where: { planId: { in: planIds } } });
   await db.planFeature.deleteMany({ where: { planId: { in: planIds } } });
@@ -93,17 +95,24 @@ async function main() {
     await db.supportTicket.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.provisioningJob.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.hostingAccount.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.domain.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.creditNote.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.refund.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.invoice.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.subscription.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await db.outboxEvent.deleteMany({ where: { tenantId: { in: tenantIds }, type: 'subscription.activated' } });
+    await db.outboxEvent.deleteMany({ where: { tenantId: { in: tenantIds }, type: { in: ['subscription.activated', 'domain.registration_requested'] } } });
+    await db.$executeRaw`DELETE FROM notifications WHERE type = 'domain.task' AND title LIKE 'Register pw%'`;
     await db.tenant.deleteMany({ where: { id: { in: tenantIds } } });
     await db.$executeRaw`DELETE FROM notifications WHERE type IN ('ticket.opened', 'ticket.customer_reply') AND NOT EXISTS (SELECT 1 FROM support_tickets t WHERE '/support/' || t.id::text = notifications.link)`;
     await db.invitation.deleteMany({ where: { email: { startsWith: prefix, endsWith: '@example.test' } } });
     await db.user.deleteMany({ where: { id: { in: users.map((u) => u.id) } } });
     console.log(JSON.stringify({ removedUsers: users.length, removedTenants: tenantIds.length }));
+  } else if (cmd === 'add-tld') {
+    const [tld, register, renew, transfer] = args as [string, string, string, string];
+    if (!tld.startsWith('pw')) throw new Error('Test endings must start with "pw"');
+    await db.tldPrice.upsert({ where: { tld }, update: { isActive: true }, create: { tld, registerPrice: register, renewPrice: renew, transferPrice: transfer } });
+    console.log('{}');
   } else if (cmd === 'hosting-awaiting') {
     const [email, domain] = args as [string, string];
     testOnly(email);

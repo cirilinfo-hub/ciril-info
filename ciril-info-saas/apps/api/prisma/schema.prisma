@@ -796,6 +796,26 @@ model ProvisioningJob {
 
 // ───────────────────────────── Domains ─────────────────────────────
 
+/// What the website charges to register, renew and transfer a domain ending (rupees, set by admins). Real prices only:
+/// development samples are flagged and never created in production.
+model TldPrice {
+  id            String   @id @default(uuid()) @db.Uuid
+  /// Without the dot, lower case: "com", "co.in".
+  tld           String   @db.Citext
+  registerPrice Decimal  @map("register_price") @db.Decimal(14, 2)
+  renewPrice    Decimal  @map("renew_price") @db.Decimal(14, 2)
+  transferPrice Decimal  @map("transfer_price") @db.Decimal(14, 2)
+  isActive      Boolean  @default(true) @map("is_active")
+  isFeatured    Boolean  @default(false) @map("is_featured")
+  sortOrder     Int      @default(0) @map("sort_order")
+  isSample      Boolean  @default(false) @map("is_sample")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([tld])
+  @@map("tld_prices")
+}
+
 model DomainRegistrar {
   id             String   @id @default(uuid()) @db.Uuid
   name           String   @db.VarChar(80)
@@ -832,12 +852,19 @@ model Domain {
   locked         Boolean      @default(true)
   nameservers    String[]     @default([])
   registrarRef   String?      @map("registrar_ref") @db.VarChar(120)
+  /// Years paid for in the order that created it.
+  years          Int          @default(1)
+  /// The invoice that pays for the registration. Unique: one order, one domain.
+  orderInvoiceId String?      @unique @map("order_invoice_id") @db.Uuid
+  /// Why staff could not register it (shown to the customer).
+  failureReason  String?      @map("failure_reason") @db.VarChar(255)
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   subscription Subscription?    @relation(fields: [subscriptionId], references: [id])
   registrar    DomainRegistrar? @relation(fields: [registrarId], references: [id])
+  orderInvoice Invoice?         @relation("DomainOrderInvoice", fields: [orderInvoiceId], references: [id])
   dnsRecords   DnsRecord[]
   transfers    DomainTransfer[]
 
@@ -996,6 +1023,7 @@ model Invoice {
 
   tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  domainOrder  Domain?       @relation("DomainOrderInvoice")
   items        InvoiceItem[]
   payments     Payment[]
   refunds      Refund[]

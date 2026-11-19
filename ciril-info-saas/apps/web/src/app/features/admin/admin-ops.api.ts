@@ -11,6 +11,7 @@ export interface DashboardSummary {
   staff: { active: number } | null;
   tickets: { open: number; unassigned: number } | null;
   hosting: { waiting: number; failed: number } | null;
+  domains: { waiting: number } | null;
   recentEnquiries: { id: string; name: string; email: string; service: string | null; status: string; createdAt: string }[] | null;
   recentActivity: { id: string; action: string; createdAt: string; actor: { firstName: string; lastName: string; email: string } | null }[] | null;
 }

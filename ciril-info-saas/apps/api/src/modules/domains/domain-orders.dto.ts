@@ -1,0 +1,15 @@
+import { Transform, Type } from 'class-transformer';
+import { IsInt, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { MAX_YEARS } from './domain-rules.js';
+
+const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
+
+export class DomainQuoteQuery {
+  @Transform(trim) @IsString() @MinLength(3) @MaxLength(253) domain!: string;
+  @Type(() => Number) @IsInt() @Min(1) @Max(MAX_YEARS) years = 1;
+}
+
+export class DomainOrderDto {
+  @Transform(trim) @IsString() @MinLength(3) @MaxLength(253) domain!: string;
+  @Type(() => Number) @IsInt() @Min(1) @Max(MAX_YEARS) years = 1;
+}

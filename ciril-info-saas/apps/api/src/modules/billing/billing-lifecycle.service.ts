@@ -63,7 +63,7 @@ export class BillingLifecycleService {
     const renewalInvoices = await this.issueRenewals(now);
     const overdue = await this.markOverdue(now);
     const { reconciled, checkoutsClosed } = await this.reconcilePayments(now);
-    const abandoned = await this.cancelAbandonedOrders(now);
+    const abandoned = (await this.cancelAbandonedOrders(now)) + (await this.cancelAbandonedDomainOrders(now));
     const { pastDue, expired } = await this.processPeriodEnds(now);
     if (renewalInvoices || overdue || abandoned || pastDue || expired || reconciled || checkoutsClosed) this.log.log(`billing lifecycle: ${JSON.stringify({ renewalInvoices, overdue, abandoned, pastDue, expired, reconciled, checkoutsClosed })}`);
     return { renewalInvoices, overdue, pastDue, expired, abandoned, reconciled, checkoutsClosed };
@@ -246,6 +246,34 @@ export class BillingLifecycleService {
         if (done) cancelled++;
       } catch (e) {
         this.log.error(`abandoned order cleanup failed for subscription ${id}: ${(e as Error).message}`);
+      }
+    }
+    return cancelled;
+  }
+
+  /** A domain order that is still unpaid after the same wait is withdrawn, which also releases the name for others. */
+  private async cancelAbandonedDomainOrders(now: Date) {
+    const cutoff = new Date(now.getTime() - this.abandonedDays * DAY);
+    const candidates = await this.db.domain.findMany({ where: { status: 'PENDING_REGISTRATION', createdAt: { lt: cutoff }, orderInvoice: { status: { in: UNPAID } } }, select: { id: true, orderInvoiceId: true } });
+    let cancelled = 0;
+    for (const { id, orderInvoiceId } of candidates) {
+      try {
+        const done = await this.db.$transaction(async (tx) => {
+          const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM invoices WHERE id = ${orderInvoiceId}::uuid FOR UPDATE SKIP LOCKED`;
+          if (!locked.length) return false;
+          const d = await tx.domain.findUnique({ where: { id }, select: { id: true, tenantId: true, name: true, status: true, createdAt: true, orderInvoice: { select: { status: true } } } });
+          if (!d || d.status !== 'PENDING_REGISTRATION' || d.createdAt >= cutoff || !d.orderInvoice || !UNPAID.includes(d.orderInvoice.status)) return false;
+          // Never withdraw an order that has money on it.
+          if (await tx.payment.count({ where: { invoiceId: orderInvoiceId!, status: 'SUCCEEDED' } })) return false;
+          await tx.invoice.update({ where: { id: orderInvoiceId! }, data: { status: 'VOID', voidedAt: now } });
+          await tx.domain.update({ where: { id }, data: { status: 'CANCELLED' } });
+          await this.notifyOwners(tx, d.tenantId, { type: 'order.expired', title: `The order for ${d.name} was cancelled`, body: `It was not paid within ${this.abandonedDays} days.`, link: '/domains' });
+          await this.audit.record({ action: 'domain.order_abandoned', tenantId: d.tenantId, entityType: 'domain', entityId: id }, tx);
+          return true;
+        });
+        if (done) cancelled++;
+      } catch (e) {
+        this.log.error(`abandoned domain order cleanup failed for domain ${id}: ${(e as Error).message}`);
       }
     }
     return cancelled;

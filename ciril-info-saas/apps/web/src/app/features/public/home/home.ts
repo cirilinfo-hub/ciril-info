@@ -6,6 +6,7 @@ import { Art } from '../../../design-system/art/art';
 import { Icon } from '../../../design-system/icon/icon';
 import { PROCESS_STEPS, SERVICES } from '../content/services.content';
 import { CtaBand } from '../shared/cta-band';
+import { DomainSearch } from '../shared/domain-search';
 import { FaqSection } from '../shared/faq-section';
 import { ProcessSection } from '../shared/process-section';
 import { ProjectCard } from '../shared/project-card';
@@ -21,9 +22,16 @@ import { HeroArt } from './hero-art';
   selector: 'ci-home',
   imports: [
     AsyncPipe, RouterLink, Icon, Art, Reveal, HeroArt, SectionHead, ProcessSection, ProjectCard, ProjectDialog,
-    TestimonialsSection, FaqSection, CtaBand,
+    TestimonialsSection, FaqSection, CtaBand, DomainSearch,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: `
+    .domain-band { padding-block: var(--space-8, 48px); }
+    .domain-card { display: grid; gap: var(--space-4); padding: var(--space-6, 32px); }
+    .domain-card h2 { margin: 0; }
+    .domain-card p { margin: 0; color: var(--color-text-secondary); }
+    .domain-card .more { font-size: 14px; line-height: 20px; }
+  `,
   template: `
     <section class="cx-hero" aria-labelledby="hero-h">
       <div class="cx-container cx-container--xl cx-hero-grid">
@@ -53,6 +61,17 @@ import { HeroArt } from './hero-art';
           </ul>
         </div>
         <div ciHeroArt></div>
+      </div>
+    </section>
+
+    <section class="domain-band" aria-labelledby="domain-h">
+      <div class="cx-container cx-container--xl">
+        <div class="cf-card domain-card">
+          <h2 id="domain-h" class="ts-heading-3">Find your domain name</h2>
+          <p>Check if the name you want is free, and see what it costs to register.</p>
+          <ci-domain-search />
+          <p class="more"><a routerLink="/domains">See all domain prices</a></p>
+        </div>
       </div>
     </section>
 

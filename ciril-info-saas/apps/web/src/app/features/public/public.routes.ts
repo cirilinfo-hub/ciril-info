@@ -16,6 +16,7 @@ export const PUBLIC_ROUTES: Routes = [
       { path: 'services/:slug', loadComponent: () => import('./services/service-detail').then((m) => m.ServiceDetail) },
       { path: 'hosting', title: `Hosting — ${SUFFIX}`, loadComponent: () => import('./hosting/hosting').then((m) => m.Hosting) },
       { path: 'hosting/:slug', loadComponent: () => import('./hosting/hosting-product').then((m) => m.HostingProduct) },
+      { path: 'domains', title: `Domains — ${SUFFIX}`, loadComponent: () => import('./domains/domains').then((m) => m.Domains) },
       { path: 'pricing', title: `Pricing — ${SUFFIX}`, loadComponent: () => import('./pricing/pricing').then((m) => m.Pricing) },
       { path: 'our-work', title: `Our Work — ${SUFFIX}`, loadComponent: () => import('./our-work/our-work').then((m) => m.OurWork) },
       { path: 'contact', title: `Contact — ${SUFFIX}`, loadComponent: () => import('./contact/contact').then((m) => m.Contact) },

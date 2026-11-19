@@ -51,3 +51,14 @@ main:focus {
 .hx-content > router-outlet + * {
   margin-top: 0;
 }
+
+// Closing call-to-action band: it has no space above it, because a white section normally supplies that with its own
+// bottom padding. After a tinted (--subtle) section the band would touch the tint's edge while sitting a full
+// section-height above the footer, so give it the same space above. The previous section may be a direct sibling, sit
+// inside a component element (display: contents), or be followed by a component that rendered nothing (an FAQ topic
+// with no questions).
+.cx-section--subtle + ci-cta-band .cx-band-wrap,
+.cx-section--subtle + :is(ci-faq-section, ci-testimonials-section):empty + ci-cta-band .cx-band-wrap,
+:is(ci-faq-section, ci-testimonials-section):has(> .cx-section--subtle:last-child) + ci-cta-band .cx-band-wrap {
+  padding-top: var(--sec-y);
+}

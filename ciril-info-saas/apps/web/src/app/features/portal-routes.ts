@@ -7,9 +7,11 @@ import { AuthService } from '../core/auth/auth.service';
 import type { NavSection } from '../layouts/portal-shell/portal-shell';
 import { AdminContentApi } from './admin/admin-content.api';
 import { AdminBillingApi } from './admin/admin-billing.api';
+import { AdminDomainsApi } from './admin/admin-domains.api';
 import { AdminHostingApi } from './admin/admin-hosting.api';
 import { AdminOpsApi } from './admin/admin-ops.api';
 import { BillingApi } from './customer/billing.api';
+import { DomainsApi } from './customer/domains.api';
 import { HostingApi } from './customer/hosting.api';
 import { AdminSupportApi, SupportApi } from './support/support.models';
 import { NotificationsApi } from './customer/notifications.api';
@@ -22,6 +24,7 @@ const CUSTOMER_NAV: NavSection[] = [
     items: [
       { path: '/services', label: 'Services', icon: 'layers', permission: 'services:read' },
       { path: '/hosting', label: 'Hosting', icon: 'globe', permission: 'services:read' },
+      { path: '/domains', label: 'Domains', icon: 'link', permission: 'services:read' },
       { path: '/invoices', label: 'Invoices', icon: 'file', permission: 'billing:read' },
       { path: '/support', label: 'Support', icon: 'life-buoy', permission: 'support:read' },
     ],
@@ -43,6 +46,7 @@ const ADMIN_NAV: NavSection[] = [
     items: [
       { path: '/products', label: 'Products & Pricing', icon: 'tag', permission: 'products:read' },
       { path: '/coupons', label: 'Coupons', icon: 'percent', permission: 'products:read' },
+      { path: '/domain-prices', label: 'Domain prices', icon: 'globe', permission: 'domains:read' },
       { path: '/projects', label: 'Projects', icon: 'layers', permission: 'content:read' },
       { path: '/testimonials', label: 'Testimonials', icon: 'star', permission: 'content:read' },
       { path: '/faqs', label: 'FAQs', icon: 'life-buoy', permission: 'content:read' },
@@ -55,6 +59,7 @@ const ADMIN_NAV: NavSection[] = [
     items: [
       { path: '/customers', label: 'Customers', icon: 'building', permission: 'tenants:read' },
       { path: '/hosting', label: 'Hosting', icon: 'globe', permission: 'hosting:read' },
+      { path: '/domains', label: 'Domains', icon: 'link', permission: 'domains:read' },
       { path: '/invoices', label: 'Invoices', icon: 'file', permission: 'billing:read' },
       { path: '/subscriptions', label: 'Subscriptions', icon: 'layers', permission: 'subscriptions:read' },
       { path: '/support', label: 'Support inbox', icon: 'life-buoy', permission: 'support:read' },
@@ -94,7 +99,7 @@ export function customerRoutes(base: string): Routes {
   return [
     {
       path: '',
-      providers: [...portalProviders('customer', base), OrganisationApi, BillingApi, SupportApi, NotificationsApi, HostingApi],
+      providers: [...portalProviders('customer', base), OrganisationApi, BillingApi, SupportApi, NotificationsApi, HostingApi, DomainsApi],
       children: [
         ...authPages('customer'),
         { path: 'register', title: 'Create Account · Ciril Info', canActivate: [redirectIfSignedInKeepPlan], loadComponent: () => import('./auth/register.page').then((m) => m.RegisterPage) },
@@ -108,6 +113,7 @@ export function customerRoutes(base: string): Routes {
           children: [
             { path: '', title: 'Dashboard · Ciril Info', loadComponent: () => import('./customer/overview.page').then((m) => m.CustomerOverviewPage) },
             { path: 'hosting', title: 'Hosting · Ciril Info', canActivate: [requirePermission('services:read')], loadComponent: () => import('./customer/hosting.page').then((m) => m.HostingPage) },
+            { path: 'domains', title: 'Domains · Ciril Info', canActivate: [requirePermission('services:read')], loadComponent: () => import('./customer/domains.page').then((m) => m.DomainsPage) },
             { path: 'notifications', title: 'Notifications · Ciril Info', loadComponent: () => import('./customer/notifications.page').then((m) => m.NotificationsPage) },
             { path: 'order', title: 'Order · Ciril Info', canActivate: [requirePermission('services:order')], loadComponent: () => import('./customer/order.page').then((m) => m.OrderPage) },
             { path: 'services', title: 'Services · Ciril Info', canActivate: [requirePermission('services:read')], loadComponent: () => import('./customer/subscriptions.page').then((m) => m.SubscriptionsPage) },
@@ -130,7 +136,7 @@ export function adminRoutes(base: string): Routes {
   return [
     {
       path: '',
-      providers: [...portalProviders('admin', base), AdminContentApi, AdminOpsApi, AdminSupportApi, AdminBillingApi, AdminHostingApi, NotificationsApi],
+      providers: [...portalProviders('admin', base), AdminContentApi, AdminOpsApi, AdminSupportApi, AdminBillingApi, AdminHostingApi, AdminDomainsApi, NotificationsApi],
       children: [
         ...authPages('admin'),
         { path: 'setup-account', title: 'Set Up Account · Ciril Info Admin', data: { mode: 'setup' }, loadComponent: () => import('./auth/new-password.page').then((m) => m.NewPasswordPage) },
@@ -153,6 +159,8 @@ export function adminRoutes(base: string): Routes {
             { path: 'notifications', title: 'Notifications · Ciril Info Admin', loadComponent: () => import('./customer/notifications.page').then((m) => m.NotificationsPage) },
             { path: 'hosting', title: 'Hosting · Ciril Info Admin', canActivate: [requirePermission('hosting:read')], loadComponent: () => import('./admin/hosting/hosting.page').then((m) => m.AdminHostingPage) },
             { path: 'invoices', title: 'Invoices · Ciril Info Admin', canActivate: [requirePermission('billing:read')], loadComponent: () => import('./admin/billing/invoices.page').then((m) => m.AdminInvoicesPage) },
+            { path: 'domains', title: 'Domains · Ciril Info Admin', canActivate: [requirePermission('domains:read')], loadComponent: () => import('./admin/domains/registrations.page').then((m) => m.AdminRegistrationsPage) },
+            { path: 'domain-prices', title: 'Domain prices · Ciril Info Admin', canActivate: [requirePermission('domains:read')], loadComponent: () => import('./admin/domains/tld-prices.page').then((m) => m.AdminTldPricesPage) },
             { path: 'coupons', title: 'Coupons · Ciril Info Admin', canActivate: [requirePermission('products:read')], loadComponent: () => import('./admin/billing/coupons.page').then((m) => m.AdminCouponsPage) },
             { path: 'subscriptions', title: 'Subscriptions · Ciril Info Admin', canActivate: [requirePermission('subscriptions:read')], loadComponent: () => import('./admin/billing/subscriptions.page').then((m) => m.AdminSubscriptionsPage) },
             { path: 'support', title: 'Support inbox · Ciril Info Admin', canActivate: [requirePermission('support:read')], loadComponent: () => import('./support/admin-tickets.page').then((m) => m.AdminTicketsPage) },

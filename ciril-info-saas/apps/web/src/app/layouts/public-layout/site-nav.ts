@@ -9,6 +9,7 @@ export const MAIN_NAV: NavLink[] = [
   { label: 'About Us', path: '/about' },
   { label: 'Services', path: '/services' },
   { label: 'Hosting', path: '/hosting' },
+  { label: 'Domains', path: '/domains' },
   { label: 'Pricing', path: '/pricing' },
   { label: 'Our Work', path: '/our-work' },
   { label: 'Contact', path: '/contact' },
@@ -25,7 +26,7 @@ export const FOOTER_SERVICES: NavLink[] = [
 export const FOOTER_HOSTING: NavLink[] = [
   { label: 'Web Hosting', path: '/hosting' },
   { label: 'Pricing', path: '/pricing' },
-  { label: 'Domain Registration', path: '/hosting/domain-registration' },
+  { label: 'Domain Registration', path: '/domains' },
   { label: 'Domain Transfer', path: '/hosting/domain-transfer' },
   { label: 'WordPress Hosting', path: '/hosting/wordpress-hosting' },
   { label: 'Business Email', path: '/hosting/business-email' },

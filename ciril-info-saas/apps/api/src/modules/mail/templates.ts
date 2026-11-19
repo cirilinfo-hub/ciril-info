@@ -55,6 +55,8 @@ export function renderEmail(m: EmailMessage): RenderedEmail {
       return build('Two-step verification is on', 'Two-step verification is on', [`Hi ${m.data.firstName}, two-step verification is now protecting your account. Keep your recovery codes somewhere safe.`]);
     case 'hosting-ready':
       return build(`Your hosting for ${m.data.domain} is ready`, 'Your hosting is ready', [`We have set up hosting for ${m.data.domain}. You can see its status in your client area.`], { label: 'Open Hosting', url: m.data.link });
+    case 'domain-registered':
+      return build(`${m.data.domain} is registered`, 'Your domain is registered', [`${m.data.domain} is now registered in your name. You can see its details and expiry date in your client area.`], { label: 'Open Domains', url: m.data.link });
     case 'renewal-invoice':
       return build(`Renewal invoice ${m.data.number}`, 'Your renewal invoice is ready', [`Invoice ${m.data.number} for ${m.data.total} is due on ${m.data.dueDate}.`, 'Pay it before the due date so your service continues without interruption.'], { label: 'View Invoice', url: m.data.link });
     case 'ticket-reply':

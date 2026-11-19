@@ -312,6 +312,12 @@ async function seedSamples() {
       tldPricing: SAMPLE_TLD_PRICING.map(([tld, register, renew]) => ({ tld, register, renew, transfer: register })),
     },
   });
+  // Sample domain prices for the website's domain search (dev only, flagged so they can be purged).
+  for (const [i, [dotTld, register, renew]] of SAMPLE_TLD_PRICING.entries()) {
+    const tld = dotTld.replace(/^\./, '');
+    if (await prisma.tldPrice.findUnique({ where: { tld } })) continue;
+    await prisma.tldPrice.create({ data: { tld, registerPrice: register, renewPrice: renew, transferPrice: register, isFeatured: i < 4, sortOrder: i, isSample: true } });
+  }
   console.log(`✓ SAMPLE data (dev only): ${plans} plans, ${testimonials} testimonials, ${faqs} FAQs, ${projects} projects, mock server + registrar`);
 }
 
@@ -327,6 +333,7 @@ async function purgeSamples() {
     prisma.testimonial.deleteMany({ where: { isSample: true } }),
     prisma.faq.deleteMany({ where: { isSample: true } }),
     prisma.portfolioProject.deleteMany({ where: { isSample: true } }),
+    prisma.tldPrice.deleteMany({ where: { isSample: true } }),
   ]);
   // Legal pages published only by the sample seed go back to draft.
   for (const d of LEGAL_DRAFTS) {

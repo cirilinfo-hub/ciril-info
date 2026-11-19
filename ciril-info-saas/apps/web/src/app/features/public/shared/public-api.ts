@@ -99,6 +99,34 @@ export interface LegalDoc {
   updatedOn: string | null;
 }
 
+export interface TldPrice {
+  tld: string;
+  registerPrice: number;
+  renewPrice: number;
+  transferPrice: number;
+  isFeatured: boolean;
+}
+
+export interface DomainResult {
+  domain: string;
+  tld: string;
+  exact: boolean;
+  status: 'AVAILABLE' | 'TAKEN' | 'UNKNOWN';
+  registerPrice: number;
+  renewPrice: number;
+  transferPrice: number;
+}
+
+export interface DomainSearchResponse {
+  valid: boolean;
+  label: string | null;
+  /** An ending the visitor typed that the company does not sell. */
+  unsupportedTld: string | null;
+  /** False when the registrar could not be asked; results then say "could not check". */
+  registrarOk: boolean;
+  results: DomainResult[];
+}
+
 export interface InquiryPayload {
   name: string;
   email: string;
@@ -156,6 +184,16 @@ export class PublicApi {
   /** Emits null when the document is not published (404) or unreachable. */
   legal(slug: string): Observable<LegalDoc | null> {
     return this.get<LegalDoc | null>(`legal/${slug}`, null);
+  }
+
+  /** The domain price list. */
+  tlds(): Observable<TldPrice[]> {
+    return this.get<{ data: TldPrice[] }>('domains/tlds', { data: [] }).pipe(map((r) => r.data));
+  }
+
+  /** Not cached: availability changes. Errors propagate so the page can say the search failed. */
+  searchDomains(q: string): Observable<DomainSearchResponse> {
+    return this.http.get<DomainSearchResponse>(`${this.base}/domains/search`, { params: { q } });
   }
 
   /** Not cached: every submission is a new request. Errors propagate to the form. */

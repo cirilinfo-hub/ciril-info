@@ -68,6 +68,13 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
             <span class="hx-stat-hint">{{ h.waiting === 1 ? 'task' : 'tasks' }} waiting for staff{{ h.failed ? ' · ' + h.failed + ' failed' : '' }}</span>
           </a>
         }
+        @if (d.domains; as dm) {
+          <a class="hx-stat is-link" [routerLink]="auth.link('/domains')">
+            <div class="hx-stat-top"><span class="hx-stat-label">Domain registrations</span><span class="hx-stat-ic"><ci-icon name="link" /></span></div>
+            <strong>{{ dm.waiting }}</strong>
+            <span class="hx-stat-hint">{{ dm.waiting === 1 ? 'paid order' : 'paid orders' }} waiting to be registered</span>
+          </a>
+        }
         @if (d.customers; as c) {
           <a class="hx-stat is-link" [routerLink]="auth.link('/customers')">
             <div class="hx-stat-top"><span class="hx-stat-label">Customers</span><span class="hx-stat-ic"><ci-icon name="building" /></span></div>
