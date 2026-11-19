@@ -110,6 +110,8 @@ enum HostingAccountStatus {
 enum JobStatus {
   QUEUED
   RUNNING
+  /// Manual hosting mode: waiting for staff to do it by hand.
+  AWAITING_STAFF
   SUCCEEDED
   FAILED
   CANCELLED

@@ -2,7 +2,7 @@
  * The boundary between our hosting code and a hosting control panel (cPanel/WHM, Plesk). Everything panel-specific
  * lives behind this, so the queue, retries, notices and screens do not change when a real panel is connected.
  */
-export type HostingProviderId = 'MOCK' | 'CPANEL' | 'PLESK';
+export type HostingProviderId = 'MOCK' | 'MANUAL' | 'CPANEL' | 'PLESK';
 
 /** A failure with a verdict: a retryable one (timeout, panel busy) is tried again later; any other goes to staff. */
 export class ProvisioningError extends Error {
@@ -35,6 +35,8 @@ export interface CreateAccountResult {
 
 export interface HostingProvider {
   readonly id: HostingProviderId;
+  /** automatic: we call the panel. manual: a person does it and tells us. */
+  readonly mode: 'automatic' | 'manual';
   createAccount(req: CreateAccountRequest): Promise<CreateAccountResult>;
   suspend(req: { panelUsername: string; reason: string }): Promise<void>;
   unsuspend(req: { panelUsername: string }): Promise<void>;

@@ -54,9 +54,9 @@ export class HostingEventsHandler {
     }
   }
 
-  /** Is a job of this kind (for this plan, when it is a plan change) already queued or running for the account? */
+  /** Is a job of this kind (for this plan, when it is a plan change) already queued, running or waiting for staff? */
   private async waiting(accountId: string, action: 'SUSPEND' | 'CHANGE_PLAN', planId?: string): Promise<boolean> {
-    const open = await this.db.provisioningJob.findMany({ where: { hostingAccountId: accountId, action, status: { in: ['QUEUED', 'RUNNING'] } }, select: { payload: true } });
+    const open = await this.db.provisioningJob.findMany({ where: { hostingAccountId: accountId, action, status: { in: ['QUEUED', 'RUNNING', 'AWAITING_STAFF'] } }, select: { payload: true } });
     return planId ? open.some((j) => (j.payload as { planId?: string } | null)?.planId === planId) : open.length > 0;
   }
 }

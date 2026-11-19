@@ -4,7 +4,7 @@ import { Throttle } from '@nestjs/throttler';
 import type { AuthUser, RequestMeta, TenantContext } from '../auth/auth.types.js';
 import { CurrentTenant, CurrentUser, ReqMeta, RequirePlatform, RequireTenant } from '../auth/decorators.js';
 import { AdminHostingService } from './admin-hosting.service.js';
-import { AdminHostingListQuery, SetUpHostingDto, SuspendDto } from './hosting.dto.js';
+import { AdminHostingListQuery, CannotCompleteDto, CompleteTaskDto, SetUpHostingDto, SuspendDto } from './hosting.dto.js';
 import { HostingService } from './hosting.service.js';
 
 const uuid = new ParseUUIDPipe({ version: '4' });
@@ -39,6 +39,12 @@ export class AdminHostingController {
 
   @Post(':id/jobs/:jobId/retry') @HttpCode(200) @RequirePlatform('hosting:write')
   retry(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Param('jobId', uuid) jobId: string, @ReqMeta() meta: RequestMeta) { return this.svc.retry(u, id, jobId, meta); }
+
+  @Post(':id/jobs/:jobId/complete') @HttpCode(200) @RequirePlatform('hosting:write')
+  complete(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Param('jobId', uuid) jobId: string, @Body() dto: CompleteTaskDto, @ReqMeta() meta: RequestMeta) { return this.svc.completeTask(u, id, jobId, dto, meta); }
+
+  @Post(':id/jobs/:jobId/cannot-complete') @HttpCode(200) @RequirePlatform('hosting:write')
+  cannotComplete(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Param('jobId', uuid) jobId: string, @Body() dto: CannotCompleteDto, @ReqMeta() meta: RequestMeta) { return this.svc.declineTask(u, id, jobId, dto.reason, meta); }
 
   @Post(':id/suspend') @HttpCode(200) @RequirePlatform('hosting:write')
   suspend(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: SuspendDto, @ReqMeta() meta: RequestMeta) { return this.svc.suspend(u, id, dto.reason, meta); }

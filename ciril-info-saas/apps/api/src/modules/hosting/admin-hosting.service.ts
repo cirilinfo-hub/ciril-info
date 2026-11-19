@@ -19,6 +19,7 @@ export class AdminHostingService {
   async list(q: AdminHostingListQuery) {
     const where: Prisma.HostingAccountWhereInput = {
       ...(q.status ? { status: q.status } : {}),
+      ...(q.needsAction ? { jobs: { some: { status: 'AWAITING_STAFF' as const } } } : {}),
       ...(q.search ? { OR: [{ primaryDomain: { contains: q.search, mode: 'insensitive' } }, { tenant: { name: { contains: q.search, mode: 'insensitive' } } }] } : {}),
     };
     const [rows, total] = await Promise.all([
@@ -65,6 +66,22 @@ export class AdminHostingService {
       if ((e as { code?: string }).code === 'P2002') throw new ConflictException({ code: 'DOMAIN_IN_USE', message: 'Another live account has taken this domain since the set-up failed, so it cannot be retried.' });
       throw e;
     }
+    return this.get(accountId);
+  }
+
+  /** Manual mode: staff report that they did the task in their panel. */
+  async completeTask(user: AuthUser, accountId: string, jobId: string, dto: { panelUsername?: string; note?: string }, meta: RequestMeta) {
+    await this.jobs.complete(accountId, jobId, dto);
+    const a = await this.db.hostingAccount.findUniqueOrThrow({ where: { id: accountId }, select: { tenantId: true } });
+    await this.audit.record({ action: 'hosting.task_done', actorId: user.id, tenantId: a.tenantId, entityType: 'hosting_account', entityId: accountId, metadata: { jobId, note: dto.note ?? null }, meta });
+    return this.get(accountId);
+  }
+
+  /** Manual mode: staff cannot do the task. */
+  async declineTask(user: AuthUser, accountId: string, jobId: string, reason: string, meta: RequestMeta) {
+    await this.jobs.cannotComplete(accountId, jobId, reason);
+    const a = await this.db.hostingAccount.findUniqueOrThrow({ where: { id: accountId }, select: { tenantId: true } });
+    await this.audit.record({ action: 'hosting.task_declined', actorId: user.id, tenantId: a.tenantId, entityType: 'hosting_account', entityId: accountId, metadata: { jobId, reason }, meta });
     return this.get(accountId);
   }
 

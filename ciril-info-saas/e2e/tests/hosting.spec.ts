@@ -30,6 +30,7 @@ async function paidHostingCustomer(page: Page, label: string) {
   await page.getByLabel('Password').fill(CUSTOMER_PASSWORD);
   await page.getByRole('button', { name: 'Sign In' }).click();
   await expect(page.getByRole('heading', { name: 'Welcome, Hana' })).toBeVisible();
+  return email;
 }
 
 async function staffSignIn(page: Page, email: string, secret: string) {
@@ -83,7 +84,7 @@ test.describe('Hosting', () => {
     await srow.getByRole('button', { name: 'View' }).click();
     const detail = staff.getByRole('dialog', { name: domain });
     await expect(detail.getByText('Work done on this account')).toBeVisible();
-    await expect(detail.getByRole('row', { name: /CREATE/ })).toContainText('SUCCEEDED');
+    await expect(detail.getByRole('row', { name: /CREATE/ })).toContainText('Done');
     await detail.getByRole('button', { name: 'Suspend' }).click();
     const confirm = staff.getByRole('dialog', { name: `Suspend ${domain}?` });
     await confirm.getByRole('button', { name: 'Suspend' }).click();
@@ -138,6 +139,57 @@ test.describe('Hosting', () => {
     const srow = staff.getByRole('row', { name: new RegExp(domain) });
     await expect(srow.locator('.cf-badge', { hasText: 'Failed' })).toBeVisible();
     await expect(srow).toContainText('The panel refused this domain.');
+    await ctx.close();
+  });
+
+  test('manual mode: a task waits for staff, who mark it done with the panel username, and the customer sees it Active', async ({ page, browser }, info) => {
+    test.skip(info.project.name !== 'desktop', 'runs once');
+    test.setTimeout(150_000);
+    const domain = `pw-hand-${Date.now()}.example.com`;
+    const email = await paidHostingCustomer(page, 'hostmanual');
+    // As in manual mode: a set-up exists, and a job is waiting for a person instead of for the worker.
+    fixture('hosting-awaiting', email, domain);
+
+    await page.getByRole('complementary').getByRole('link', { name: 'Hosting' }).click();
+    const row = page.getByRole('row', { name: new RegExp(domain) });
+    await expect(row.locator('.cf-badge', { hasText: 'Setting up' })).toBeVisible();
+
+    const staffEmail = uniqueEmail('hostadmin3');
+    const { secret } = fixture('create-staff-ready', staffEmail, STAFF_PASSWORD, 'SUPER_ADMIN') as { secret: string };
+    const ctx = await browser.newContext();
+    const staff = await ctx.newPage();
+    await staffSignIn(staff, staffEmail, secret);
+    await expect(staff.getByText('Hosting tasks')).toBeVisible(); // the dashboard says work is waiting
+    await staff.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Hosting' }).click();
+    await staff.getByRole('button', { name: 'Needs action' }).click();
+    await staff.getByRole('searchbox', { name: 'Search hosting' }).fill(domain);
+    const srow = staff.getByRole('row', { name: new RegExp(domain) });
+    await expect(srow).toContainText('Waiting for staff');
+    await srow.getByRole('button', { name: 'View' }).click();
+    const detail = staff.getByRole('dialog', { name: domain });
+    await expect(detail.getByText(`Create an account for ${domain}`)).toBeVisible(); // what to do, spelled out
+    await detail.getByRole('button', { name: 'Mark done' }).click();
+
+    const done = staff.getByRole('dialog', { name: 'Mark task done' });
+    await done.getByRole('button', { name: 'Mark done' }).click();
+    await expect(done.getByText('Enter the username you created')).toBeVisible(); // a new account needs its panel username
+    await done.getByLabel('Panel username').fill('1bad name');
+    await done.getByRole('button', { name: 'Mark done' }).click();
+    await expect(done.getByText('Check the format of the username you created')).toBeVisible(); // wrong shape is refused too
+    await done.getByLabel('Panel username').fill('Hand42');
+    await done.getByLabel('Note').fill('Created in WHM');
+    await done.getByRole('button', { name: 'Mark done' }).click();
+    await expect(staff.getByText('Marked done. The customer has been told.')).toBeVisible();
+
+    // The customer's page now shows it Active.
+    await page.reload();
+    await expect(page.getByRole('row', { name: new RegExp(domain) }).locator('.cf-badge', { hasText: 'Active' })).toBeVisible();
+    // And staff see the stored username.
+    await staff.getByRole('dialog', { name: domain }).getByRole('button', { name: 'Close', exact: true }).last().click();
+    await staff.getByRole('button', { name: 'Needs action' }).click(); // turn the filter off
+    await staff.getByRole('searchbox', { name: 'Search hosting' }).fill(domain);
+    await staff.getByRole('row', { name: new RegExp(domain) }).getByRole('button', { name: 'View' }).click();
+    await expect(staff.getByRole('dialog', { name: domain }).getByText('hand42')).toBeVisible();
     await ctx.close();
   });
 

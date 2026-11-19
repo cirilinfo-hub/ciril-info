@@ -9,6 +9,7 @@ import { type CreateAccountRequest, type CreateAccountResult, type HostingProvid
  */
 export class MockHostingProvider implements HostingProvider {
   readonly id = 'MOCK' as const;
+  readonly mode = 'automatic' as const;
   /** What the pretend panel holds, so repeated calls behave like a real one. */
   readonly accounts = new Map<string, { suspended: boolean; packageName: string | null; terminated: boolean }>();
 

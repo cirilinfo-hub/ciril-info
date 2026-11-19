@@ -67,7 +67,8 @@ export const envSchema = z
     /** The secret you type in Razorpay's webhook settings. It signs every webhook they send us. */
     RAZORPAY_WEBHOOK_SECRET: z.string().trim().default(''),
     RAZORPAY_API_BASE: z.url().default('https://api.razorpay.com/v1'),
-    HOSTING_PROVIDER: z.enum(['mock', 'cpanel', 'plesk']).default('mock'),
+    /** manual: no panel is called; each task goes to staff, who do it by hand and mark it done. */
+    HOSTING_PROVIDER: z.enum(['mock', 'manual', 'cpanel', 'plesk']).default('mock'),
     REGISTRAR_PROVIDER: z.string().default('mock'),
 
     STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),

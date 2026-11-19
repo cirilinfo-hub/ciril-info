@@ -18,7 +18,7 @@ export class AdminDashboardService {
     const d7 = new Date(now - 7 * DAY);
     const d30 = new Date(now - 30 * DAY);
 
-    const [customers, enquiries, content, staff, recentEnquiries, recentActivity, tickets] = await Promise.all([
+    const [customers, enquiries, content, staff, recentEnquiries, recentActivity, tickets, hosting] = await Promise.all([
       can('tenants:read')
         ? Promise.all([
             this.db.tenant.count(),
@@ -64,7 +64,13 @@ export class AdminDashboardService {
             this.db.supportTicket.count({ where: { status: 'OPEN', assigneeId: null } }),
           ]).then(([open, unassigned]) => ({ open, unassigned }))
         : null,
+      can('hosting:read')
+        ? Promise.all([
+            this.db.provisioningJob.count({ where: { status: 'AWAITING_STAFF' } }),
+            this.db.provisioningJob.count({ where: { status: 'FAILED', hostingAccount: { status: { notIn: ['CANCELLED', 'TERMINATED'] } } } }),
+          ]).then(([waiting, failed]) => ({ waiting, failed }))
+        : null,
     ]);
-    return { customers, enquiries, content, staff, recentEnquiries, recentActivity, tickets };
+    return { customers, enquiries, content, staff, recentEnquiries, recentActivity, tickets, hosting };
   }
 }

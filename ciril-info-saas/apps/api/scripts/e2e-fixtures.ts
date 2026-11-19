@@ -4,6 +4,7 @@
  *   tsx scripts/e2e-fixtures.ts create-staff-ready <email> <password> <ROLE_KEY>   (password set, two-step on; prints the secret)
  *   tsx scripts/e2e-fixtures.ts cleanup <email-prefix>
  *   tsx scripts/e2e-fixtures.ts seed-public | cleanup-public   (website content used by the public-page tests)
+ *   tsx scripts/e2e-fixtures.ts hosting-awaiting <customer-email> <domain>   (a hosting set-up waiting for staff, as in manual mode)
  * Refuses to run when NODE_ENV=production and only touches @example.test addresses.
  */
 import { config } from 'dotenv';
@@ -103,6 +104,15 @@ async function main() {
     await db.invitation.deleteMany({ where: { email: { startsWith: prefix, endsWith: '@example.test' } } });
     await db.user.deleteMany({ where: { id: { in: users.map((u) => u.id) } } });
     console.log(JSON.stringify({ removedUsers: users.length, removedTenants: tenantIds.length }));
+  } else if (cmd === 'hosting-awaiting') {
+    const [email, domain] = args as [string, string];
+    testOnly(email);
+    const user = await db.user.findUniqueOrThrow({ where: { email }, select: { memberships: { select: { tenantId: true }, take: 1 } } });
+    const tenantId = user.memberships[0]!.tenantId;
+    const sub = await db.subscription.findFirstOrThrow({ where: { tenantId, status: 'ACTIVE' }, select: { id: true, items: { select: { planId: true }, take: 1 } } });
+    const account = await db.hostingAccount.create({ data: { tenantId, subscriptionId: sub.id, planId: sub.items[0]!.planId, primaryDomain: domain, status: 'PROVISIONING' }, select: { id: true } });
+    await db.provisioningJob.create({ data: { tenantId, hostingAccountId: account.id, action: 'CREATE', status: 'AWAITING_STAFF', idempotencyKey: `create:${account.id}` } });
+    console.log(JSON.stringify({ accountId: account.id }));
   } else if (cmd === 'seed-public') {
     await cleanupPublic();
     const category = await db.productCategory.upsert({ where: { slug: 'hosting' }, update: {}, create: { slug: 'hosting', name: 'Hosting' } });

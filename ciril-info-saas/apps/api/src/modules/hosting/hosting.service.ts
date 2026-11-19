@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PlatformPrisma, TenantPrisma } from '../../database/prisma-clients.js';
+import { HostingGateway } from './hosting-gateway.js';
 import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
 import { HOSTING_PRODUCT_TYPES, normaliseDomain } from './hosting-rules.js';
 import type { SetUpHostingDto } from './hosting.dto.js';
@@ -15,6 +16,7 @@ export class HostingService {
   constructor(
     private readonly db: TenantPrisma,
     private readonly platform: PlatformPrisma,
+    private readonly gateway: HostingGateway,
   ) {}
 
   /** The organisation's hosting accounts, and the paid hosting services still waiting for a domain. */
@@ -30,7 +32,7 @@ export class HostingService {
         select: { id: true, createdAt: true, items: { select: { description: true }, take: 1 } },
         orderBy: { createdAt: 'desc' },
       });
-      return { accounts, awaitingSetup: waiting.map((s) => ({ subscriptionId: s.id, description: s.items[0]?.description ?? 'Hosting plan', paidOn: s.createdAt })) };
+      return { manualSetup: this.gateway.mode === 'manual', accounts, awaitingSetup: waiting.map((s) => ({ subscriptionId: s.id, description: s.items[0]?.description ?? 'Hosting plan', paidOn: s.createdAt })) };
     });
   }
 

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env.js';
 import { PlatformPrisma, type Tx } from '../../database/prisma-clients.js';
@@ -20,6 +20,23 @@ interface ClaimedJob {
   idempotency_key: string;
 }
 
+type Account = {
+  id: string;
+  tenantId: string;
+  primaryDomain: string;
+  panelUsername: string | null;
+  status: string;
+  plan: { id: string; panelPackage: string | null };
+  tenant: { customerAccount: { billingEmail: string } | null };
+};
+
+/** What was done on the panel (by the adapter, or by a person in manual mode). */
+interface Outcome {
+  panelUsername?: string;
+  serverName?: string | null;
+  note?: string;
+}
+
 export interface EnqueueArgs {
   tenantId: string;
   accountId: string;
@@ -29,10 +46,23 @@ export interface EnqueueArgs {
   idempotencyKey?: string;
 }
 
+const VERB: Record<ProvisioningAction, string> = {
+  CREATE: 'create the account for',
+  SUSPEND: 'suspend',
+  UNSUSPEND: 'restore',
+  CHANGE_PLAN: 'change the package for',
+  TERMINATE: 'remove',
+};
+
+/** cPanel's own rule for a username, which Plesk also accepts: a letter first, then letters and digits, 16 at most. */
+export const PANEL_USERNAME = /^[a-z][a-z0-9]{0,15}$/;
+
 /**
- * The provisioning queue. Work is a row in provisioning_jobs; the worker claims due rows one at a time (several workers
- * are safe), asks the hosting panel, and records the outcome. A temporary failure waits out a back-off and tries again;
- * a permanent one, or running out of tries, goes to staff with the reason and leaves the customer's account marked so.
+ * The provisioning queue. Work is a row in provisioning_jobs. Two modes:
+ *  - automatic: the worker claims due rows (several workers are safe), asks the hosting panel, and records the outcome.
+ *    A temporary failure waits out a back-off and tries again; a permanent one, or running out of tries, goes to staff.
+ *  - manual (HOSTING_PROVIDER=manual): nothing is called. The job becomes a task for staff, who do it in their own panel
+ *    and mark it done. The same database changes and customer notices follow, whoever did the work.
  */
 @Injectable()
 export class HostingJobsService {
@@ -90,78 +120,163 @@ export class HostingJobsService {
     return ran;
   }
 
-  private async run(job: ClaimedJob) {
-    const account = await this.db.hostingAccount.findUnique({
-      where: { id: job.hosting_account_id },
+  private loadAccount(id: string): Promise<Account | null> {
+    return this.db.hostingAccount.findUnique({
+      where: { id },
       select: {
         id: true, tenantId: true, primaryDomain: true, panelUsername: true, status: true, plan: { select: { id: true, panelPackage: true } },
         tenant: { select: { customerAccount: { select: { billingEmail: true } } } },
       },
     });
+  }
+
+  private async run(job: ClaimedJob) {
+    const account = await this.loadAccount(job.hosting_account_id);
     if (!account) return this.finishJob(job.id, 'CANCELLED', { note: 'account no longer exists' });
 
+    // Work that no longer makes sense is dropped rather than done.
+    if (job.action === 'CREATE') {
+      if (account.status === 'CANCELLED' || account.status === 'TERMINATED') return this.finishJob(job.id, 'CANCELLED', { note: 'account was cancelled before it was created' });
+      if (account.status === 'ACTIVE' && account.panelUsername) return this.finishJob(job.id, 'SUCCEEDED', { note: 'already created' });
+    }
+
+    if (this.gateway.mode === 'manual') return this.awaitStaff(job, account);
+
     try {
-      switch (job.action) {
-        case 'CREATE': {
-          if (account.status === 'CANCELLED' || account.status === 'TERMINATED') return this.finishJob(job.id, 'CANCELLED', { note: 'account was cancelled before it was created' });
-          if (account.status === 'ACTIVE' && account.panelUsername) return this.finishJob(job.id, 'SUCCEEDED', { note: 'already created' });
-          await this.db.hostingAccount.update({ where: { id: account.id }, data: { status: 'PROVISIONING' } });
-          const created = await this.gateway.provider.createAccount({
-            domain: account.primaryDomain, username: account.panelUsername ?? panelUsername(account.primaryDomain, account.id), packageName: account.plan.panelPackage,
-            contactEmail: account.tenant.customerAccount?.billingEmail ?? 'unknown@example.invalid', idempotencyKey: job.idempotency_key, attempt: job.attempts,
-          });
-          await this.db.hostingAccount.update({ where: { id: account.id }, data: { status: 'ACTIVE', panelUsername: created.panelUsername, provisionedAt: new Date(), suspendedAt: null, suspendReason: null } });
-          await this.finishJob(job.id, 'SUCCEEDED', { server: created.serverName ?? null });
-          await this.tellOwners(account.tenantId, { type: 'hosting.ready', title: `Your hosting for ${account.primaryDomain} is ready`, body: 'You can now manage it from your client area.', link: '/hosting' }, true, account.primaryDomain);
-          return;
-        }
-        case 'SUSPEND': {
-          if (!account.panelUsername) {
-            // Never created: nothing exists to suspend.
-            await this.db.hostingAccount.update({ where: { id: account.id }, data: { status: 'CANCELLED' } });
-            return this.finishJob(job.id, 'SUCCEEDED', { note: 'account was never created' });
-          }
-          await this.gateway.provider.suspend({ panelUsername: account.panelUsername, reason: job.payload?.reason ?? 'suspended' });
-          await this.db.hostingAccount.update({ where: { id: account.id }, data: { status: 'SUSPENDED', suspendedAt: new Date(), suspendReason: (job.payload?.reason ?? 'Suspended').slice(0, 255) } });
-          await this.finishJob(job.id, 'SUCCEEDED', {});
-          await this.tellOwners(account.tenantId, { type: 'hosting.suspended', title: `Hosting for ${account.primaryDomain} is suspended`, body: job.payload?.reason ?? undefined, link: '/hosting' }, false, account.primaryDomain);
-          return;
-        }
-        case 'UNSUSPEND': {
-          if (!account.panelUsername) throw new ProvisioningError('There is no account on the panel to restore.', false);
-          await this.gateway.provider.unsuspend({ panelUsername: account.panelUsername });
-          await this.db.hostingAccount.update({ where: { id: account.id }, data: { status: 'ACTIVE', suspendedAt: null, suspendReason: null } });
-          await this.finishJob(job.id, 'SUCCEEDED', {});
-          await this.tellOwners(account.tenantId, { type: 'hosting.restored', title: `Hosting for ${account.primaryDomain} is active again`, link: '/hosting' }, false, account.primaryDomain);
-          return;
-        }
-        case 'CHANGE_PLAN': {
-          const planId = job.payload?.planId;
-          const plan = planId ? await this.db.plan.findUnique({ where: { id: planId }, select: { id: true, panelPackage: true } }) : null;
-          if (!plan) throw new ProvisioningError('The new plan no longer exists.', false);
-          if (!account.panelUsername) {
-            // Not created yet: the account will simply be created on the new plan.
-            await this.db.hostingAccount.update({ where: { id: account.id }, data: { planId: plan.id } });
-            return this.finishJob(job.id, 'SUCCEEDED', { note: 'applied before creation' });
-          }
-          if (!plan.panelPackage) throw new ProvisioningError('The new plan has no panel package set. An admin needs to set one.', false);
-          await this.gateway.provider.changePackage({ panelUsername: account.panelUsername, packageName: plan.panelPackage });
-          await this.db.hostingAccount.update({ where: { id: account.id }, data: { planId: plan.id } });
-          return this.finishJob(job.id, 'SUCCEEDED', { package: plan.panelPackage });
-        }
-        case 'TERMINATE': {
-          if (account.panelUsername) await this.gateway.provider.terminate({ panelUsername: account.panelUsername });
-          await this.db.hostingAccount.update({ where: { id: account.id }, data: { status: 'TERMINATED' } });
-          return this.finishJob(job.id, 'SUCCEEDED', {});
-        }
-      }
+      if (job.action === 'CREATE') await this.db.hostingAccount.update({ where: { id: account.id }, data: { status: 'PROVISIONING' } });
+      const outcome = await this.callPanel(job, account);
+      await this.applyOutcome(job.id, job.action, job.payload, account, outcome);
     } catch (e) {
       if (!(e instanceof ProvisioningError)) throw e; // a bug of ours, not the panel's answer
       await this.failed(job, account, e);
     }
   }
 
-  private async failed(job: ClaimedJob, account: { id: string; tenantId: string; primaryDomain: string }, e: ProvisioningError) {
+  /** Asks the panel to do it. Throws ProvisioningError, with a verdict on whether trying again can help. */
+  private async callPanel(job: ClaimedJob, account: Account): Promise<Outcome> {
+    const p = this.gateway.provider;
+    switch (job.action) {
+      case 'CREATE': {
+        const created = await p.createAccount({
+          domain: account.primaryDomain, username: account.panelUsername ?? panelUsername(account.primaryDomain, account.id), packageName: account.plan.panelPackage,
+          contactEmail: account.tenant.customerAccount?.billingEmail ?? 'unknown@example.invalid', idempotencyKey: job.idempotency_key, attempt: job.attempts,
+        });
+        return { panelUsername: created.panelUsername, serverName: created.serverName ?? null };
+      }
+      case 'SUSPEND': {
+        if (!account.panelUsername) return { note: 'account was never created' }; // nothing exists to suspend
+        await p.suspend({ panelUsername: account.panelUsername, reason: job.payload?.reason ?? 'suspended' });
+        return {};
+      }
+      case 'UNSUSPEND': {
+        if (!account.panelUsername) throw new ProvisioningError('There is no account on the panel to restore.', false);
+        await p.unsuspend({ panelUsername: account.panelUsername });
+        return {};
+      }
+      case 'CHANGE_PLAN': {
+        const plan = await this.planFor(job.payload?.planId);
+        if (!account.panelUsername) return { note: 'applied before creation' };
+        if (!plan.panelPackage) throw new ProvisioningError('The new plan has no panel package set. An admin needs to set one.', false);
+        await p.changePackage({ panelUsername: account.panelUsername, packageName: plan.panelPackage });
+        return { note: `package ${plan.panelPackage}` };
+      }
+      case 'TERMINATE': {
+        if (account.panelUsername) await p.terminate({ panelUsername: account.panelUsername });
+        return {};
+      }
+    }
+  }
+
+  private async planFor(planId: string | undefined) {
+    const plan = planId ? await this.db.plan.findUnique({ where: { id: planId }, select: { id: true, panelPackage: true } }) : null;
+    if (!plan) throw new ProvisioningError('The new plan no longer exists.', false);
+    return plan;
+  }
+
+  /** The database changes and customer notices that follow a finished job, whoever did the work. */
+  private async applyOutcome(jobId: string, action: ProvisioningAction, payload: ClaimedJob['payload'], account: Account, outcome: Outcome) {
+    const reason = payload?.reason;
+    switch (action) {
+      case 'CREATE': {
+        await this.db.hostingAccount.update({ where: { id: account.id }, data: { status: 'ACTIVE', panelUsername: outcome.panelUsername ?? account.panelUsername, provisionedAt: new Date(), suspendedAt: null, suspendReason: null } });
+        await this.finishJob(jobId, 'SUCCEEDED', { server: outcome.serverName ?? null });
+        await this.tellOwners(account.tenantId, { type: 'hosting.ready', title: `Your hosting for ${account.primaryDomain} is ready`, body: 'You can now manage it from your client area.', link: '/hosting' }, true, account.primaryDomain);
+        return;
+      }
+      case 'SUSPEND': {
+        if (!account.panelUsername) {
+          await this.db.hostingAccount.update({ where: { id: account.id }, data: { status: 'CANCELLED' } });
+          return this.finishJob(jobId, 'SUCCEEDED', { note: outcome.note ?? 'account was never created' });
+        }
+        await this.db.hostingAccount.update({ where: { id: account.id }, data: { status: 'SUSPENDED', suspendedAt: new Date(), suspendReason: (reason ?? 'Suspended').slice(0, 255) } });
+        await this.finishJob(jobId, 'SUCCEEDED', {});
+        await this.tellOwners(account.tenantId, { type: 'hosting.suspended', title: `Hosting for ${account.primaryDomain} is suspended`, body: reason ?? undefined, link: '/hosting' }, false, account.primaryDomain);
+        return;
+      }
+      case 'UNSUSPEND': {
+        await this.db.hostingAccount.update({ where: { id: account.id }, data: { status: 'ACTIVE', suspendedAt: null, suspendReason: null } });
+        await this.finishJob(jobId, 'SUCCEEDED', {});
+        await this.tellOwners(account.tenantId, { type: 'hosting.restored', title: `Hosting for ${account.primaryDomain} is active again`, link: '/hosting' }, false, account.primaryDomain);
+        return;
+      }
+      case 'CHANGE_PLAN': {
+        const plan = await this.planFor(payload?.planId);
+        await this.db.hostingAccount.update({ where: { id: account.id }, data: { planId: plan.id } });
+        return this.finishJob(jobId, 'SUCCEEDED', { note: outcome.note ?? null });
+      }
+      case 'TERMINATE': {
+        await this.db.hostingAccount.update({ where: { id: account.id }, data: { status: 'TERMINATED' } });
+        return this.finishJob(jobId, 'SUCCEEDED', {});
+      }
+    }
+  }
+
+  // ───────────────────────────── manual mode ─────────────────────────────
+
+  /** Parks the job as a task for staff and tells them. Nothing is called. */
+  private async awaitStaff(job: ClaimedJob, account: Account) {
+    await this.db.provisioningJob.update({ where: { id: job.id }, data: { status: 'AWAITING_STAFF', errorMessage: null } });
+    // The customer sees "Setting up" while a person does the work.
+    if (job.action === 'CREATE') await this.db.hostingAccount.update({ where: { id: account.id }, data: { status: 'PROVISIONING' } });
+    await this.staff.notify('hosting:write', {
+      type: 'hosting.task', title: `Hosting task: ${VERB[job.action]} ${account.primaryDomain}`.slice(0, 190),
+      body: job.payload?.reason ?? (job.action === 'CREATE' ? `Plan package: ${account.plan.panelPackage ?? 'none set'}` : undefined), link: '/hosting',
+    });
+  }
+
+  /** Staff report a task done. Same effects as an automatic success. A new account needs the username they created. */
+  async complete(accountId: string, jobId: string, input: { panelUsername?: string; note?: string }) {
+    const job = await this.db.provisioningJob.findFirst({ where: { id: jobId, hostingAccountId: accountId }, select: { id: true, status: true, action: true, payload: true } });
+    if (!job) throw new NotFoundException({ code: 'JOB_NOT_FOUND', message: 'Task not found.' });
+    if (job.status !== 'AWAITING_STAFF') throw new ConflictException({ code: 'NOT_WAITING', message: 'This task is not waiting for staff.' });
+    const account = await this.loadAccount(accountId);
+    if (!account) throw new NotFoundException({ code: 'HOSTING_NOT_FOUND', message: 'Hosting account not found.' });
+
+    let username: string | undefined;
+    if (job.action === 'CREATE') {
+      username = input.panelUsername?.trim().toLowerCase();
+      if (!username || !PANEL_USERNAME.test(username)) {
+        throw new BadRequestException({ code: 'USERNAME_REQUIRED', message: 'Enter the username you created on the panel: a letter first, then letters and digits, up to 16.' });
+      }
+    } else if (!account.panelUsername && job.action !== 'SUSPEND' && job.action !== 'CHANGE_PLAN') {
+      throw new ConflictException({ code: 'NO_PANEL_ACCOUNT', message: 'There is no panel account for this hosting yet.' });
+    }
+    await this.applyOutcome(job.id, job.action, job.payload as ClaimedJob['payload'], account, { panelUsername: username, note: input.note ? `done by hand: ${input.note}`.slice(0, 200) : 'done by hand' });
+  }
+
+  /** Staff cannot do the task. It fails with their reason, and the customer is reassured as for any failure. */
+  async cannotComplete(accountId: string, jobId: string, reason: string) {
+    const job = await this.db.provisioningJob.findFirst({ where: { id: jobId, hostingAccountId: accountId }, select: { id: true, status: true, action: true } });
+    if (!job) throw new NotFoundException({ code: 'JOB_NOT_FOUND', message: 'Task not found.' });
+    if (job.status !== 'AWAITING_STAFF') throw new ConflictException({ code: 'NOT_WAITING', message: 'This task is not waiting for staff.' });
+    const account = await this.loadAccount(accountId);
+    if (!account) throw new NotFoundException({ code: 'HOSTING_NOT_FOUND', message: 'Hosting account not found.' });
+    await this.failed({ id: job.id, action: job.action, attempts: MAX_ATTEMPTS }, account, new ProvisioningError(reason, false));
+  }
+
+  // ───────────────────────────── failures and notices ─────────────────────────────
+
+  private async failed(job: Pick<ClaimedJob, 'id' | 'action' | 'attempts'>, account: { id: string; tenantId: string; primaryDomain: string }, e: ProvisioningError) {
     if (e.retryable && job.attempts < MAX_ATTEMPTS) {
       await this.db.provisioningJob.update({ where: { id: job.id }, data: { status: 'QUEUED', availableAt: new Date(Date.now() + retryDelayMs(job.attempts)), errorMessage: e.message.slice(0, 500) } });
       return;

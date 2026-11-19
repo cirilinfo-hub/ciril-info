@@ -53,7 +53,7 @@ import { type AwaitingSetup, HOSTING_STATUS, type HostingAccount, HostingApi } f
                 <td>{{ a.plan.name }}</td>
                 <td>
                   <span class="cf-badge" [class]="'cf-badge ' + info(a).cls">{{ info(a).label }}</span>
-                  <small>{{ a.status === 'SUSPENDED' && a.suspendReason ? 'Suspended: ' + a.suspendReason : info(a).hint }}</small>
+                  <small>{{ a.status === 'SUSPENDED' && a.suspendReason ? 'Suspended: ' + a.suspendReason : (manual() && (a.status === 'PENDING' || a.status === 'PROVISIONING') ? 'Our team is setting this up and will email you when it is ready.' : info(a).hint) }}</small>
                 </td>
                 <td>{{ (a.provisionedAt ?? a.createdAt) | date: 'd MMM y' }}</td>
               </tr>
@@ -87,6 +87,8 @@ export class HostingPage implements OnInit, OnDestroy {
   protected readonly describedBy = describedBy;
   protected readonly accounts = signal<HostingAccount[]>([]);
   protected readonly waiting = signal<AwaitingSetup[]>([]);
+  /** True when people, not software, create the accounts. */
+  protected readonly manual = signal(false);
   protected readonly loading = signal(true);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
@@ -114,6 +116,7 @@ export class HostingPage implements OnInit, OnDestroy {
       const r = await this.api.list();
       this.accounts.set(r.accounts);
       this.waiting.set(r.awaitingSetup);
+      this.manual.set(r.manualSetup);
       this.followProgress();
     } catch (e) {
       this.error.set(toApiError(e).message);

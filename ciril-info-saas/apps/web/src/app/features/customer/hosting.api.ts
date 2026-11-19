@@ -41,7 +41,7 @@ export class HostingApi {
   private readonly base = `${inject(AuthService).api}/hosting`;
 
   list() {
-    return firstValueFrom(this.http.get<{ accounts: HostingAccount[]; awaitingSetup: AwaitingSetup[] }>(this.base));
+    return firstValueFrom(this.http.get<{ manualSetup: boolean; accounts: HostingAccount[]; awaitingSetup: AwaitingSetup[] }>(this.base));
   }
   get(id: string) {
     return firstValueFrom(this.http.get<HostingAccount>(`${this.base}/${id}`));

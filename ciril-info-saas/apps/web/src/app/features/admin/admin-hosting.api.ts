@@ -16,13 +16,13 @@ export interface AdminHostingRow {
   createdAt: string;
   tenant: { id: string; name: string };
   plan: { id: string; name: string };
-  lastJob: { action: string; status: string; errorMessage: string | null } | null;
+  lastJob: { action: string; status: AdminJob['status']; errorMessage: string | null } | null;
 }
 
 export interface AdminJob {
   id: string;
   action: string;
-  status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
+  status: 'QUEUED' | 'RUNNING' | 'AWAITING_STAFF' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
   attempts: number;
   errorMessage: string | null;
   queuedAt: string;
@@ -43,14 +43,20 @@ export class AdminHostingApi {
   private readonly http = inject(HttpClient);
   private readonly base = `${inject(AuthService).api}/admin/hosting`;
 
-  list(page: number, status: string, search: string) {
-    return firstValueFrom(this.http.get<Paged<AdminHostingRow>>(this.base, { params: { page, pageSize: 20, ...(status ? { status } : {}), ...(search ? { search } : {}) } }));
+  list(page: number, status: string, search: string, needsAction = false) {
+    return firstValueFrom(this.http.get<Paged<AdminHostingRow>>(this.base, { params: { page, pageSize: 20, ...(status ? { status } : {}), ...(search ? { search } : {}), ...(needsAction ? { needsAction: 'true' } : {}) } }));
   }
   get(id: string) {
     return firstValueFrom(this.http.get<AdminHostingDetail>(`${this.base}/${id}`));
   }
   retry(id: string, jobId: string) {
     return firstValueFrom(this.http.post<AdminHostingDetail>(`${this.base}/${id}/jobs/${jobId}/retry`, {}));
+  }
+  completeTask(id: string, jobId: string, body: { panelUsername?: string; note?: string }) {
+    return firstValueFrom(this.http.post<AdminHostingDetail>(`${this.base}/${id}/jobs/${jobId}/complete`, body));
+  }
+  cannotComplete(id: string, jobId: string, reason: string) {
+    return firstValueFrom(this.http.post<AdminHostingDetail>(`${this.base}/${id}/jobs/${jobId}/cannot-complete`, { reason }));
   }
   suspend(id: string, reason: string) {
     return firstValueFrom(this.http.post<AdminHostingDetail>(`${this.base}/${id}/suspend`, { reason }));
