@@ -2,6 +2,7 @@ import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, type OnInit, inject, signal } from '@angular/core';
 import { toApiError } from '../../core/api/api-error';
 import { AuthService } from '../../core/auth/auth.service';
+import { RUNTIME_CONFIG } from '../../core/config/runtime-config';
 import { Dialog } from '../../design-system/dialogs/dialog';
 import { Icon } from '../../design-system/icon/icon';
 import { PageHead } from '../../shared/components/page-head';
@@ -22,7 +23,9 @@ import { BillingApi, type PlanOption, SUBSCRIPTION_BADGE, type SubscriptionRow, 
     .opts button { grid-column: 1 / -1; justify-self: start; }
   `,
   template: `
-    <ci-page-head title="Services" sub="Your plans and when they renew." />
+    <ci-page-head title="Services" sub="Your plans and when they renew.">
+      @if (auth.can('services:order')) { <a class="cf-btn cf-btn-primary" [href]="site + '/pricing'"><ci-icon name="plus" [size]="16" />Order a new service</a> }
+    </ci-page-head>
     @if (notice(); as n) { <div class="cf-alert cf-alert-success" role="status"><ci-icon name="check-circle" /><span>{{ n }}</span></div> }
     @if (error() && !confirm(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ error() }}</span></div> }
     <div class="cf-table-wrap">
@@ -51,7 +54,7 @@ import { BillingApi, type PlanOption, SUBSCRIPTION_BADGE, type SubscriptionRow, 
               </td>
             </tr>
           } @empty {
-            <tr><td colspan="6">@if (loading()) { <span class="ci-skeleton"></span> } @else { No services yet. }</td></tr>
+            <tr><td colspan="6">@if (loading()) { <span class="ci-skeleton"></span> } @else { No services yet. @if (auth.can('services:order')) { <a [href]="site + '/pricing'">Browse our plans</a> to order your first one. } }</td></tr>
           }
         </tbody>
       </table>
@@ -95,6 +98,7 @@ import { BillingApi, type PlanOption, SUBSCRIPTION_BADGE, type SubscriptionRow, 
 export class SubscriptionsPage implements OnInit {
   protected readonly auth = inject(AuthService);
   private readonly api = inject(BillingApi);
+  protected readonly site = RUNTIME_CONFIG.publicUrl;
   protected readonly rows = signal<SubscriptionRow[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);

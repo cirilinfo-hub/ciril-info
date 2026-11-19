@@ -1,7 +1,7 @@
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import type { Routes } from '@angular/router';
 import { authInterceptor } from '../core/auth/auth.interceptor';
-import { redirectIfSignedIn, requireAnySession, requirePermission, requireSession } from '../core/auth/auth.guards';
+import { redirectIfSignedIn, redirectIfSignedInKeepPlan, requireAnySession, requirePermission, requireSession } from '../core/auth/auth.guards';
 import { PORTAL, PORTAL_BASE, type Portal } from '../core/auth/auth.models';
 import { AuthService } from '../core/auth/auth.service';
 import type { NavSection } from '../layouts/portal-shell/portal-shell';
@@ -93,7 +93,7 @@ export function customerRoutes(base: string): Routes {
       providers: [...portalProviders('customer', base), OrganisationApi, BillingApi, SupportApi, NotificationsApi],
       children: [
         ...authPages('customer'),
-        { path: 'register', title: 'Create Account · Ciril Info', canActivate: [redirectIfSignedIn], loadComponent: () => import('./auth/register.page').then((m) => m.RegisterPage) },
+        { path: 'register', title: 'Create Account · Ciril Info', canActivate: [redirectIfSignedInKeepPlan], loadComponent: () => import('./auth/register.page').then((m) => m.RegisterPage) },
         { path: 'verify-email', title: 'Verify Email · Ciril Info', loadComponent: () => import('./auth/verify-email.page').then((m) => m.VerifyEmailPage) },
         { path: 'invitations/accept', title: 'Accept Invitation · Ciril Info', loadComponent: () => import('./auth/accept-invitation.page').then((m) => m.AcceptInvitationPage) },
         {

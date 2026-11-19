@@ -35,6 +35,25 @@ export const redirectIfSignedIn: CanActivateFn = async () => {
   return ok && auth.next() === 'NONE' ? router.createUrlTree([auth.link('/')]) : true;
 };
 
+/**
+ * The sign-up page, for someone who may already be a customer. A signed-in person has no use for sign-up, but they may
+ * have arrived by choosing a plan on the website, so the plan is carried to the order review instead of being dropped
+ * on the dashboard.
+ */
+export const redirectIfSignedInKeepPlan: CanActivateFn = async (route) => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  const ok = auth.isSignedIn() || (await auth.restore());
+  if (!ok || auth.next() !== 'NONE') return true;
+  const plan = route.queryParamMap.get('plan');
+  const cycle = route.queryParamMap.get('cycle');
+  // Only a plain "product/plan" reference is passed on; anything else is ignored.
+  if (plan && /^[a-z0-9-]+\/[a-z0-9-]+$/.test(plan)) {
+    return router.createUrlTree([auth.link('/order')], { queryParams: { plan, ...(cycle && /^[a-z_]+$/.test(cycle) ? { cycle } : {}) } });
+  }
+  return router.createUrlTree([auth.link('/')]);
+};
+
 /** Hide screens the user's role cannot use (the API enforces the same rule). */
 export const requirePermission =
   (...perms: string[]): CanActivateFn =>
