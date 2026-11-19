@@ -774,6 +774,10 @@ model ProvisioningJob {
   errorMessage     String?            @map("error_message")
   /// Idempotency key forwarded to the provider adapter.
   idempotencyKey   String             @map("idempotency_key") @db.VarChar(80)
+  /// What the job should do, for example the new plan for CHANGE_PLAN or a reason for SUSPEND. Never contains credentials.
+  payload          Json?
+  /// Not picked up before this time. A retry sets it to wait out a back-off.
+  availableAt      DateTime           @default(now()) @map("available_at") @db.Timestamptz(3)
   queuedAt         DateTime           @default(now()) @map("queued_at") @db.Timestamptz(3)
   startedAt        DateTime?          @map("started_at") @db.Timestamptz(3)
   finishedAt       DateTime?          @map("finished_at") @db.Timestamptz(3)
@@ -784,7 +788,7 @@ model ProvisioningJob {
   @@unique([idempotencyKey])
   @@index([tenantId, status])
   @@index([hostingAccountId])
-  @@index([status, queuedAt])
+  @@index([status, availableAt])
   @@map("provisioning_jobs")
 }
 

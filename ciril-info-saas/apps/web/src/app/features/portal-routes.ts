@@ -7,8 +7,10 @@ import { AuthService } from '../core/auth/auth.service';
 import type { NavSection } from '../layouts/portal-shell/portal-shell';
 import { AdminContentApi } from './admin/admin-content.api';
 import { AdminBillingApi } from './admin/admin-billing.api';
+import { AdminHostingApi } from './admin/admin-hosting.api';
 import { AdminOpsApi } from './admin/admin-ops.api';
 import { BillingApi } from './customer/billing.api';
+import { HostingApi } from './customer/hosting.api';
 import { AdminSupportApi, SupportApi } from './support/support.models';
 import { NotificationsApi } from './customer/notifications.api';
 import { OrganisationApi } from './customer/organisation.api';
@@ -19,6 +21,7 @@ const CUSTOMER_NAV: NavSection[] = [
     label: 'Services & billing',
     items: [
       { path: '/services', label: 'Services', icon: 'layers', permission: 'services:read' },
+      { path: '/hosting', label: 'Hosting', icon: 'globe', permission: 'services:read' },
       { path: '/invoices', label: 'Invoices', icon: 'file', permission: 'billing:read' },
       { path: '/support', label: 'Support', icon: 'life-buoy', permission: 'support:read' },
     ],
@@ -51,6 +54,7 @@ const ADMIN_NAV: NavSection[] = [
     label: 'Operations',
     items: [
       { path: '/customers', label: 'Customers', icon: 'building', permission: 'tenants:read' },
+      { path: '/hosting', label: 'Hosting', icon: 'globe', permission: 'hosting:read' },
       { path: '/invoices', label: 'Invoices', icon: 'file', permission: 'billing:read' },
       { path: '/subscriptions', label: 'Subscriptions', icon: 'layers', permission: 'subscriptions:read' },
       { path: '/support', label: 'Support inbox', icon: 'life-buoy', permission: 'support:read' },
@@ -90,7 +94,7 @@ export function customerRoutes(base: string): Routes {
   return [
     {
       path: '',
-      providers: [...portalProviders('customer', base), OrganisationApi, BillingApi, SupportApi, NotificationsApi],
+      providers: [...portalProviders('customer', base), OrganisationApi, BillingApi, SupportApi, NotificationsApi, HostingApi],
       children: [
         ...authPages('customer'),
         { path: 'register', title: 'Create Account · Ciril Info', canActivate: [redirectIfSignedInKeepPlan], loadComponent: () => import('./auth/register.page').then((m) => m.RegisterPage) },
@@ -103,6 +107,7 @@ export function customerRoutes(base: string): Routes {
           data: { nav: CUSTOMER_NAV, title: 'Client area' },
           children: [
             { path: '', title: 'Dashboard · Ciril Info', loadComponent: () => import('./customer/overview.page').then((m) => m.CustomerOverviewPage) },
+            { path: 'hosting', title: 'Hosting · Ciril Info', canActivate: [requirePermission('services:read')], loadComponent: () => import('./customer/hosting.page').then((m) => m.HostingPage) },
             { path: 'notifications', title: 'Notifications · Ciril Info', loadComponent: () => import('./customer/notifications.page').then((m) => m.NotificationsPage) },
             { path: 'order', title: 'Order · Ciril Info', canActivate: [requirePermission('services:order')], loadComponent: () => import('./customer/order.page').then((m) => m.OrderPage) },
             { path: 'services', title: 'Services · Ciril Info', canActivate: [requirePermission('services:read')], loadComponent: () => import('./customer/subscriptions.page').then((m) => m.SubscriptionsPage) },
@@ -125,7 +130,7 @@ export function adminRoutes(base: string): Routes {
   return [
     {
       path: '',
-      providers: [...portalProviders('admin', base), AdminContentApi, AdminOpsApi, AdminSupportApi, AdminBillingApi, NotificationsApi],
+      providers: [...portalProviders('admin', base), AdminContentApi, AdminOpsApi, AdminSupportApi, AdminBillingApi, AdminHostingApi, NotificationsApi],
       children: [
         ...authPages('admin'),
         { path: 'setup-account', title: 'Set Up Account · Ciril Info Admin', data: { mode: 'setup' }, loadComponent: () => import('./auth/new-password.page').then((m) => m.NewPasswordPage) },
@@ -146,6 +151,7 @@ export function adminRoutes(base: string): Routes {
             { path: 'company', title: 'Company profile · Ciril Info Admin', canActivate: [requirePermission('content:read')], loadComponent: () => import('./admin/content/company.page').then((m) => m.CompanyPage) },
             { path: 'inquiries', title: 'Enquiries · Ciril Info Admin', canActivate: [requirePermission('inquiries:read')], loadComponent: () => import('./admin/content/inquiries.page').then((m) => m.InquiriesPage) },
             { path: 'notifications', title: 'Notifications · Ciril Info Admin', loadComponent: () => import('./customer/notifications.page').then((m) => m.NotificationsPage) },
+            { path: 'hosting', title: 'Hosting · Ciril Info Admin', canActivate: [requirePermission('hosting:read')], loadComponent: () => import('./admin/hosting/hosting.page').then((m) => m.AdminHostingPage) },
             { path: 'invoices', title: 'Invoices · Ciril Info Admin', canActivate: [requirePermission('billing:read')], loadComponent: () => import('./admin/billing/invoices.page').then((m) => m.AdminInvoicesPage) },
             { path: 'coupons', title: 'Coupons · Ciril Info Admin', canActivate: [requirePermission('products:read')], loadComponent: () => import('./admin/billing/coupons.page').then((m) => m.AdminCouponsPage) },
             { path: 'subscriptions', title: 'Subscriptions · Ciril Info Admin', canActivate: [requirePermission('subscriptions:read')], loadComponent: () => import('./admin/billing/subscriptions.page').then((m) => m.AdminSubscriptionsPage) },

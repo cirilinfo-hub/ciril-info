@@ -90,6 +90,8 @@ async function main() {
     // Ticket attachments live on disk, outside the database.
     for (const t of tenantIds) await rm(join(resolve(process.cwd(), process.env['STORAGE_LOCAL_DIR'] ?? './storage'), 'tickets', t), { recursive: true, force: true });
     await db.supportTicket.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.provisioningJob.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.hostingAccount.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.creditNote.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.refund.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });

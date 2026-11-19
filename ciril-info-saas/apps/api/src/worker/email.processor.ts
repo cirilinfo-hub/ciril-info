@@ -6,6 +6,7 @@ import nodemailer, { type Transporter } from 'nodemailer';
 import type { Env } from '../config/env.js';
 import { renderEmail } from '../modules/mail/templates.js';
 import { EMAIL_SEND_EVENT, type EmailMessage } from '../modules/mail/mail.types.js';
+import { HostingEventsHandler } from '../modules/hosting/hosting-events.handler.js';
 import { EVENTS_QUEUE } from './outbox-relay.service.js';
 
 interface EventJob {
@@ -25,7 +26,10 @@ export class EventsProcessor extends WorkerHost {
   private readonly smtp?: Transporter;
   private readonly resendKey?: string;
 
-  constructor(config: ConfigService<Env, true>) {
+  constructor(
+    config: ConfigService<Env, true>,
+    private readonly hosting: HostingEventsHandler,
+  ) {
     super();
     this.provider = config.get('EMAIL_PROVIDER', { infer: true });
     this.from = config.get('EMAIL_FROM', { infer: true });
@@ -40,7 +44,12 @@ export class EventsProcessor extends WorkerHost {
   }
 
   async process(job: Job<EventJob>): Promise<void> {
-    if (job.name !== EMAIL_SEND_EVENT) return; // other event types get processors in later phases
+    // Billing events that concern hosting become provisioning jobs. Anything else is not ours to act on.
+    if (job.name.startsWith('subscription.')) {
+      await this.hosting.handle(job.name, job.data.payload);
+      return;
+    }
+    if (job.name !== EMAIL_SEND_EVENT) return;
     const msg = job.data.payload as EmailMessage;
     const rendered = renderEmail(msg);
 
