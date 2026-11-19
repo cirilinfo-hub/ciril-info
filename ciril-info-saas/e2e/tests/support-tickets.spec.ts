@@ -42,6 +42,9 @@ test.describe('Support tickets', () => {
     test.skip(info.project.name !== 'desktop', 'full journey runs once');
     test.setTimeout(120_000);
     const customerEmail = uniqueEmail('tkt');
+    // The agent exists before the ticket is opened, so they are notified of it.
+    const staffEmail = uniqueEmail('agent');
+    const { secret } = fixture('create-staff-ready', staffEmail, STAFF_PASSWORD, 'SUPPORT_AGENT') as { secret: string };
     await registerAndSignIn(page, customerEmail);
 
     // --- Customer opens a ticket
@@ -70,11 +73,16 @@ test.describe('Support tickets', () => {
     const ticketUrl = page.url();
 
     // --- Support agent answers, with a private note first
-    const staffEmail = uniqueEmail('agent');
-    const { secret } = fixture('create-staff-ready', staffEmail, STAFF_PASSWORD, 'SUPPORT_AGENT') as { secret: string };
     const staffCtx = await browser.newContext();
     const staff = await staffCtx.newPage();
     await staffSignIn(staff, staffEmail, secret);
+    // The agent's bell shows the new ticket (who and what, not the message); clicking it opens the ticket.
+    await expect(staff.getByRole('button', { name: /^Notifications, \d+ unread$/ })).toBeVisible();
+    await staff.getByRole('button', { name: /^Notifications, \d+ unread$/ }).click();
+    await expect(staff.getByRole('dialog', { name: 'Notifications' }).getByText(/I cannot send email/)).toHaveCount(0);
+    await staff.getByRole('dialog', { name: 'Notifications' }).getByRole('button', { name: /PW My email stopped working/ }).click();
+    await expect(staff).toHaveURL(/\/admin\/support\/[0-9a-f-]{36}$/);
+    await expect(staff.getByText('I cannot send email since this morning.')).toBeVisible();
     await staff.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Support inbox' }).click();
     await staff.getByRole('searchbox', { name: 'Search tickets' }).fill('PW My email stopped');
     await staff.getByRole('link', { name: 'PW My email stopped working' }).click();

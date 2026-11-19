@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, NotFoundException, PayloadTooLargeException } from '@nestjs/common';
 import { TenantPrisma } from '../../database/prisma-clients.js';
+import { StaffNotifier } from '../notifications/staff-notifier.service.js';
 import type { Prisma, TicketStatus } from '../../generated/prisma/client.js';
 import { orderBy, page, skipTake } from '../../common/http/pagination.js';
 import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
@@ -19,13 +20,18 @@ export class SupportService {
   constructor(
     private readonly db: TenantPrisma,
     private readonly store: AttachmentStore,
+    private readonly staff: StaffNotifier,
   ) {}
 
   /** Files are checked and written first; if the database step fails they are removed again. */
   async create(ctx: TenantContext, dto: CreateTicketDto, files: readonly UploadedFileLike[] | undefined, meta: RequestMeta) {
     const stored = await this.store.saveAll(ctx.tenantId, this.store.prepare(files));
     try {
-      return await this.createWithFiles(ctx, dto, stored, meta);
+      const created = await this.createWithFiles(ctx, dto, stored, meta);
+      // Tell support there is a new ticket. Only who and what: never the message text.
+      await this.staff.notify('support:read', { type: 'ticket.opened', title: `New ticket ${created.ref}`, body: `${created.orgName}: ${dto.subject}`, link: `/support/${created.id}` });
+      const { orgName: _orgName, ...row } = created;
+      return row;
     } catch (e) {
       await this.store.removeAll(stored.map((s) => s.storageKey));
       throw e;
@@ -48,7 +54,8 @@ export class SupportService {
         data: { action: 'ticket.open', actorId: ctx.userId, tenantId: ctx.tenantId, entityType: 'ticket', entityId: ticket.id, metadata: { number: ticket.number, category: dto.category, files: stored.length }, ipAddress: meta.ip ?? null, requestId: meta.requestId },
       });
       const { messages: _messages, ...row } = ticket;
-      return { ...row, ref: ticketRef(ticket.number) };
+      const org = await tx.tenant.findUnique({ where: { id: ctx.tenantId }, select: { name: true } });
+      return { ...row, ref: ticketRef(ticket.number), orgName: org?.name ?? 'A customer' };
     });
   }
 
@@ -98,7 +105,9 @@ export class SupportService {
   async reply(ctx: TenantContext, id: string, body: string, files: readonly UploadedFileLike[] | undefined, meta: RequestMeta) {
     const stored = await this.store.saveAll(ctx.tenantId, this.store.prepare(files));
     try {
-      await this.replyWithFiles(ctx, id, body, stored, meta);
+      const t = await this.replyWithFiles(ctx, id, body, stored, meta);
+      // The assigned agent hears about it; an unassigned ticket goes to everyone on support.
+      await this.staff.notify('support:read', { type: 'ticket.customer_reply', title: `Customer replied on ${ticketRef(t.number)}`, body: `${t.orgName}: ${t.subject}`, link: `/support/${id}` }, { onlyUserId: t.assigneeId });
     } catch (e) {
       await this.store.removeAll(stored.map((s) => s.storageKey));
       throw e;
@@ -108,7 +117,7 @@ export class SupportService {
 
   private replyWithFiles(ctx: TenantContext, id: string, body: string, stored: StoredFile[], meta: RequestMeta) {
     return this.db.run(ctx, async (tx) => {
-      const t = await tx.supportTicket.findUnique({ where: { id }, select: { id: true, status: true, number: true } });
+      const t = await tx.supportTicket.findUnique({ where: { id }, select: { id: true, status: true, number: true, subject: true, assigneeId: true, tenant: { select: { name: true } } } });
       if (!t) throw new NotFoundException({ code: 'TICKET_NOT_FOUND', message: 'Ticket not found.' });
       if (t.status === 'CLOSED') throw new ConflictException({ code: 'TICKET_CLOSED', message: 'This ticket is closed. Open a new ticket if you still need help.' });
       if (stored.length && (await tx.ticketAttachment.count({ where: { ticketId: id } })) + stored.length > MAX_ATTACHMENTS_PER_TICKET) {
@@ -120,6 +129,7 @@ export class SupportService {
       const status: TicketStatus = t.status === 'AWAITING_CUSTOMER' || t.status === 'RESOLVED' ? 'OPEN' : t.status;
       await tx.supportTicket.update({ where: { id }, data: { status, lastReplyAt: new Date(), resolvedAt: status === 'OPEN' ? null : undefined } });
       await tx.auditLog.create({ data: { action: 'ticket.reply', actorId: ctx.userId, tenantId: ctx.tenantId, entityType: 'ticket', entityId: id, metadata: { files: stored.length }, ipAddress: meta.ip ?? null, requestId: meta.requestId } });
+      return { number: t.number, subject: t.subject, assigneeId: t.assigneeId, orgName: t.tenant.name };
     });
   }
 

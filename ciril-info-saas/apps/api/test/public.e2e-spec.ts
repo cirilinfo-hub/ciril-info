@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { PlatformPrisma } from '../src/database/prisma-clients.js';
-import { createTestApp, platformDb } from './utils.js';
+import { createTestApp, platformDb, purgeTestStaffNotices } from './utils.js';
 
 /**
  * Public website API: only published, consented, currently-priced content is exposed,
@@ -86,6 +86,7 @@ describe('Public website API (e2e)', () => {
       else await db.systemSetting.deleteMany({ where: { key } });
     }
     await db.contactInquiry.deleteMany({ where: { email: { in: inquiryEmails } } });
+    await purgeTestStaffNotices(db);
     await app.close();
   });
 

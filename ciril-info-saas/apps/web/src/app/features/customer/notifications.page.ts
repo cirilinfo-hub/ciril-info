@@ -22,7 +22,7 @@ import { type NotificationItem, NotificationsApi } from './notifications.api';
     .empty { color: var(--color-text-secondary); }
   `,
   template: `
-    <ci-page-head title="Notifications" sub="Updates about your tickets, payments and services.">
+    <ci-page-head title="Notifications" [sub]="sub">
       <button type="button" class="cf-btn cf-btn-secondary" [disabled]="api.unread() === 0" (click)="readAll()">Mark all as read</button>
     </ci-page-head>
     @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
@@ -62,6 +62,7 @@ export class NotificationsPage implements OnInit {
   protected readonly api = inject(NotificationsApi);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  protected readonly sub = this.auth.portal === 'admin' ? 'New tickets, customer replies and enquiries that need your attention.' : 'Updates about your tickets, payments and services.';
   protected readonly items = signal<NotificationItem[] | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly unreadOnly = signal(false);

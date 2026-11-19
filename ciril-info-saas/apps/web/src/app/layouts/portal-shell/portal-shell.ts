@@ -100,7 +100,7 @@ export interface NavSection {
           <span class="spacer"></span>
 
           <div class="hx-topbar-right">
-            @if (auth.portal === 'customer') { <ci-notification-bell /> }
+            <ci-notification-bell />
             <div class="hx-hdr-pop" #menuRoot>
               <button type="button" class="hx-profile-btn" aria-haspopup="menu" [attr.aria-expanded]="menuOpen()" (click)="menuOpen.set(!menuOpen())">
                 <span class="cf-avatar" style="width:32px;height:32px;font-size:12px" aria-hidden="true">{{ initials() }}</span>

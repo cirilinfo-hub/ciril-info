@@ -19,11 +19,13 @@ export interface NotificationPage {
   unread: number;
 }
 
-/** Customer-portal notifications. The unread count is shared so the bell and the list stay in step. */
+/** Notifications for either portal. The unread count is shared so the bell and the list stay in step. */
 @Injectable()
 export class NotificationsApi {
   private readonly http = inject(HttpClient);
-  private readonly base = `${inject(AuthService).api}/notifications`;
+  private readonly auth = inject(AuthService);
+  /** Same notices, different endpoint: customers and staff each read only their own. */
+  private readonly base = `${this.auth.api}${this.auth.portal === 'admin' ? '/admin' : ''}/notifications`;
   /** Unread notices for the bell badge. */
   readonly unread = signal(0);
 

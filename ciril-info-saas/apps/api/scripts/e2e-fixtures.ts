@@ -47,6 +47,9 @@ async function cleanupPublic() {
   await db.faq.deleteMany({ where: { question: { startsWith: 'PW ' } } });
   await db.systemSetting.deleteMany({ where: { key: 'legal.refund-policy', value: { path: ['title'], equals: 'PW Refund Policy' } } });
   await db.contactInquiry.deleteMany({ where: { email: { startsWith: 'pw-', endsWith: '@example.test' } } });
+  // Staff notices left by the test tickets and enquiries.
+  await db.$executeRaw`DELETE FROM notifications WHERE type IN ('ticket.opened', 'ticket.customer_reply') AND NOT EXISTS (SELECT 1 FROM support_tickets t WHERE '/support/' || t.id::text = notifications.link)`;
+  await db.$executeRaw`DELETE FROM notifications WHERE type = 'inquiry.new' AND title IN ('New enquiry from Test Visitor', 'New enquiry from Playwright Tester')`;
 }
 
 async function main() {
@@ -93,6 +96,7 @@ async function main() {
     await db.subscription.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.outboxEvent.deleteMany({ where: { tenantId: { in: tenantIds }, type: 'subscription.activated' } });
     await db.tenant.deleteMany({ where: { id: { in: tenantIds } } });
+    await db.$executeRaw`DELETE FROM notifications WHERE type IN ('ticket.opened', 'ticket.customer_reply') AND NOT EXISTS (SELECT 1 FROM support_tickets t WHERE '/support/' || t.id::text = notifications.link)`;
     await db.invitation.deleteMany({ where: { email: { startsWith: prefix, endsWith: '@example.test' } } });
     await db.user.deleteMany({ where: { id: { in: users.map((u) => u.id) } } });
     console.log(JSON.stringify({ removedUsers: users.length, removedTenants: tenantIds.length }));

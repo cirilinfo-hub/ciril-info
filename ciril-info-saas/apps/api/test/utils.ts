@@ -50,12 +50,23 @@ export function cookies(setCookie: string[] | string | undefined) {
 }
 
 /** Remove users (and their tenants) created by a test run. */
+/**
+ * Staff notices made by test tickets and enquiries would otherwise pile up in a real developer's admin bell.
+ * Ticket notices whose ticket is gone are removed, and so are notices for the enquiry names the tests use.
+ */
+export async function purgeTestStaffNotices(db: PlatformPrisma) {
+  await db.$executeRaw`DELETE FROM notifications WHERE type IN ('ticket.opened', 'ticket.customer_reply')
+    AND NOT EXISTS (SELECT 1 FROM support_tickets t WHERE '/support/' || t.id::text = notifications.link)`;
+  await db.$executeRaw`DELETE FROM notifications WHERE type = 'inquiry.new' AND title IN ('New enquiry from Test Visitor', 'New enquiry from Playwright Tester')`;
+}
+
 export async function cleanupUsers(db: PlatformPrisma, emails: string[]) {
   const users = await db.user.findMany({ where: { email: { in: emails } }, select: { id: true, memberships: { select: { tenantId: true } } } });
   const tenantIds = users.flatMap((u) => u.memberships.map((m) => m.tenantId));
   await db.tenant.deleteMany({ where: { id: { in: tenantIds } } });
   await db.user.deleteMany({ where: { id: { in: users.map((u) => u.id) } } });
   await db.outboxEvent.deleteMany({ where: { type: 'email.send', OR: emails.map((e) => ({ payload: { path: ['to'], equals: e } })) } });
+  await purgeTestStaffNotices(db);
 }
 
 // ─── Staff helpers (MFA-enabled admin sessions for admin-route tests) ───

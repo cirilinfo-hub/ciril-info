@@ -1,3 +1,4 @@
+import { StaffNotifier } from '../notifications/staff-notifier.service.js';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PlatformPrisma } from '../../database/prisma-clients.js';
 import { LEGAL_SLUGS, LEGAL_TITLES, legalKey, readLegalDocument, type LegalSlug } from '../settings/legal-documents.js';
@@ -16,6 +17,7 @@ export class PublicService {
 
   constructor(
     private readonly db: PlatformPrisma,
+    private readonly staff: StaffNotifier,
     config: ConfigService<Env, true>,
   ) {
     this.apiUrl = config.get('API_URL', { infer: true }).replace(/\/$/, '');
@@ -194,6 +196,8 @@ export class PublicService {
         ipAddress: ip && /^[0-9a-f:.]+$/i.test(ip) ? ip : null,
       },
     });
+    // Staff who handle enquiries are told. Only the name and service, never the message.
+    await this.staff.notify('inquiries:read', { type: 'inquiry.new', title: `New enquiry from ${dto.name}`, body: dto.service ?? undefined, link: '/inquiries' });
     return { received: true };
   }
 }
