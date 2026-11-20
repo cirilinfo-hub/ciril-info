@@ -42,6 +42,8 @@ export interface InvoiceDetail extends InvoiceRow {
   items: Quote['lines'];
   payments: { id: string; provider: string; status: string; amount: string; method: string | null; failureReason: string | null; createdAt: string }[];
   refunds: { id: string; amount: string; reason: string; createdAt: string; creditNote: { id: string; number: string } | null }[];
+  /** TDS the organisation deducted and paid to the government. */
+  tdsDeduction: { amount: string; section: string | null; certificateAt: string | null } | null;
 }
 
 export interface CreditNoteDetail {

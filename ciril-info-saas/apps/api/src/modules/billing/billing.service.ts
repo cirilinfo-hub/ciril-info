@@ -187,6 +187,7 @@ export class BillingService {
           items: { select: { id: true, description: true, quantity: true, unitPrice: true, taxRate: true, taxAmount: true, lineTotal: true } },
           payments: { select: { id: true, provider: true, status: true, amount: true, method: true, failureReason: true, createdAt: true }, orderBy: { createdAt: 'desc' } },
           refunds: { where: { status: 'SUCCEEDED' }, select: { id: true, amount: true, reason: true, createdAt: true, creditNote: { select: { id: true, number: true } } }, orderBy: { createdAt: 'desc' } },
+          tdsDeduction: { select: { amount: true, section: true, certificateAt: true } },
         },
       });
       if (!invoice) throw new NotFoundException({ code: 'INVOICE_NOT_FOUND', message: 'Invoice not found.' });

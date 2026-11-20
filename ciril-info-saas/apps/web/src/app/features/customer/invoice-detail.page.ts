@@ -129,6 +129,14 @@ import { openRazorpayCheckout } from './razorpay-checkout';
           </section>
         }
       }
+      @if (i.tdsDeduction; as t) {
+        <section class="cf-card card" aria-labelledby="tds-h">
+          <h2 id="tds-h" class="ts-heading-5">TDS</h2>
+          <p>You deducted <strong>{{ fmt(t.amount, i.currency) }}</strong> as TDS@if (t.section) { under section {{ t.section }} }. It counts towards this invoice.</p>
+          @if (t.certificateAt) { <p class="cf-help">We have received your TDS certificate. Thank you.</p> }
+          @else { <p class="cf-help">Please send us the TDS certificate (Form 16A) for this amount when it is issued.</p> }
+        </section>
+      }
       @if (i.payments.length) {
         <section class="cf-card card" aria-labelledby="pay-h">
           <h2 id="pay-h" class="ts-heading-5">Payments</h2>

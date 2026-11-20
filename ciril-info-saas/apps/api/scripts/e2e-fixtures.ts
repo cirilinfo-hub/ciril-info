@@ -100,6 +100,7 @@ async function main() {
     await db.hostingAccount.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.domainRenewal.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.domain.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.tdsDeduction.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.creditNote.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.refund.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });

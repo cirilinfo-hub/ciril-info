@@ -24,6 +24,10 @@ const FILTERS: { key: InvoiceStatus | ''; label: string }[] = [
   imports: [DatePipe, ReactiveFormsModule, Dialog, Field, Icon, PageHead],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
+    .tds { border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md, 8px); padding: var(--space-3); margin-top: var(--space-3); font-size: 14px; }
+    .tds p { margin: 0 0 var(--space-2); }
+    .two { display: grid; gap: var(--space-4); grid-template-columns: 1fr; }
+    @media (min-width: 520px) { .two { grid-template-columns: 1fr 1fr; } }
     form { display: grid; gap: var(--space-4); }
     .bar { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin-bottom: var(--space-4); }
     .bar .search { flex: 1 1 240px; max-width: 360px; }
@@ -127,6 +131,16 @@ const FILTERS: { key: InvoiceStatus | ''; label: string }[] = [
             </tbody>
           </table>
           @if (d.testMode) { <div class="cf-alert cf-alert-info"><ci-icon name="info" /><span>Test-mode payment: no real money was taken.</span></div> }
+          @if (d.tdsDeduction; as t) {
+            <div class="tds" data-testid="tds">
+              <p><strong>TDS deducted by the customer: {{ fmt(t.amount, d.currency) }}</strong>@if (t.section) { (section {{ t.section }}) }. It counts towards this invoice, but it was paid to the government, not to you, so it cannot be refunded here.</p>
+              @if (t.certificateAt) { <p>Certificate {{ t.certificateNumber }} received {{ t.certificateAt | date: 'd MMM y' }}.</p> }
+              @else {
+                <p>The TDS certificate (Form 16A) has not arrived yet.</p>
+                @if (canVoid()) { <button type="button" class="cf-btn cf-btn-secondary cf-btn-sm" (click)="openCert()">Record certificate</button> }
+              }
+            </div>
+          }
         }
         <ng-container actions>
           @if (canVoid() && (d.status === 'ISSUED' || d.status === 'OVERDUE' || d.status === 'PARTIALLY_PAID')) {
@@ -141,8 +155,23 @@ const FILTERS: { key: InvoiceStatus | ''; label: string }[] = [
       </ci-dialog>
     }
 
+    @if (certOpen() && detail(); as d) {
+      <ci-dialog [heading]="'TDS certificate for ' + d.number" description="Record the certificate (Form 16A) the customer sent for the TDS they deducted." icon="file" size="md" [dismissable]="false" (closed)="certOpen.set(false)">
+        <form id="cert-form" [formGroup]="certForm" (ngSubmit)="confirmCert(d)" novalidate>
+          @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+          <ci-field label="Certificate number" for="cert-no" [control]="certForm.controls.certificateNumber" [required]="true" errorLabel="the certificate number">
+            <input id="cert-no" class="cf-input" autocomplete="off" formControlName="certificateNumber" [attr.aria-describedby]="describedBy('cert-no', certForm.controls.certificateNumber, true)" />
+          </ci-field>
+        </form>
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="certOpen.set(false)">Cancel</button>
+          <button type="submit" form="cert-form" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Saving…' : 'Record certificate' }}</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
     @if (payOpen() && detail(); as d) {
-      <ci-dialog [heading]="'Record a payment for ' + d.number" [description]="'Money that reached you outside the checkout. The whole outstanding amount, ' + fmt(d.total, d.currency) + ', is recorded as paid, the service starts, and the customer is told.'" icon="check-circle" size="md" [dismissable]="false" (closed)="payOpen.set(false)">
+      <ci-dialog [heading]="'Record a payment for ' + d.number" [description]="'Money that reached you outside the checkout. The invoice total, ' + fmt(d.total, d.currency) + ', is settled: the amount received plus any TDS the customer deducted. The service starts and the customer is told.'" icon="check-circle" size="md" [dismissable]="false" (closed)="payOpen.set(false)">
         <form id="pay-form" [formGroup]="payForm" (ngSubmit)="confirmPay(d)" novalidate>
           @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
           <ci-field label="How it was paid" for="pm-method" [control]="payForm.controls.method" [required]="true">
@@ -159,6 +188,15 @@ const FILTERS: { key: InvoiceStatus | ''; label: string }[] = [
           <ci-field label="Note" for="pm-note" [control]="payForm.controls.note" [optional]="true" hint="For your team only.">
             <input id="pm-note" class="cf-input" formControlName="note" [attr.aria-describedby]="describedBy('pm-note', payForm.controls.note, true)" />
           </ci-field>
+          <div class="two">
+            <ci-field label="TDS deducted (₹)" for="pm-tds" [control]="payForm.controls.tdsAmount" [optional]="true" errorLabel="an amount in rupees, such as 118" hint="If the customer kept back TDS.">
+              <input id="pm-tds" class="cf-input" inputmode="decimal" formControlName="tdsAmount" [attr.aria-describedby]="describedBy('pm-tds', payForm.controls.tdsAmount, true)" />
+            </ci-field>
+            <ci-field label="TDS section" for="pm-sec" [control]="payForm.controls.tdsSection" [optional]="true" errorLabel="a section such as 194J" hint="For example 194J.">
+              <input id="pm-sec" class="cf-input" autocapitalize="characters" formControlName="tdsSection" [attr.aria-describedby]="describedBy('pm-sec', payForm.controls.tdsSection, true)" />
+            </ci-field>
+          </div>
+          @if (+payForm.controls.tdsAmount.value > 0) { <p class="cf-help" data-testid="received">Amount received: {{ fmt(received(d), d.currency) }}</p> }
         </form>
         <ng-container actions>
           <button type="button" class="cf-btn cf-btn-secondary" (click)="payOpen.set(false)">Cancel</button>
@@ -231,7 +269,12 @@ export class AdminInvoicesPage extends AdminPage implements OnInit {
     reference: [''],
     receivedOn: ['', [Validators.required]],
     note: [''],
+    tdsAmount: ['', [Validators.pattern(/^\d+(\.\d{1,2})?$/)]],
+    tdsSection: ['', [Validators.pattern(/^$|^[0-9A-Za-z()-]{2,20}$/)]],
   });
+  protected readonly certOpen = signal(false);
+  protected readonly certForm = inject(NonNullableFormBuilder).group({ certificateNumber: ['', [Validators.required, Validators.minLength(3), Validators.maxLength(60)]] });
+  protected received = (d: AdminInvoiceDetail) => Math.max(0, Math.round((Number(d.total) - Number(d.amountPaid) - (Number(this.payForm.controls.tdsAmount.value) || 0)) * 100) / 100);
   /** One key per opening of the form, so a double click records one payment. */
   private payKey = '';
   protected methodLabel = (m: string) => this.methods.find((x) => x.key === m.toUpperCase())?.label ?? m;
@@ -299,7 +342,7 @@ export class AdminInvoicesPage extends AdminPage implements OnInit {
   protected openPay() {
     this.error.set(null);
     this.payKey = crypto.randomUUID();
-    this.payForm.reset({ method: 'BANK_TRANSFER', reference: '', receivedOn: new Date().toISOString().slice(0, 10), note: '' });
+    this.payForm.reset({ method: 'BANK_TRANSFER', reference: '', receivedOn: new Date().toISOString().slice(0, 10), note: '', tdsAmount: '', tdsSection: '' });
     this.payOpen.set(true);
   }
 
@@ -312,12 +355,30 @@ export class AdminInvoicesPage extends AdminPage implements OnInit {
       return;
     }
     const ok = await this.run(async () => {
-      this.detail.set(await this.api.recordPayment(d.id, { method: v.method, reference: v.reference.trim() || undefined, receivedOn: v.receivedOn, note: v.note.trim() || undefined, idempotencyKey: this.payKey }));
+      this.detail.set(await this.api.recordPayment(d.id, { method: v.method, reference: v.reference.trim() || undefined, receivedOn: v.receivedOn, note: v.note.trim() || undefined, idempotencyKey: this.payKey, ...(v.tdsAmount ? { tdsAmount: Number(v.tdsAmount) } : {}), ...(v.tdsSection.trim() ? { tdsSection: v.tdsSection.trim().toUpperCase() } : {}) }));
     });
     if (ok) {
       this.payOpen.set(false);
       this.toast.set(`Payment recorded for ${d.number}. The invoice is paid and the customer has been told.`);
       await this.load();
+    }
+  }
+
+  protected openCert() {
+    this.error.set(null);
+    this.certForm.reset({ certificateNumber: '' });
+    this.certOpen.set(true);
+  }
+
+  protected async confirmCert(d: AdminInvoiceDetail) {
+    this.certForm.markAllAsTouched();
+    if (this.certForm.invalid) return;
+    const ok = await this.run(async () => {
+      this.detail.set(await this.api.recordTdsCertificate(d.id, this.certForm.controls.certificateNumber.value.trim()));
+    });
+    if (ok) {
+      this.certOpen.set(false);
+      this.toast.set(`TDS certificate recorded for ${d.number}.`);
     }
   }
 

@@ -411,6 +411,8 @@ test.describe('Domains', () => {
     await expect(page).toHaveURL(/\/portal\/invoices\//);
 
     await page.getByRole('complementary').getByRole('link', { name: 'Domains' }).click();
+    // The list loads after the page does; under a full parallel test run that can take a few seconds.
+    await expect(row).toBeVisible({ timeout: 15_000 });
     await expect(row).toContainText('awaiting payment');
     await row.getByRole('button', { name: `Cancel the renewal for ${domain}` }).click();
     await page.getByRole('dialog', { name: 'Cancel this renewal?' }).getByRole('button', { name: 'Cancel renewal' }).click();

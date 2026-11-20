@@ -7,7 +7,7 @@ import { ListQueryDto } from '../../common/http/pagination.js';
 import { CouponDto, CouponPatchDto } from './admin-coupons.dto.js';
 import { AdminCouponsService } from './admin-coupons.service.js';
 import { AdminBillingService } from './admin-billing.service.js';
-import { AdminInvoiceListQuery, AdminSubscriptionListQuery, RecordPaymentDto, RefundDto, VoidInvoiceDto } from './admin-billing.dto.js';
+import { AdminInvoiceListQuery, AdminSubscriptionListQuery, RecordPaymentDto, RefundDto, TdsCertificateDto, TdsListQuery, VoidInvoiceDto } from './admin-billing.dto.js';
 import { BillingListQuery, CancelSubscriptionDto, ChangePlanDto, ConfirmPaymentDto, OrderDto, PayInvoiceDto, QuoteDto } from './billing.dto.js';
 import { PlanChangeService } from './plan-change.service.js';
 import { BillingService } from './billing.service.js';
@@ -125,6 +125,12 @@ export class AdminBillingController {
 
   @Post('invoices/:id/payments') @HttpCode(200) @RequirePlatform('billing:write')
   recordPayment(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: RecordPaymentDto, @ReqMeta() meta: RequestMeta) { return this.svc.recordManualPayment(u, id, dto, meta); }
+
+  @Get('tds') @RequirePlatform('billing:read')
+  tds(@Query() q: TdsListQuery) { return this.svc.listTds(q); }
+
+  @Post('invoices/:id/tds-certificate') @HttpCode(200) @RequirePlatform('billing:write')
+  tdsCertificate(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: TdsCertificateDto, @ReqMeta() meta: RequestMeta) { return this.svc.recordTdsCertificate(u, id, dto.certificateNumber, meta); }
 
   @Post('invoices/:id/refunds') @HttpCode(200) @RequirePlatform('billing:refund')
   refund(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: RefundDto, @ReqMeta() meta: RequestMeta) { return this.svc.refundInvoice(u, id, dto, meta); }

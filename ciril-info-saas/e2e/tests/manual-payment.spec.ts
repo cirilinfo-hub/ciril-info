@@ -92,4 +92,69 @@ test.describe('Manual payments', () => {
       fixture('clear-bank');
     }
   });
+
+  test('a payment with TDS deducted settles the invoice, the customer is asked for the certificate, and staff record it', async ({ page, browser }, info) => {
+    test.skip(info.project.name !== 'desktop', 'runs once');
+    test.setTimeout(150_000);
+    const org = `PW TDS Org ${Math.random().toString(36).slice(2, 8)}`;
+    const email = uniqueEmail('tdspay');
+    await call('POST', 'auth/register', { firstName: 'Tara', lastName: 'Tds', email, password: CUSTOMER_PASSWORD, organisationName: org, acceptTerms: true });
+    await call('POST', 'auth/verify-email', { token: new URL(await linkFromEmail(email, 'verify-email')).searchParams.get('token') });
+    const token = (await call('POST', 'auth/login', { email, password: CUSTOMER_PASSWORD, portal: 'customer' }))['accessToken'] as string;
+    await call('POST', 'organisation/addresses', { line1: '3 Lake Road', city: 'Pune', stateCode: '27', postalCode: '411001' }, token);
+    const order = await call('POST', 'orders', { planRef: 'pw-hosting/pw-starter', billingCycle: 'YEARLY' }, token);
+    const number = (order['invoice'] as { number: string }).number;
+    const invoiceId = (order['invoice'] as { id: string }).id;
+
+    const staffEmail = uniqueEmail('tdsadmin');
+    const { secret } = fixture('create-staff-ready', staffEmail, STAFF_PASSWORD, 'SUPER_ADMIN') as { secret: string };
+    const ctx = await browser.newContext();
+    const staff = await ctx.newPage();
+    await staffSignIn(staff, staffEmail, secret);
+    const nav = staff.getByRole('complementary', { name: 'Admin navigation' });
+    await nav.getByRole('link', { name: 'Invoices' }).click();
+    await staff.getByRole('searchbox', { name: 'Search invoices' }).fill(org);
+    await staff.getByRole('row', { name: new RegExp(number) }).getByRole('button', { name: 'View' }).click();
+    await staff.getByRole('dialog', { name: number }).getByRole('button', { name: 'Record payment' }).click();
+    const pay = staff.getByRole('dialog', { name: `Record a payment for ${number}` });
+    await pay.getByLabel('Reference').fill(`UTRTDS${Math.random().toString(36).slice(2, 9).toUpperCase()}`);
+    await pay.getByLabel('TDS deducted (₹)').fill('100');
+    await pay.getByLabel('TDS section').fill('194j');
+    await expect(pay.getByTestId('received')).toContainText('Amount received'); // the total less the TDS
+    await pay.getByRole('button', { name: 'Record payment' }).click();
+    await expect(staff.getByText(`Payment recorded for ${number}.`)).toBeVisible();
+    const tds = staff.getByRole('dialog', { name: number }).getByTestId('tds');
+    await expect(tds).toContainText('TDS deducted by the customer: ₹100');
+    await expect(tds).toContainText('section 194J');
+    await expect(tds).toContainText('has not arrived yet');
+
+    // The customer sees the TDS and is asked for the certificate.
+    await page.goto('/portal/login');
+    await page.getByLabel('Email address').fill(email);
+    await page.getByLabel('Password').fill(CUSTOMER_PASSWORD);
+    await page.getByRole('button', { name: 'Sign In' }).click();
+    await expect(page.getByRole('heading', { name: 'Welcome, Tara' })).toBeVisible();
+    await page.goto(`/portal/invoices/${invoiceId}`);
+    const mine = page.getByRole('region', { name: 'TDS' });
+    await expect(mine).toContainText('₹100');
+    await expect(mine).toContainText('Please send us the TDS certificate');
+
+    // Staff record the certificate from the list of missing ones.
+    await staff.getByRole('dialog', { name: number }).getByRole('button', { name: 'Close', exact: true }).last().click();
+    await nav.getByRole('link', { name: 'TDS certificates' }).click();
+    await staff.getByRole('searchbox', { name: 'Search TDS' }).fill(number);
+    const row = staff.getByRole('row', { name: new RegExp(number) });
+    await expect(row).toContainText('Missing');
+    await row.getByRole('button', { name: `Record the certificate for ${number}` }).click();
+    await staff.getByRole('dialog', { name: `TDS certificate for ${number}` }).getByLabel('Certificate number').fill('PWCERT1234Q2');
+    await staff.getByRole('dialog', { name: `TDS certificate for ${number}` }).getByRole('button', { name: 'Record certificate' }).click();
+    await expect(staff.getByText(`Certificate recorded for ${number}.`)).toBeVisible();
+    await expect(staff.getByRole('row', { name: new RegExp(number) })).toHaveCount(0); // no longer missing
+    await staff.getByRole('button', { name: 'Certificate missing' }).click(); // show all
+    await expect(staff.getByRole('row', { name: new RegExp(number) })).toContainText('PWCERT1234Q2');
+    await ctx.close();
+
+    await page.reload();
+    await expect(page.getByRole('region', { name: 'TDS' })).toContainText('We have received your TDS certificate');
+  });
 });

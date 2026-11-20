@@ -315,6 +315,7 @@ model Tenant {
   provisioningJobs    ProvisioningJob[]
   domains             Domain[]
   domainRenewals      DomainRenewal[]
+  tdsDeductions       TdsDeduction[]
   dnsRecords          DnsRecord[]
   domainTransfers     DomainTransfer[]
   subscriptions       Subscription[]
@@ -844,6 +845,28 @@ model DomainRenewal {
   @@map("domain_renewals")
 }
 
+/// Tax a business customer deducted at source (TDS) instead of paying it to us. It counts towards paying the invoice, but it is
+/// not money we received, so it can never be refunded by us. The customer owes us the TDS certificate (Form 16A).
+model TdsDeduction {
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  invoiceId         String    @unique @map("invoice_id") @db.Uuid
+  amount            Decimal   @db.Decimal(14, 2)
+  /// The Income Tax Act section the customer deducted under, such as 194J or 194C.
+  section           String?   @db.VarChar(20)
+  certificateNumber String?   @map("certificate_number") @db.VarChar(60)
+  certificateAt     DateTime? @map("certificate_at") @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@index([tenantId])
+  @@index([certificateAt])
+  @@map("tds_deductions")
+}
+
 model DomainRegistrar {
   id             String   @id @default(uuid()) @db.Uuid
   name           String   @db.VarChar(80)
@@ -1060,6 +1083,7 @@ model Invoice {
   domainOrder  Domain?       @relation("DomainOrderInvoice")
   domainRenewal DomainRenewal?
   domainTransfer DomainTransfer?
+  tdsDeduction  TdsDeduction?
   items        InvoiceItem[]
   payments     Payment[]
   refunds      Refund[]

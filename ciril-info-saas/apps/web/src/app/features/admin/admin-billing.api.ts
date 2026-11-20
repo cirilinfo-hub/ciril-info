@@ -29,6 +29,18 @@ export interface AdminInvoiceDetail extends AdminInvoiceRow {
   items: { id: string; description: string; quantity: number; unitPrice: string; taxRate: string; taxAmount: string; lineTotal: string }[];
   payments: { id: string; provider: string; status: string; amount: string; method: string | null; failureReason: string | null; providerPaymentId: string | null; createdAt: string }[];
   refunds: { id: string; amount: string; status: string; reason: string; createdAt: string; creditNote: { id: string; number: string } | null }[];
+  tdsDeduction: { id: string; amount: string; section: string | null; certificateNumber: string | null; certificateAt: string | null; createdAt: string } | null;
+}
+
+export interface TdsRow {
+  id: string;
+  amount: string;
+  section: string | null;
+  certificateNumber: string | null;
+  certificateAt: string | null;
+  createdAt: string;
+  tenant: { id: string; name: string };
+  invoice: { id: string; number: string; total: string };
 }
 
 export interface AdminSubscriptionRow {
@@ -96,7 +108,13 @@ export class AdminBillingApi {
   voidInvoice(id: string, reason: string) {
     return firstValueFrom(this.http.post<AdminInvoiceDetail>(`${this.base}/invoices/${id}/void`, { reason }));
   }
-  recordPayment(id: string, body: { method: 'BANK_TRANSFER' | 'UPI' | 'CHEQUE' | 'CASH' | 'OTHER'; reference?: string; receivedOn: string; note?: string; idempotencyKey: string }) {
+  tdsList(page: number, pending: boolean, search: string) {
+    return firstValueFrom(this.http.get<Paged<TdsRow>>(`${this.base}/tds`, { params: { page, pageSize: 20, ...(pending ? { pending: 'true' } : {}), ...(search ? { search } : {}) } }));
+  }
+  recordTdsCertificate(invoiceId: string, certificateNumber: string) {
+    return firstValueFrom(this.http.post<AdminInvoiceDetail>(`${this.base}/invoices/${invoiceId}/tds-certificate`, { certificateNumber }));
+  }
+  recordPayment(id: string, body: { method: 'BANK_TRANSFER' | 'UPI' | 'CHEQUE' | 'CASH' | 'OTHER'; reference?: string; receivedOn: string; note?: string; idempotencyKey: string; tdsAmount?: number; tdsSection?: string }) {
     return firstValueFrom(this.http.post<AdminInvoiceDetail>(`${this.base}/invoices/${id}/payments`, body));
   }
   refundInvoice(id: string, body: { amount?: number; reason: string; cancelService?: boolean }) {

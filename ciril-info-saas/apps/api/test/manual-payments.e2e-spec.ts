@@ -50,6 +50,7 @@ describe('Manual payments (e2e)', () => {
   afterAll(async () => {
     const tenantIds = [alice?.tenantId].filter(Boolean) as string[];
     await db.creditNote.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.tdsDeduction.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.refund.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.invoice.deleteMany({ where: { tenantId: { in: tenantIds } } });
@@ -184,5 +185,66 @@ describe('Manual payments (e2e)', () => {
     const refund = await db.refund.findFirstOrThrow({ where: { invoiceId: i.id } });
     expect(refund).toMatchObject({ status: 'SUCCEEDED', providerRefundId: null }); // nothing came back from a gateway, because there was none
     expect(await db.creditNote.count({ where: { invoiceId: i.id } })).toBe(1);
+  });
+
+  describe('TDS deducted by the customer', () => {
+    it('settles the invoice with the money received plus the TDS, and keeps the TDS apart from the payment', async () => {
+      const i = await invoice();
+      const total = Number(i.total);
+      const r = await record(i.id, bank({ reference: `UTR-T1-${tag}`, tdsAmount: 100, tdsSection: '194j' })).expect(200);
+      expect(r.body.status).toBe('PAID');
+      expect(r.body.tdsDeduction).toMatchObject({ section: '194J', certificateNumber: null, certificateAt: null });
+      expect(Number(r.body.tdsDeduction.amount)).toBe(100);
+      const after = await inv(i.id);
+      expect(Number(after.amountPaid)).toBe(total); // paid in full
+      expect(after.payments).toHaveLength(1);
+      expect(Number(after.payments[0]!.amount)).toBe(total - 100); // what actually reached us
+      const audit = await db.auditLog.findFirstOrThrow({ where: { action: 'payment.manual_recorded', entityId: i.id } });
+      expect(audit.metadata).toMatchObject({ tds: '100.00', tdsSection: '194J' });
+      // The customer sees it on their invoice.
+      const mine = await http().get(api(`invoices/${i.id}`)).set(auth(alice.token)).expect(200);
+      expect(Number(mine.body.tdsDeduction.amount)).toBe(100);
+      expect(mine.body.tdsDeduction.certificateAt).toBeNull();
+    });
+
+    it('refuses TDS that is not less than the amount due, and an odd section', async () => {
+      const i = await invoice();
+      await record(i.id, bank({ reference: `UTR-T2-${tag}`, tdsAmount: Number(i.total) })).expect(400);
+      await record(i.id, bank({ reference: `UTR-T2-${tag}`, tdsAmount: 10, tdsSection: 'section 194 J' })).expect(400);
+      await record(i.id, bank({ reference: `UTR-T2-${tag}`, tdsAmount: 0 })).expect(400);
+      expect((await inv(i.id)).payments).toHaveLength(0);
+      expect(await db.tdsDeduction.count({ where: { invoiceId: i.id } })).toBe(0);
+    });
+
+    it('a refund can only return the money that actually reached us, never the TDS', async () => {
+      const i = await invoice();
+      await record(i.id, bank({ reference: `UTR-T3-${tag}`, tdsAmount: 100 })).expect(200);
+      const received = Number(i.total) - 100;
+      const tooMuch = await http().post(api(`admin/invoices/${i.id}/refunds`)).set(auth(finance)).send({ amount: received + 1, reason: 'Over the received amount' }).expect(409);
+      expect(tooMuch.body.error.code).toBe('REFUND_TOO_LARGE');
+      await http().post(api(`admin/invoices/${i.id}/refunds`)).set(auth(finance)).send({ reason: 'Customer cancelled' }).expect(200);
+      const refund = await db.refund.findFirstOrThrow({ where: { invoiceId: i.id } });
+      expect(Number(refund.amount)).toBe(received);
+    });
+
+    it('tracks the certificate: listed until it arrives, recorded once, and only staff with billing write may record it', async () => {
+      const i = await invoice();
+      await record(i.id, bank({ reference: `UTR-T4-${tag}`, tdsAmount: 50, tdsSection: '194C' })).expect(200);
+      const pending = await http().get(api('admin/tds')).query({ pending: 'true' }).set(auth(agent)).expect(200); // billing:read can see the list
+      expect(pending.body.data.map((t: { invoice: { id: string } }) => t.invoice.id)).toContain(i.id);
+      await http().post(api(`admin/invoices/${i.id}/tds-certificate`)).set(auth(agent)).send({ certificateNumber: 'ABCD1234' }).expect(403);
+      await http().post(api(`admin/invoices/${i.id}/tds-certificate`)).set(auth(finance)).send({ certificateNumber: 'x' }).expect(400);
+      const done = await http().post(api(`admin/invoices/${i.id}/tds-certificate`)).set(auth(finance)).send({ certificateNumber: 'ABCDE1234F-Q2' }).expect(200);
+      expect(done.body.tdsDeduction).toMatchObject({ certificateNumber: 'ABCDE1234F-Q2' });
+      expect(done.body.tdsDeduction.certificateAt).not.toBeNull();
+      expect((await http().post(api(`admin/invoices/${i.id}/tds-certificate`)).set(auth(finance)).send({ certificateNumber: 'AGAIN123' }).expect(409)).body.error.code).toBe('TDS_CERTIFICATE_RECORDED');
+      const still = await http().get(api('admin/tds')).query({ pending: 'true' }).set(auth(finance)).expect(200);
+      expect(still.body.data.map((t: { invoice: { id: string } }) => t.invoice.id)).not.toContain(i.id);
+      expect(await db.auditLog.count({ where: { action: 'tds.certificate_received', entityId: i.id } })).toBe(1);
+      // An invoice without TDS has no certificate to record.
+      const plain = await invoice();
+      await record(plain.id, bank({ reference: `UTR-T5-${tag}` })).expect(200);
+      await http().post(api(`admin/invoices/${plain.id}/tds-certificate`)).set(auth(finance)).send({ certificateNumber: 'ABCD1234' }).expect(404);
+    });
   });
 });

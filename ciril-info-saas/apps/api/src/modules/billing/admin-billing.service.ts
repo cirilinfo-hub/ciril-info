@@ -5,7 +5,7 @@ import type { InvoiceStatus, Prisma, SubscriptionStatus } from '../../generated/
 import { orderBy, page, skipTake } from '../../common/http/pagination.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthUser, RequestMeta } from '../auth/auth.types.js';
-import type { AdminInvoiceListQuery, AdminSubscriptionListQuery, RecordPaymentDto, RefundDto } from './admin-billing.dto.js';
+import type { AdminInvoiceListQuery, AdminSubscriptionListQuery, RecordPaymentDto, RefundDto, TdsListQuery } from './admin-billing.dto.js';
 import { fromPaise, gstSplit, refundTaxPaise, toPaise } from './billing.logic.js';
 import { nextCreditNoteNumber } from './numbering.js';
 import { PaymentGateway } from './payment-gateway.js';
@@ -50,6 +50,7 @@ export class AdminBillingService {
         items: { select: { id: true, description: true, quantity: true, unitPrice: true, taxRate: true, taxAmount: true, lineTotal: true } },
         payments: { orderBy: { createdAt: 'desc' }, select: { id: true, provider: true, status: true, amount: true, method: true, failureReason: true, providerPaymentId: true, createdAt: true } },
         refunds: { orderBy: { createdAt: 'desc' }, select: { id: true, amount: true, status: true, reason: true, createdAt: true, creditNote: { select: { id: true, number: true } } } },
+        tdsDeduction: { select: { id: true, amount: true, section: true, certificateNumber: true, certificateAt: true, createdAt: true } },
       },
     });
     if (!inv) throw new NotFoundException({ code: 'INVOICE_NOT_FOUND', message: 'Invoice not found.' });
@@ -84,10 +85,14 @@ export class AdminBillingService {
         }
         const outstanding = toPaise(inv.total.toString()) - toPaise(inv.amountPaid.toString());
         if (outstanding <= 0) throw new ConflictException({ code: 'INVOICE_NOT_PAYABLE', message: 'Nothing is outstanding on this invoice.' });
+        // TDS the customer kept back and paid to the government instead. What reached us is the rest.
+        const tdsPaise = dto.tdsAmount ? Math.round(dto.tdsAmount * 100) : 0;
+        if (tdsPaise >= outstanding) throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'The TDS must be less than the amount due.' });
+        const received = outstanding - tdsPaise;
 
         const payment = await tx.payment.create({
           data: {
-            tenantId: inv.tenantId, invoiceId, provider: 'MANUAL', status: 'PENDING', amount: (outstanding / 100).toFixed(2), currency: inv.currency,
+            tenantId: inv.tenantId, invoiceId, provider: 'MANUAL', status: 'PENDING', amount: (received / 100).toFixed(2), currency: inv.currency,
             providerPaymentId, method: dto.method.toLowerCase(), idempotencyKey: key,
           },
           select: { id: true },
@@ -96,9 +101,12 @@ export class AdminBillingService {
         await settleInvoicePayment(tx, { tenantId: inv.tenantId, invoiceId, paymentId: payment.id, actorUserId: null, now: new Date(), providerPaymentId, method: dto.method.toLowerCase(), via: 'manual' });
         // For a manual payment the verified time is when the money arrived, which is what reconciliation needs.
         await tx.payment.update({ where: { id: payment.id }, data: { verifiedAt: receivedOn } });
+        if (tdsPaise > 0) {
+          await tx.tdsDeduction.create({ data: { tenantId: inv.tenantId, invoiceId, amount: (tdsPaise / 100).toFixed(2), section: dto.tdsSection ?? null } });
+        }
         await this.audit.record({
           action: 'payment.manual_recorded', actorId: user.id, tenantId: inv.tenantId, entityType: 'invoice', entityId: invoiceId,
-          metadata: { number: inv.number, method: dto.method, reference, receivedOn: dto.receivedOn, note: dto.note ?? null, amount: (outstanding / 100).toFixed(2) }, meta,
+          metadata: { number: inv.number, method: dto.method, reference, receivedOn: dto.receivedOn, note: dto.note ?? null, amount: (received / 100).toFixed(2), tds: tdsPaise ? (tdsPaise / 100).toFixed(2) : null, tdsSection: dto.tdsSection ?? null }, meta,
         }, tx);
       });
     } catch (e) {
@@ -109,6 +117,32 @@ export class AdminBillingService {
       }
       throw e;
     }
+    return this.getInvoice(invoiceId);
+  }
+
+  /** TDS deductions, newest first; `pending` shows only those whose certificate has not arrived, the list to chase. */
+  async listTds(q: TdsListQuery) {
+    const where: Prisma.TdsDeductionWhereInput = {
+      ...(q.pending ? { certificateAt: null } : {}),
+      ...(q.search ? { OR: [{ invoice: { number: { contains: q.search, mode: 'insensitive' } } }, { tenant: { name: { contains: q.search, mode: 'insensitive' } } }] } : {}),
+    };
+    const [rows, total] = await Promise.all([
+      this.db.tdsDeduction.findMany({
+        where, ...skipTake(q), orderBy: { createdAt: 'desc' },
+        select: { id: true, amount: true, section: true, certificateNumber: true, certificateAt: true, createdAt: true, tenant: { select: { id: true, name: true } }, invoice: { select: { id: true, number: true, total: true } } },
+      }),
+      this.db.tdsDeduction.count({ where }),
+    ]);
+    return page(rows, total, q);
+  }
+
+  /** The customer sent the TDS certificate. Recorded once; a correction is a new note in the audit log. */
+  async recordTdsCertificate(user: AuthUser, invoiceId: string, certificateNumber: string, meta: RequestMeta) {
+    const tds = await this.db.tdsDeduction.findUnique({ where: { invoiceId }, select: { id: true, tenantId: true, certificateAt: true, invoice: { select: { number: true } } } });
+    if (!tds) throw new NotFoundException({ code: 'TDS_NOT_FOUND', message: 'This invoice has no TDS recorded.' });
+    const r = await this.db.tdsDeduction.updateMany({ where: { id: tds.id, certificateAt: null }, data: { certificateNumber, certificateAt: new Date() } });
+    if (r.count === 0) throw new ConflictException({ code: 'TDS_CERTIFICATE_RECORDED', message: 'The certificate for this TDS has already been recorded.' });
+    await this.audit.record({ action: 'tds.certificate_received', actorId: user.id, tenantId: tds.tenantId, entityType: 'invoice', entityId: invoiceId, metadata: { number: tds.invoice.number, certificateNumber }, meta });
     return this.getInvoice(invoiceId);
   }
 

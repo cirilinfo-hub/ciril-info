@@ -46,4 +46,20 @@ export class RecordPaymentDto {
 
   @ApiPropertyOptional({ description: 'Sent once per form, so a double click records one payment.' })
   @IsOptional() @IsUUID('4') idempotencyKey?: string;
+
+  @ApiPropertyOptional({ description: 'TDS the customer deducted, in rupees. The money received plus this settles the invoice.' })
+  @IsOptional() @Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Enter the TDS in rupees, up to two decimals.' }) @Min(0.01) @Max(10_000_000) tdsAmount?: number;
+
+  @ApiPropertyOptional({ description: 'The Income Tax Act section, such as 194J.' })
+  @IsOptional() @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value)) @Matches(/^[0-9A-Z()-]{2,20}$/, { message: 'Enter the section such as 194J.' }) tdsSection?: string;
+}
+
+export class TdsCertificateDto {
+  @ApiProperty({ description: 'The certificate (Form 16A) number.' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value)) @IsString() @Length(3, 60, { message: 'Enter the certificate number.' }) certificateNumber!: string;
+}
+
+export class TdsListQuery extends ListQueryDto {
+  @ApiPropertyOptional({ description: 'Only deductions whose certificate has not arrived.' })
+  @IsOptional() @Transform(({ value }) => value === true || value === 'true') @IsBoolean() pending?: boolean;
 }
