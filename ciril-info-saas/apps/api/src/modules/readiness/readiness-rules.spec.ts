@@ -12,7 +12,7 @@ const ready = (): ReadinessFacts => ({
   email: { provider: 'resend' },
   storage: { driver: 's3' },
   errorTrackingSet: true,
-  company: { legalName: true, gstin: true, address: true, stateCode: true, email: true, phone: true },
+  company: { legalName: true, gstin: true, address: true, stateCode: true, email: true, phone: true, bank: true },
   tax: { defaultRate: 18, defaultName: 'GST' },
   catalogue: { publishedPlans: 3, activeDomainEndings: 4, sampleRecords: 0 },
   legal: { published: 5, total: 5, missing: [] },
@@ -73,11 +73,12 @@ describe('registrar, email, storage, errors', () => {
 
 describe('business details', () => {
   it('lists what is missing from the company profile, and links to the page', () => {
-    const c = get(run({ company: { legalName: true, gstin: false, address: false, stateCode: false, email: true, phone: true } }), 'company');
+    const c = get(run({ company: { legalName: true, gstin: false, address: false, stateCode: false, email: true, phone: true, bank: true } }), 'company');
     expect(c.status).toBe('todo');
     expect(c.detail).toContain('GSTIN, address and GST state');
     expect(c.link).toBe('/company');
   });
+  it('treats missing bank details as information, since online payment still works', () => expect(get(run({ company: { ...ready().company, bank: false } }), 'bank')).toMatchObject({ status: 'info', link: '/company', detail: expect.stringContaining('only pay online') }));
   it('says invoices carry no tax when there is no default GST rate', () => expect(get(run({ tax: { defaultRate: null, defaultName: null } }), 'tax')).toMatchObject({ status: 'todo', link: '/tax', detail: expect.stringContaining('no tax') }));
   it('shows the rate in use, and asks for the accountant to check', () => expect(get(run(), 'tax').detail).toBe('GST at 18% is added to new invoices. Have your accountant confirm the invoice format.'));
 });

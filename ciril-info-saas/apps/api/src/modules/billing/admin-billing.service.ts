@@ -1,13 +1,15 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PlatformPrisma } from '../../database/prisma-clients.js';
 import type { InvoiceStatus, Prisma, SubscriptionStatus } from '../../generated/prisma/client.js';
 import { orderBy, page, skipTake } from '../../common/http/pagination.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthUser, RequestMeta } from '../auth/auth.types.js';
-import type { AdminInvoiceListQuery, AdminSubscriptionListQuery, RefundDto } from './admin-billing.dto.js';
+import type { AdminInvoiceListQuery, AdminSubscriptionListQuery, RecordPaymentDto, RefundDto } from './admin-billing.dto.js';
 import { fromPaise, gstSplit, refundTaxPaise, toPaise } from './billing.logic.js';
 import { nextCreditNoteNumber } from './numbering.js';
 import { PaymentGateway } from './payment-gateway.js';
+import { settleInvoicePayment } from './settlement.js';
 
 const UNPAID: InvoiceStatus[] = ['ISSUED', 'OVERDUE', 'PARTIALLY_PAID'];
 const DAY = 86_400_000;
@@ -52,6 +54,62 @@ export class AdminBillingService {
     });
     if (!inv) throw new NotFoundException({ code: 'INVOICE_NOT_FOUND', message: 'Invoice not found.' });
     return { ...inv, testMode: inv.payments.some((p) => p.provider === 'MOCK') };
+  }
+
+  /**
+   * Records money that arrived outside the checkout (a bank transfer, UPI, a cheque, cash) against an unpaid invoice. It pays the
+   * whole outstanding amount through the same settlement every other payment uses, so the service is activated and the customer
+   * is told in the usual way. The same bank reference cannot be recorded twice, and one form submission records one payment.
+   */
+  async recordManualPayment(user: AuthUser, invoiceId: string, dto: RecordPaymentDto, meta: RequestMeta) {
+    const needsReference = dto.method === 'BANK_TRANSFER' || dto.method === 'UPI' || dto.method === 'CHEQUE';
+    const reference = dto.reference?.trim() || null;
+    if (needsReference && (!reference || reference.length < 3)) throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Enter the bank reference, UPI transaction id or cheque number.' });
+    const receivedOn = new Date(`${dto.receivedOn}T12:00:00.000Z`);
+    if (Number.isNaN(receivedOn.getTime()) || receivedOn.toISOString().slice(0, 10) !== dto.receivedOn) throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Enter a real date.' });
+    if (receivedOn.getTime() > Date.now() + DAY) throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'The date the money arrived cannot be in the future.' });
+
+    const key = dto.idempotencyKey ? `manual:${invoiceId}:${dto.idempotencyKey}` : `manual:${invoiceId}:${randomUUID()}`;
+    const providerPaymentId = reference ? `${dto.method}:${reference.toUpperCase()}` : null;
+    try {
+      await this.db.$transaction(async (tx) => {
+        const prior = await tx.payment.findUnique({ where: { idempotencyKey: key }, select: { invoiceId: true } });
+        if (prior) return; // the same form submitted twice: already recorded
+        await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${invoiceId}::uuid FOR UPDATE`;
+        const inv = await tx.invoice.findUnique({ where: { id: invoiceId }, select: { id: true, tenantId: true, number: true, status: true, total: true, amountPaid: true, currency: true, issuedAt: true } });
+        if (!inv) throw new NotFoundException({ code: 'INVOICE_NOT_FOUND', message: 'Invoice not found.' });
+        if (!UNPAID.includes(inv.status)) throw new ConflictException({ code: 'INVOICE_NOT_PAYABLE', message: inv.status === 'PAID' ? 'This invoice is already paid.' : 'This invoice cannot take a payment.' });
+        if (inv.issuedAt && receivedOn.getTime() < new Date(inv.issuedAt.toISOString().slice(0, 10) + 'T00:00:00.000Z').getTime()) {
+          throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'The money cannot have arrived before the invoice was issued.' });
+        }
+        const outstanding = toPaise(inv.total.toString()) - toPaise(inv.amountPaid.toString());
+        if (outstanding <= 0) throw new ConflictException({ code: 'INVOICE_NOT_PAYABLE', message: 'Nothing is outstanding on this invoice.' });
+
+        const payment = await tx.payment.create({
+          data: {
+            tenantId: inv.tenantId, invoiceId, provider: 'MANUAL', status: 'PENDING', amount: (outstanding / 100).toFixed(2), currency: inv.currency,
+            providerPaymentId, method: dto.method.toLowerCase(), idempotencyKey: key,
+          },
+          select: { id: true },
+        });
+        // No signed-in customer: the organisation's owners are the ones told.
+        await settleInvoicePayment(tx, { tenantId: inv.tenantId, invoiceId, paymentId: payment.id, actorUserId: null, now: new Date(), providerPaymentId, method: dto.method.toLowerCase(), via: 'manual' });
+        // For a manual payment the verified time is when the money arrived, which is what reconciliation needs.
+        await tx.payment.update({ where: { id: payment.id }, data: { verifiedAt: receivedOn } });
+        await this.audit.record({
+          action: 'payment.manual_recorded', actorId: user.id, tenantId: inv.tenantId, entityType: 'invoice', entityId: invoiceId,
+          metadata: { number: inv.number, method: dto.method, reference, receivedOn: dto.receivedOn, note: dto.note ?? null, amount: (outstanding / 100).toFixed(2) }, meta,
+        }, tx);
+      });
+    } catch (e) {
+      if ((e as { code?: string }).code === 'P2002') {
+        // Either the same form again (fine) or a bank reference that was already recorded (not fine).
+        if (await this.db.payment.findUnique({ where: { idempotencyKey: key }, select: { id: true } })) return this.getInvoice(invoiceId);
+        throw new ConflictException({ code: 'REFERENCE_ALREADY_RECORDED', message: 'This reference has already been recorded against a payment.' });
+      }
+      throw e;
+    }
+    return this.getInvoice(invoiceId);
   }
 
   /** Void an unpaid invoice. A paid invoice needs a refund instead, never a void. An unpaid first order is cancelled with it. */
@@ -107,7 +165,11 @@ export class AdminBillingService {
     // The provider call happens outside any transaction.
     let result: { ok: boolean; providerRefundId: string | null; failureReason: string | null };
     try {
-      result = await this.gateway.refund({ providerPaymentId: started.payment.providerPaymentId, amountPaise: started.wanted, currency: started.inv.currency, idempotencyKey: started.refundId });
+      // A payment that was recorded by hand reached you outside the gateway, so there is nothing for the gateway to reverse: the
+      // refund is recorded here and you return the money yourself (bank transfer, UPI, cheque).
+      result = started.payment.provider === 'MANUAL'
+        ? { ok: true, providerRefundId: null, failureReason: null }
+        : await this.gateway.refund({ providerPaymentId: started.payment.providerPaymentId, amountPaise: started.wanted, currency: started.inv.currency, idempotencyKey: started.refundId });
     } catch (e) {
       await this.db.refund.update({ where: { id: started.refundId }, data: { status: 'FAILED' } });
       throw e;

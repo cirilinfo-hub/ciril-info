@@ -94,6 +94,7 @@ export interface CompanyProfile {
   gstin: string;
   invoicePrefix: string;
   address: { line1: string; line2: string; city: string; state: string; stateCode: string; postalCode: string; country: string };
+  bank: { accountName: string; bankName: string; accountNumber: string; ifsc: string; upiId: string };
 }
 export interface SiteClaims {
   uptimePercent: number | null;

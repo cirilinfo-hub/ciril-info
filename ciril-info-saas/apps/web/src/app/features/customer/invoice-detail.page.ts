@@ -36,6 +36,10 @@ import { openRazorpayCheckout } from './razorpay-checkout';
     .meta { display: flex; gap: var(--space-5); flex-wrap: wrap; font-size: 14px; margin-bottom: var(--space-4); }
     .meta span { color: var(--color-text-secondary); }
     .pay { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; margin-top: var(--space-4); }
+    ci-invoice-detail .bank { display: grid; gap: var(--space-2); margin: var(--space-3) 0 0; }
+    ci-invoice-detail .bank div { display: grid; grid-template-columns: 140px 1fr; gap: var(--space-3); }
+    ci-invoice-detail .bank dt { color: var(--color-text-secondary); }
+    ci-invoice-detail .bank dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
     .pays { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); font-size: 14px; }
   `,
   template: `
@@ -109,6 +113,21 @@ import { openRazorpayCheckout } from './razorpay-checkout';
             }
           </ul>
         </section>
+      }
+      @if (i.billingSnapshot?.seller?.bank; as bk) {
+        @if (i.status === 'ISSUED' || i.status === 'OVERDUE' || i.status === 'PARTIALLY_PAID') {
+          <section class="cf-card card" aria-labelledby="bank-h">
+            <h2 id="bank-h" class="ts-heading-5">Pay by bank transfer or UPI</h2>
+            <p class="cf-help">Prefer not to pay online? Transfer the amount below and quote <strong>{{ i.number }}</strong> as the reference. We mark the invoice paid when the money reaches us, usually within a working day.</p>
+            <dl class="bank">
+              @if (bk.accountName) { <div><dt>Account name</dt><dd>{{ bk.accountName }}</dd></div> }
+              @if (bk.bankName) { <div><dt>Bank</dt><dd>{{ bk.bankName }}</dd></div> }
+              @if (bk.accountNumber) { <div><dt>Account number</dt><dd>{{ bk.accountNumber }}</dd></div> }
+              @if (bk.ifsc) { <div><dt>IFSC</dt><dd>{{ bk.ifsc }}</dd></div> }
+              @if (bk.upiId) { <div><dt>UPI ID</dt><dd>{{ bk.upiId }}</dd></div> }
+            </dl>
+          </section>
+        }
       }
       @if (i.payments.length) {
         <section class="cf-card card" aria-labelledby="pay-h">

@@ -73,7 +73,18 @@ import { AdminPage } from '../shared/admin-page';
           </div>
         </fieldset>
         @if (canWrite()) {
-          <div class="actions"><button type="submit" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Saving…' : 'Save Changes' }}</button></div>
+          <fieldset>
+          <legend>Bank details</legend>
+          <p class="cf-help">Optional. When filled in, customers see these on an unpaid invoice so they can pay by bank transfer or UPI, and they are printed on the invoice. Not shown on the public website.</p>
+          <div class="two" formGroupName="bank">
+            <ci-field label="Account name" for="b-name" [optional]="true"><input id="b-name" class="cf-input" formControlName="accountName" /></ci-field>
+            <ci-field label="Bank" for="b-bank" [optional]="true"><input id="b-bank" class="cf-input" formControlName="bankName" /></ci-field>
+            <ci-field label="Account number" for="b-acc" [control]="form.controls.bank.controls.accountNumber" [optional]="true" hint="6 to 20 digits."><input id="b-acc" class="cf-input" inputmode="numeric" formControlName="accountNumber" [attr.aria-describedby]="describedBy('b-acc', form.controls.bank.controls.accountNumber, true)" /></ci-field>
+            <ci-field label="IFSC" for="b-ifsc" [control]="form.controls.bank.controls.ifsc" [optional]="true" hint="For example HDFC0001234."><input id="b-ifsc" class="cf-input" autocapitalize="characters" maxlength="11" formControlName="ifsc" [attr.aria-describedby]="describedBy('b-ifsc', form.controls.bank.controls.ifsc, true)" /></ci-field>
+            <ci-field label="UPI ID" for="b-upi" [control]="form.controls.bank.controls.upiId" [optional]="true" hint="For example name@bank."><input id="b-upi" class="cf-input" formControlName="upiId" [attr.aria-describedby]="describedBy('b-upi', form.controls.bank.controls.upiId, true)" /></ci-field>
+          </div>
+        </fieldset>
+        <div class="actions"><button type="submit" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Saving…' : 'Save Changes' }}</button></div>
         }
       </form>
     } @else {
@@ -97,6 +108,9 @@ export class CompanyPage extends AdminPage implements OnInit {
     phone: [''],
     whatsapp: [''],
     businessHours: [''],
+    bank: inject(NonNullableFormBuilder).group({
+      accountName: [''], bankName: [''], accountNumber: ['', Validators.pattern(/^$|^\d{6,20}$/)], ifsc: ['', Validators.pattern(/^$|^[A-Za-z]{4}0[A-Za-z0-9]{6}$/)], upiId: ['', Validators.pattern(/^$|^[\w.\-]{2,}@[A-Za-z]{2,}$/)],
+    }),
     address: inject(NonNullableFormBuilder).group({
       line1: [''], line2: [''], city: [''], state: [''], stateCode: [''], postalCode: [''], country: ['IN'],
     }),

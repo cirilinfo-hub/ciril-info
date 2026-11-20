@@ -37,7 +37,7 @@ export interface InvoiceRow {
 
 export interface InvoiceDetail extends InvoiceRow {
   testMode: boolean;
-  billingSnapshot: { coupon?: { code: string; discount: string } | null; seller?: { name?: string; gstin?: string; email?: string; phone?: string; address?: { line1?: string; line2?: string; city?: string; state?: string; stateCode?: string; postalCode?: string } }; buyer?: { accountNo?: string; name?: string | null; email?: string; gstin?: string | null; address?: { line1: string; line2?: string | null; city: string; state: string; stateCode?: string | null; postalCode: string } | null } } | null;
+  billingSnapshot: { coupon?: { code: string; discount: string } | null; seller?: { name?: string; gstin?: string; email?: string; phone?: string; address?: { line1?: string; line2?: string; city?: string; state?: string; stateCode?: string; postalCode?: string }; bank?: { accountName?: string; bankName?: string; accountNumber?: string; ifsc?: string; upiId?: string } }; buyer?: { accountNo?: string; name?: string | null; email?: string; gstin?: string | null; address?: { line1: string; line2?: string | null; city: string; state: string; stateCode?: string | null; postalCode: string } | null } } | null;
   discountTotal: string;
   items: Quote['lines'];
   payments: { id: string; provider: string; status: string; amount: string; method: string | null; failureReason: string | null; createdAt: string }[];
@@ -55,7 +55,7 @@ export interface CreditNoteDetail {
   issuedAt: string;
   invoice: { id: string; number: string };
   snapshot: {
-    seller?: { name?: string; gstin?: string; address?: { line1?: string; line2?: string; city?: string; state?: string; postalCode?: string } };
+    seller?: { name?: string; gstin?: string; address?: { line1?: string; line2?: string; city?: string; state?: string; postalCode?: string }; bank?: { accountName?: string; bankName?: string; accountNumber?: string; ifsc?: string; upiId?: string } };
     buyer?: { name?: string | null; gstin?: string | null; address?: { line1?: string; line2?: string | null; city?: string; state?: string; stateCode?: string | null; postalCode?: string } | null };
     original?: { number: string; issuedAt: string | null };
     gst?: { kind: 'INTRA' | 'INTER' | 'UNKNOWN'; cgst: string; sgst: string; igst: string; gst: string };

@@ -29,6 +29,17 @@ export const companyProfileSchema = z
     businessHours: optText(160),
     gstin: z.union([z.literal(''), z.string().trim().toUpperCase().regex(/^[0-9A-Z]{15}$/, 'GSTIN has 15 letters and digits.')]).default(''),
     invoicePrefix: z.string().trim().min(1).max(10).default('INV'),
+    /** Where customers can pay by bank transfer or UPI. Printed on invoices and shown on an unpaid invoice. All optional. */
+    bank: z
+      .object({
+        accountName: optText(120),
+        bankName: optText(120),
+        accountNumber: z.union([z.literal(''), z.string().trim().regex(/^\d{6,20}$/, 'The account number has 6 to 20 digits.')]).default(''),
+        ifsc: z.union([z.literal(''), z.string().trim().toUpperCase().regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, 'An IFSC code is 4 letters, a 0, then 6 letters or digits.')]).default(''),
+        upiId: z.union([z.literal(''), z.string().trim().regex(/^[\w.\-]{2,}@[A-Za-z]{2,}$/, 'A UPI ID looks like name@bank.')]).default(''),
+      })
+      .strict()
+      .default({ accountName: '', bankName: '', accountNumber: '', ifsc: '', upiId: '' }),
     address: z
       .object({
         line1: optText(160), line2: optText(160), city: optText(80), state: optText(80), stateCode: optText(4),

@@ -7,7 +7,7 @@ import { ListQueryDto } from '../../common/http/pagination.js';
 import { CouponDto, CouponPatchDto } from './admin-coupons.dto.js';
 import { AdminCouponsService } from './admin-coupons.service.js';
 import { AdminBillingService } from './admin-billing.service.js';
-import { AdminInvoiceListQuery, AdminSubscriptionListQuery, RefundDto, VoidInvoiceDto } from './admin-billing.dto.js';
+import { AdminInvoiceListQuery, AdminSubscriptionListQuery, RecordPaymentDto, RefundDto, VoidInvoiceDto } from './admin-billing.dto.js';
 import { BillingListQuery, CancelSubscriptionDto, ChangePlanDto, ConfirmPaymentDto, OrderDto, PayInvoiceDto, QuoteDto } from './billing.dto.js';
 import { PlanChangeService } from './plan-change.service.js';
 import { BillingService } from './billing.service.js';
@@ -122,6 +122,9 @@ export class AdminBillingController {
 
   @Post('invoices/:id/void') @HttpCode(200) @RequirePlatform('billing:write')
   voidInvoice(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: VoidInvoiceDto, @ReqMeta() meta: RequestMeta) { return this.svc.voidInvoice(u, id, dto.reason, meta); }
+
+  @Post('invoices/:id/payments') @HttpCode(200) @RequirePlatform('billing:write')
+  recordPayment(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: RecordPaymentDto, @ReqMeta() meta: RequestMeta) { return this.svc.recordManualPayment(u, id, dto, meta); }
 
   @Post('invoices/:id/refunds') @HttpCode(200) @RequirePlatform('billing:refund')
   refund(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: RefundDto, @ReqMeta() meta: RequestMeta) { return this.svc.refundInvoice(u, id, dto, meta); }

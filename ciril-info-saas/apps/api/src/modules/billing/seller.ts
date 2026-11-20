@@ -11,8 +11,10 @@ export async function readSeller(db: PlatformPrisma): Promise<Prisma.InputJsonOb
   const text = (x: unknown) => (typeof x === 'string' && x.trim() ? x.trim() : undefined);
   const a = (v['address'] ?? {}) as Record<string, unknown>;
   const address = Object.fromEntries(['line1', 'line2', 'city', 'state', 'stateCode', 'postalCode'].map((k) => [k, text(a[k])]).filter(([, x]) => x));
+  const b = (v['bank'] ?? {}) as Record<string, unknown>;
+  const bank = Object.fromEntries(['accountName', 'bankName', 'accountNumber', 'ifsc', 'upiId'].map((k) => [k, text(b[k])]).filter(([, x]) => x));
   return Object.fromEntries(
-    Object.entries({ name: text(v['legalName']) ?? text(v['brandName']), gstin: text(v['gstin']), email: text(v['email']), phone: text(v['phone']), address: Object.keys(address).length ? address : undefined })
+    Object.entries({ name: text(v['legalName']) ?? text(v['brandName']), gstin: text(v['gstin']), email: text(v['email']), phone: text(v['phone']), address: Object.keys(address).length ? address : undefined, bank: Object.keys(bank).length ? bank : undefined })
       .filter(([, x]) => x !== undefined),
   ) as Prisma.InputJsonObject;
 }

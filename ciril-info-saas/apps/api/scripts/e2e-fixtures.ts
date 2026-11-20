@@ -6,6 +6,7 @@
  *   tsx scripts/e2e-fixtures.ts seed-public | cleanup-public   (website content used by the public-page tests)
  *   tsx scripts/e2e-fixtures.ts add-tld <pw-ending> <register> <renew> <transfer>   (a domain ending the browser tests can sell)
  *   tsx scripts/e2e-fixtures.ts add-domain <customer-email> <name> <pw-ending> <days-until-expiry>   (a registered domain the customer already owns)
+ *   tsx scripts/e2e-fixtures.ts set-bank | clear-bank   (test bank details on the company profile, removed again afterwards)
  *   tsx scripts/e2e-fixtures.ts hosting-awaiting <customer-email> <domain>   (a hosting set-up waiting for staff, as in manual mode)
  * Refuses to run when NODE_ENV=production and only touches @example.test addresses.
  */
@@ -125,6 +126,22 @@ async function main() {
     await db.domain.create({
       data: { tenantId: user.memberships[0]!.tenantId, name: `${name}.${tld}`, tld, status: 'ACTIVE', registeredAt: new Date(Date.now() - 200 * day), expiresAt: new Date(Date.now() + Number(days) * day) },
     });
+    console.log('{}');
+  } else if (cmd === 'set-bank' || cmd === 'clear-bank') {
+    const row = await db.systemSetting.findUnique({ where: { key: 'company.profile' } });
+    const value = { ...((row?.value ?? {}) as Record<string, unknown>) };
+    if (cmd === 'set-bank') {
+      value['bank'] = { accountName: 'PW Test Account', bankName: 'PW Test Bank', accountNumber: '1234567890', ifsc: 'PWTB0000001', upiId: 'pwtest@pwbank' };
+      // A database with no profile yet gets a bare one, marked so clear-bank removes it again.
+      if (!row) Object.assign(value, { brandName: 'Ciril Info', _pwCreated: true });
+      await db.systemSetting.upsert({ where: { key: 'company.profile' }, update: { value: value as never }, create: { key: 'company.profile', value: value as never } });
+    } else if (row) {
+      if (value['_pwCreated']) await db.systemSetting.delete({ where: { key: 'company.profile' } });
+      else {
+        delete value['bank'];
+        await db.systemSetting.update({ where: { key: 'company.profile' }, data: { value: value as never } });
+      }
+    }
     console.log('{}');
   } else if (cmd === 'hosting-awaiting') {
     const [email, domain] = args as [string, string];

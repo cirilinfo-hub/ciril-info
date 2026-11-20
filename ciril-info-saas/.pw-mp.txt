@@ -1,0 +1,8 @@
+
+Running 1 test using 1 worker
+
+[WebServer] (node:29504) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+[WebServer] (Use `node --trace-deprecation ...` to show where the warning was created)
+  ok 1 [desktop] › tests\manual-payment.spec.ts:29:3 › Manual payments › a customer is shown how to pay by bank transfer, staff record the payment, and the invoice is paid (15.8s)
+
+  1 passed (27.1s)

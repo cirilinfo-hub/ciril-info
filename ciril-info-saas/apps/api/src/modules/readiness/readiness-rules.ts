@@ -27,7 +27,7 @@ export interface ReadinessFacts {
   email: { provider: string };
   storage: { driver: string };
   errorTrackingSet: boolean;
-  company: { legalName: boolean; gstin: boolean; address: boolean; stateCode: boolean; email: boolean; phone: boolean };
+  company: { legalName: boolean; gstin: boolean; address: boolean; stateCode: boolean; email: boolean; phone: boolean; bank: boolean };
   tax: { defaultRate: number | null; defaultName: string | null };
   catalogue: { publishedPlans: number; activeDomainEndings: number; sampleRecords: number };
   legal: { published: number; total: number; missing: string[] };
@@ -100,6 +100,11 @@ export function evaluateReadiness(f: ReadinessFacts): Check[] {
       ? { key: 'company', group: 'Business details', label: 'Company profile', status: 'todo', detail: `Missing: ${list(missing)}. Invoices and the website show these.`, link: '/company' }
       : { key: 'company', group: 'Business details', label: 'Company profile', status: 'ok', detail: 'Legal name, GSTIN, address and contact details are filled in.', link: '/company' });
   }
+  add(
+    f.company.bank
+      ? { key: 'bank', group: 'Business details', label: 'Bank details for transfers', status: 'ok', detail: 'Customers see your bank and UPI details on an unpaid invoice, and can pay by transfer.', link: '/company' }
+      : { key: 'bank', group: 'Business details', label: 'Bank details for transfers', status: 'info', detail: 'Not filled in, so customers can only pay online. Add them if you accept bank transfer or UPI, and record those payments on the invoice.', link: '/company' },
+  );
   add(
     f.tax.defaultRate === null
       ? { key: 'tax', group: 'Business details', label: 'GST rate', status: 'todo', detail: 'No default GST rate is set, so invoices carry no tax. Add one in Tax rates.', link: '/tax' }

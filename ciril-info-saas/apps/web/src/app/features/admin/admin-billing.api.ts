@@ -96,6 +96,9 @@ export class AdminBillingApi {
   voidInvoice(id: string, reason: string) {
     return firstValueFrom(this.http.post<AdminInvoiceDetail>(`${this.base}/invoices/${id}/void`, { reason }));
   }
+  recordPayment(id: string, body: { method: 'BANK_TRANSFER' | 'UPI' | 'CHEQUE' | 'CASH' | 'OTHER'; reference?: string; receivedOn: string; note?: string; idempotencyKey: string }) {
+    return firstValueFrom(this.http.post<AdminInvoiceDetail>(`${this.base}/invoices/${id}/payments`, body));
+  }
   refundInvoice(id: string, body: { amount?: number; reason: string; cancelService?: boolean }) {
     return firstValueFrom(this.http.post<AdminInvoiceDetail>(`${this.base}/invoices/${id}/refunds`, body));
   }

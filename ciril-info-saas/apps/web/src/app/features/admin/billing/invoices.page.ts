@@ -122,7 +122,7 @@ const FILTERS: { key: InvoiceStatus | ''; label: string }[] = [
             <thead><tr><th scope="col">When</th><th scope="col">Provider</th><th scope="col">Status</th><th scope="col" class="amt">Amount</th></tr></thead>
             <tbody>
               @for (p of d.payments; track p.id) {
-                <tr><td>{{ p.createdAt | date: 'd MMM y, h:mm a' }}</td><td>{{ p.provider === 'MOCK' ? 'Test mode' : p.provider }}</td><td>{{ p.status }}@if (p.failureReason) { ({{ p.failureReason }}) }</td><td class="amt">{{ fmt(p.amount, d.currency) }}</td></tr>
+                <tr><td>{{ p.createdAt | date: 'd MMM y, h:mm a' }}</td><td>{{ p.provider === 'MOCK' ? 'Test mode' : p.provider === 'MANUAL' ? 'Recorded by hand' + (p.method ? ' (' + methodLabel(p.method) + ')' : '') : p.provider }}@if (p.providerPaymentId && p.provider === 'MANUAL') { <small>{{ p.providerPaymentId.split(':')[1] }}</small> }</td><td>{{ p.status }}@if (p.failureReason) { ({{ p.failureReason }}) }</td><td class="amt">{{ fmt(p.amount, d.currency) }}</td></tr>
               }
             </tbody>
           </table>
@@ -130,12 +130,39 @@ const FILTERS: { key: InvoiceStatus | ''; label: string }[] = [
         }
         <ng-container actions>
           @if (canVoid() && (d.status === 'ISSUED' || d.status === 'OVERDUE' || d.status === 'PARTIALLY_PAID')) {
+            <button type="button" class="cf-btn cf-btn-primary" (click)="openPay()">Record payment</button>
             <button type="button" class="cf-btn cf-btn-secondary" (click)="openVoid()">Void invoice</button>
           }
           @if (canRefund() && refundable(d) > 0) {
             <button type="button" class="cf-btn cf-btn-secondary" (click)="openRefund()">Refund</button>
           }
           <button type="button" class="cf-btn cf-btn-primary" (click)="detail.set(null)">Close</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
+    @if (payOpen() && detail(); as d) {
+      <ci-dialog [heading]="'Record a payment for ' + d.number" [description]="'Money that reached you outside the checkout. The whole outstanding amount, ' + fmt(d.total, d.currency) + ', is recorded as paid, the service starts, and the customer is told.'" icon="check-circle" size="md" [dismissable]="false" (closed)="payOpen.set(false)">
+        <form id="pay-form" [formGroup]="payForm" (ngSubmit)="confirmPay(d)" novalidate>
+          @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+          <ci-field label="How it was paid" for="pm-method" [control]="payForm.controls.method" [required]="true">
+            <select id="pm-method" class="cf-input" formControlName="method" [attr.aria-describedby]="describedBy('pm-method', payForm.controls.method)">
+              @for (m of methods; track m.key) { <option [value]="m.key">{{ m.label }}</option> }
+            </select>
+          </ci-field>
+          <ci-field label="Reference" for="pm-ref" [control]="payForm.controls.reference" [required]="payForm.controls.method.value !== 'CASH' && payForm.controls.method.value !== 'OTHER'" errorLabel="the bank reference (UTR), UPI transaction id or cheque number" hint="The same reference cannot be recorded twice.">
+            <input id="pm-ref" class="cf-input" autocomplete="off" formControlName="reference" [attr.aria-describedby]="describedBy('pm-ref', payForm.controls.reference, true)" />
+          </ci-field>
+          <ci-field label="Date the money arrived" for="pm-date" [control]="payForm.controls.receivedOn" [required]="true" errorLabel="the date the money arrived">
+            <input id="pm-date" class="cf-input" type="date" formControlName="receivedOn" [attr.aria-describedby]="describedBy('pm-date', payForm.controls.receivedOn, true)" />
+          </ci-field>
+          <ci-field label="Note" for="pm-note" [control]="payForm.controls.note" [optional]="true" hint="For your team only.">
+            <input id="pm-note" class="cf-input" formControlName="note" [attr.aria-describedby]="describedBy('pm-note', payForm.controls.note, true)" />
+          </ci-field>
+        </form>
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="payOpen.set(false)">Cancel</button>
+          <button type="submit" form="pay-form" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Recording…' : 'Record payment' }}</button>
         </ng-container>
       </ci-dialog>
     }
@@ -191,6 +218,23 @@ export class AdminInvoicesPage extends AdminPage implements OnInit {
   protected readonly detail = signal<AdminInvoiceDetail | null>(null);
   protected readonly voidOpen = signal(false);
   protected readonly refundOpen = signal(false);
+  protected readonly payOpen = signal(false);
+  protected readonly methods = [
+    { key: 'BANK_TRANSFER', label: 'Bank transfer' },
+    { key: 'UPI', label: 'UPI' },
+    { key: 'CHEQUE', label: 'Cheque' },
+    { key: 'CASH', label: 'Cash' },
+    { key: 'OTHER', label: 'Other' },
+  ] as const;
+  protected readonly payForm = inject(NonNullableFormBuilder).group({
+    method: ['BANK_TRANSFER' as 'BANK_TRANSFER' | 'UPI' | 'CHEQUE' | 'CASH' | 'OTHER', [Validators.required]],
+    reference: [''],
+    receivedOn: ['', [Validators.required]],
+    note: [''],
+  });
+  /** One key per opening of the form, so a double click records one payment. */
+  private payKey = '';
+  protected methodLabel = (m: string) => this.methods.find((x) => x.key === m.toUpperCase())?.label ?? m;
   protected readonly canRefund = computed(() => this.auth.can('billing:refund'));
   protected readonly refundForm = inject(NonNullableFormBuilder).group({
     amount: ['', [Validators.pattern(/^\d+(\.\d{1,2})?$/)]],
@@ -250,6 +294,31 @@ export class AdminInvoicesPage extends AdminPage implements OnInit {
     const paid = d.payments.filter((p) => p.status === 'SUCCEEDED' || p.status === 'PARTIALLY_REFUNDED' || p.status === 'REFUNDED').reduce((t, p) => t + Number(p.amount), 0);
     const refunded = d.refunds.filter((r) => r.status !== 'FAILED').reduce((t, r) => t + Number(r.amount), 0);
     return Math.max(0, Math.round((paid - refunded) * 100) / 100);
+  }
+
+  protected openPay() {
+    this.error.set(null);
+    this.payKey = crypto.randomUUID();
+    this.payForm.reset({ method: 'BANK_TRANSFER', reference: '', receivedOn: new Date().toISOString().slice(0, 10), note: '' });
+    this.payOpen.set(true);
+  }
+
+  protected async confirmPay(d: AdminInvoiceDetail) {
+    this.payForm.markAllAsTouched();
+    const v = this.payForm.getRawValue();
+    const needsRef = v.method !== 'CASH' && v.method !== 'OTHER';
+    if (this.payForm.invalid || (needsRef && v.reference.trim().length < 3)) {
+      if (needsRef && v.reference.trim().length < 3) this.payForm.controls.reference.setErrors({ required: true });
+      return;
+    }
+    const ok = await this.run(async () => {
+      this.detail.set(await this.api.recordPayment(d.id, { method: v.method, reference: v.reference.trim() || undefined, receivedOn: v.receivedOn, note: v.note.trim() || undefined, idempotencyKey: this.payKey }));
+    });
+    if (ok) {
+      this.payOpen.set(false);
+      this.toast.set(`Payment recorded for ${d.number}. The invoice is paid and the customer has been told.`);
+      await this.load();
+    }
   }
 
   protected openRefund() {
