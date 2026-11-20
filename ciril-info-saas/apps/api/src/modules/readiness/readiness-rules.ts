@@ -65,14 +65,17 @@ export function evaluateReadiness(f: ReadinessFacts): Check[] {
     } else add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: `The hosting provider "${h}" is not available.` });
 
     const d = f.dns.provider;
-    if (d === 'mock') add({ key: 'dns', group: 'Connections', label: 'DNS records', status: 'todo', detail: 'Test mode: DNS changes are kept in memory and reach no real server. Choose cpanel to edit your WHM zones.' });
+    if (d === 'none') add({ key: 'dns', group: 'Connections', label: 'DNS records', status: 'info', detail: 'Switched off: customers are told DNS is not set up yet and asked to contact you. Choose cpanel once your WHM server is connected.' });
+    else if (d === 'mock') add({ key: 'dns', group: 'Connections', label: 'DNS records', status: 'todo', detail: 'Test mode: DNS changes are kept in memory and reach no real server. Choose cpanel to edit your WHM zones.' });
     else if (d === 'cpanel') add({ key: 'dns', group: 'Connections', label: 'DNS records', status: cpanelMissing.length ? 'todo' : 'ok', detail: cpanelMissing.length ? `DNS uses cPanel but ${list(cpanelMissing)} ${cpanelMissing.length === 1 ? 'is' : 'are'} not set.` : 'Customers edit the DNS zones on your WHM server.' });
     else add({ key: 'dns', group: 'Connections', label: 'DNS records', status: 'todo', detail: `The DNS provider "${d}" is not available.` });
   }
   add(
     f.registrar.provider === 'mock'
-      ? { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'info', detail: 'No registrar is connected. Customers can order, renew and transfer domains, but your team does each one by hand at your registrar.' }
-      : { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'ok', detail: `Connected: ${f.registrar.provider}.` },
+      ? { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'info', detail: 'Test mode: name searches give pretend answers, and your team does each registration, renewal and transfer by hand at your registrar.' }
+      : f.registrar.provider === 'rdap'
+        ? { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'info', detail: 'Names are checked against the public registry, so searches are real. No registrar is connected, so your team does each registration, renewal and transfer by hand at your registrar.' }
+        : { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'ok', detail: `Connected: ${f.registrar.provider}.` },
   );
   add(
     f.email.provider === 'mailpit'

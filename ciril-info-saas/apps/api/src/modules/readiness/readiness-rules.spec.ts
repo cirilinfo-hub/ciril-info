@@ -54,6 +54,7 @@ describe('hosting and DNS', () => {
     expect(get(c, 'hosting').status).toBe('todo');
     expect(get(c, 'dns').status).toBe('todo');
   });
+  it('treats switched-off DNS as information, since a launch can happen before a DNS server exists', () => expect(get(run({ dns: { provider: 'none' } }), 'dns')).toMatchObject({ status: 'info', detail: expect.stringContaining('Switched off') }));
   it('treats manual hosting as information, not a problem', () => expect(get(run({ hosting: { provider: 'manual' } }), 'hosting').status).toBe('info'));
   it('names what is missing from the cPanel settings', () => {
     const c = run({ cpanel: { hostSet: false, userSet: true, tokenSet: false, tls: 'verify' } });
@@ -64,7 +65,10 @@ describe('hosting and DNS', () => {
 });
 
 describe('registrar, email, storage, errors', () => {
-  it('does not call a missing registrar a problem, but says what it means', () => expect(get(run({ registrar: { provider: 'mock' } }), 'registrar')).toMatchObject({ status: 'info', detail: expect.stringContaining('by hand') }));
+  it('does not call a missing registrar a problem, but says what it means', () => {
+    expect(get(run({ registrar: { provider: 'mock' } }), 'registrar')).toMatchObject({ status: 'info', detail: expect.stringContaining('by hand') });
+    expect(get(run({ registrar: { provider: 'rdap' } }), 'registrar')).toMatchObject({ status: 'info', detail: expect.stringContaining('public registry') });
+  });
   it('flags the local test inbox', () => expect(get(run({ email: { provider: 'mailpit' } }), 'email')).toMatchObject({ status: 'todo', detail: expect.stringContaining('will not receive') }));
   it('flags an email provider that does not exist yet', () => expect(get(run({ email: { provider: 'ses' } }), 'email').status).toBe('todo'));
   it('reminds about backups for local storage', () => expect(get(run({ storage: { driver: 'local' } }), 'storage')).toMatchObject({ status: 'info', detail: expect.stringContaining('backed up') }));

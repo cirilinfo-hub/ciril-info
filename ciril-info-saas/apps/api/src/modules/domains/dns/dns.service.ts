@@ -9,10 +9,11 @@ import { CpanelDnsProvider } from './cpanel-dns.provider.js';
 import type { DnsProvider } from './dns-provider.js';
 import { type DnsRecord, type DnsRecordInput, checkRecord, isReadonly, recordId } from './dns-rules.js';
 import { MockDnsProvider } from './mock-dns.provider.js';
+import { NoDnsProvider } from './no-dns.provider.js';
 
 const ORDER = ['NS', 'A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'CAA'];
 
-/** Picks where zones live from DNS_PROVIDER: "mock" (in memory, test mode) or "cpanel" (WHM). */
+/** Picks where zones live from DNS_PROVIDER: "mock" (in memory, test mode), "cpanel" (WHM), or "none" (customer DNS editing is off). */
 @Injectable()
 export class DnsGateway {
   readonly provider: DnsProvider;
@@ -24,6 +25,8 @@ export class DnsGateway {
         host: config.get('CPANEL_HOST', { infer: true }), port: config.get('CPANEL_PORT', { infer: true }), user: config.get('CPANEL_USER', { infer: true }),
         token: config.get('CPANEL_API_TOKEN', { infer: true }), tls: config.get('CPANEL_TLS', { infer: true }),
       });
+    } else if (which === 'none') {
+      this.provider = new NoDnsProvider();
     } else {
       this.provider = new MockDnsProvider();
     }

@@ -1,6 +1,6 @@
 import type { DnsRecordInput } from './dns-rules.js';
 
-export type DnsProviderId = 'MOCK' | 'CPANEL';
+export type DnsProviderId = 'MOCK' | 'CPANEL' | 'NONE';
 
 /**
  * Where a domain's DNS zone lives. The zone itself is the source of truth: we read it, and change it one record at a time.

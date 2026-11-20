@@ -69,8 +69,8 @@ export const envSchema = z
     RAZORPAY_API_BASE: z.url().default('https://api.razorpay.com/v1'),
     /** manual: no panel is called; each task goes to staff, who do it by hand and mark it done. */
     HOSTING_PROVIDER: z.enum(['mock', 'manual', 'cpanel', 'plesk']).default('mock'),
-    /** Where DNS zones live. mock keeps them in memory (development only); cpanel edits the zones on the WHM server below. */
-    DNS_PROVIDER: z.enum(['mock', 'cpanel']).default('mock'),
+    /** Where DNS zones live. mock keeps them in memory (development only); cpanel edits the zones on the WHM server below; none switches customer DNS editing off. */
+    DNS_PROVIDER: z.enum(['mock', 'cpanel', 'none']).default('mock'),
     /** cPanel/WHM. The token goes in the server's .env only, never in chat, git or a screenshot. */
     CPANEL_HOST: z.string().trim().default(''),
     CPANEL_PORT: z.coerce.number().int().positive().default(2087),
