@@ -171,7 +171,7 @@ const FILTERS: { key: InvoiceStatus | ''; label: string }[] = [
     }
 
     @if (payOpen() && detail(); as d) {
-      <ci-dialog [heading]="'Record a payment for ' + d.number" [description]="'Money that reached you outside the checkout. The invoice total, ' + fmt(d.total, d.currency) + ', is settled: the amount received plus any TDS the customer deducted. The service starts and the customer is told.'" icon="check-circle" size="md" [dismissable]="false" (closed)="payOpen.set(false)">
+      <ci-dialog [heading]="'Record a payment for ' + d.number" [description]="'Money that reached you outside the checkout. ' + fmt(owed(d), d.currency) + ' is due. Leave the amount empty if the customer paid all of it; enter less for a part payment. The service starts once the invoice is paid in full.'" icon="check-circle" size="md" [dismissable]="false" (closed)="payOpen.set(false)">
         <form id="pay-form" [formGroup]="payForm" (ngSubmit)="confirmPay(d)" novalidate>
           @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
           <ci-field label="How it was paid" for="pm-method" [control]="payForm.controls.method" [required]="true">
@@ -185,6 +185,9 @@ const FILTERS: { key: InvoiceStatus | ''; label: string }[] = [
           <ci-field label="Date the money arrived" for="pm-date" [control]="payForm.controls.receivedOn" [required]="true" errorLabel="the date the money arrived">
             <input id="pm-date" class="cf-input" type="date" formControlName="receivedOn" [attr.aria-describedby]="describedBy('pm-date', payForm.controls.receivedOn, true)" />
           </ci-field>
+          <ci-field label="Amount received (₹)" for="pm-amt" [control]="payForm.controls.amount" [optional]="true" errorLabel="an amount in rupees, such as 2500" hint="Leave empty if everything due was paid.">
+            <input id="pm-amt" class="cf-input" inputmode="decimal" formControlName="amount" [attr.aria-describedby]="describedBy('pm-amt', payForm.controls.amount, true)" />
+          </ci-field>
           <ci-field label="Note" for="pm-note" [control]="payForm.controls.note" [optional]="true" hint="For your team only.">
             <input id="pm-note" class="cf-input" formControlName="note" [attr.aria-describedby]="describedBy('pm-note', payForm.controls.note, true)" />
           </ci-field>
@@ -196,7 +199,8 @@ const FILTERS: { key: InvoiceStatus | ''; label: string }[] = [
               <input id="pm-sec" class="cf-input" autocapitalize="characters" formControlName="tdsSection" [attr.aria-describedby]="describedBy('pm-sec', payForm.controls.tdsSection, true)" />
             </ci-field>
           </div>
-          @if (+payForm.controls.tdsAmount.value > 0) { <p class="cf-help" data-testid="received">Amount received: {{ fmt(received(d), d.currency) }}</p> }
+          @if (+payForm.controls.tdsAmount.value > 0 && !payForm.controls.amount.value) { <p class="cf-help" data-testid="received">Amount received: {{ fmt(received(d), d.currency) }}</p> }
+          @if (+payForm.controls.amount.value > 0 && leftAfter(d) > 0) { <p class="cf-help" data-testid="left-after">A part payment. {{ fmt(leftAfter(d), d.currency) }} will still be due.</p> }
         </form>
         <ng-container actions>
           <button type="button" class="cf-btn cf-btn-secondary" (click)="payOpen.set(false)">Cancel</button>
@@ -269,11 +273,14 @@ export class AdminInvoicesPage extends AdminPage implements OnInit {
     reference: [''],
     receivedOn: ['', [Validators.required]],
     note: [''],
+    amount: ['', [Validators.pattern(/^\d+(\.\d{1,2})?$/)]],
     tdsAmount: ['', [Validators.pattern(/^\d+(\.\d{1,2})?$/)]],
     tdsSection: ['', [Validators.pattern(/^$|^[0-9A-Za-z()-]{2,20}$/)]],
   });
   protected readonly certOpen = signal(false);
   protected readonly certForm = inject(NonNullableFormBuilder).group({ certificateNumber: ['', [Validators.required, Validators.minLength(3), Validators.maxLength(60)]] });
+  protected owed = (d: AdminInvoiceDetail) => Math.max(0, Math.round((Number(d.total) - Number(d.amountPaid)) * 100) / 100);
+  protected leftAfter = (d: AdminInvoiceDetail) => Math.round((this.owed(d) - (Number(this.payForm.controls.amount.value) || 0) - (Number(this.payForm.controls.tdsAmount.value) || 0)) * 100) / 100;
   protected received = (d: AdminInvoiceDetail) => Math.max(0, Math.round((Number(d.total) - Number(d.amountPaid) - (Number(this.payForm.controls.tdsAmount.value) || 0)) * 100) / 100);
   /** One key per opening of the form, so a double click records one payment. */
   private payKey = '';
@@ -342,7 +349,7 @@ export class AdminInvoicesPage extends AdminPage implements OnInit {
   protected openPay() {
     this.error.set(null);
     this.payKey = crypto.randomUUID();
-    this.payForm.reset({ method: 'BANK_TRANSFER', reference: '', receivedOn: new Date().toISOString().slice(0, 10), note: '', tdsAmount: '', tdsSection: '' });
+    this.payForm.reset({ method: 'BANK_TRANSFER', reference: '', receivedOn: new Date().toISOString().slice(0, 10), note: '', amount: '', tdsAmount: '', tdsSection: '' });
     this.payOpen.set(true);
   }
 
@@ -355,7 +362,7 @@ export class AdminInvoicesPage extends AdminPage implements OnInit {
       return;
     }
     const ok = await this.run(async () => {
-      this.detail.set(await this.api.recordPayment(d.id, { method: v.method, reference: v.reference.trim() || undefined, receivedOn: v.receivedOn, note: v.note.trim() || undefined, idempotencyKey: this.payKey, ...(v.tdsAmount ? { tdsAmount: Number(v.tdsAmount) } : {}), ...(v.tdsSection.trim() ? { tdsSection: v.tdsSection.trim().toUpperCase() } : {}) }));
+      this.detail.set(await this.api.recordPayment(d.id, { method: v.method, reference: v.reference.trim() || undefined, receivedOn: v.receivedOn, note: v.note.trim() || undefined, idempotencyKey: this.payKey, ...(v.amount ? { amount: Number(v.amount) } : {}), ...(v.tdsAmount ? { tdsAmount: Number(v.tdsAmount) } : {}), ...(v.tdsSection.trim() ? { tdsSection: v.tdsSection.trim().toUpperCase() } : {}) }));
     });
     if (ok) {
       this.payOpen.set(false);

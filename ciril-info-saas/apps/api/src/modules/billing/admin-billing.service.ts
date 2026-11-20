@@ -88,7 +88,13 @@ export class AdminBillingService {
         // TDS the customer kept back and paid to the government instead. What reached us is the rest.
         const tdsPaise = dto.tdsAmount ? Math.round(dto.tdsAmount * 100) : 0;
         if (tdsPaise >= outstanding) throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'The TDS must be less than the amount due.' });
-        const received = outstanding - tdsPaise;
+        const received = dto.amount === undefined ? outstanding - tdsPaise : Math.round(dto.amount * 100);
+        if (received + tdsPaise > outstanding) {
+          throw new BadRequestException({ code: 'VALIDATION_FAILED', message: `That is more than is due. ${(outstanding / 100).toFixed(2)} is outstanding on this invoice.` });
+        }
+        const completes = received + tdsPaise === outstanding;
+        // TDS is certified against the whole invoice, so it goes with the payment that completes it.
+        if (tdsPaise > 0 && !completes) throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Record TDS with the payment that completes the invoice: the amount received plus the TDS must equal what is due.' });
 
         const payment = await tx.payment.create({
           data: {
@@ -97,8 +103,24 @@ export class AdminBillingService {
           },
           select: { id: true },
         });
-        // No signed-in customer: the organisation's owners are the ones told.
-        await settleInvoicePayment(tx, { tenantId: inv.tenantId, invoiceId, paymentId: payment.id, actorUserId: null, now: new Date(), providerPaymentId, method: dto.method.toLowerCase(), via: 'manual' });
+        if (completes) {
+          // No signed-in customer: the organisation's owners are the ones told.
+          await settleInvoicePayment(tx, { tenantId: inv.tenantId, invoiceId, paymentId: payment.id, actorUserId: null, now: new Date(), providerPaymentId, method: dto.method.toLowerCase(), via: 'manual' });
+        } else {
+          // A part payment: counted, but the service waits until the invoice is paid in full.
+          const paidSoFar = toPaise(inv.amountPaid.toString()) + received;
+          await tx.payment.update({ where: { id: payment.id }, data: { status: 'SUCCEEDED' } });
+          await tx.invoice.update({ where: { id: invoiceId }, data: { amountPaid: (paidSoFar / 100).toFixed(2), status: 'PARTIALLY_PAID' } });
+          const owners = await tx.tenantMembership.findMany({ where: { tenantId: inv.tenantId, status: 'ACTIVE', role: { key: 'TENANT_OWNER' } }, select: { userId: true } });
+          if (owners.length) {
+            await tx.notification.createMany({
+              data: owners.map((o) => ({
+                userId: o.userId, tenantId: inv.tenantId, type: 'payment.partial', title: `Part payment received for ${inv.number}`,
+                body: `${inv.currency} ${(received / 100).toFixed(2)} received. ${inv.currency} ${((outstanding - received) / 100).toFixed(2)} is still due.`, link: `/invoices/${invoiceId}`,
+              })),
+            });
+          }
+        }
         // For a manual payment the verified time is when the money arrived, which is what reconciliation needs.
         await tx.payment.update({ where: { id: payment.id }, data: { verifiedAt: receivedOn } });
         if (tdsPaise > 0) {
@@ -106,7 +128,7 @@ export class AdminBillingService {
         }
         await this.audit.record({
           action: 'payment.manual_recorded', actorId: user.id, tenantId: inv.tenantId, entityType: 'invoice', entityId: invoiceId,
-          metadata: { number: inv.number, method: dto.method, reference, receivedOn: dto.receivedOn, note: dto.note ?? null, amount: (received / 100).toFixed(2), tds: tdsPaise ? (tdsPaise / 100).toFixed(2) : null, tdsSection: dto.tdsSection ?? null }, meta,
+          metadata: { number: inv.number, method: dto.method, reference, receivedOn: dto.receivedOn, note: dto.note ?? null, amount: (received / 100).toFixed(2), partial: !completes, tds: tdsPaise ? (tdsPaise / 100).toFixed(2) : null, tdsSection: dto.tdsSection ?? null }, meta,
         }, tx);
       });
     } catch (e) {
@@ -180,14 +202,27 @@ export class AdminBillingService {
       await tx.$queryRaw`SELECT id FROM invoices WHERE id = ${invoiceId}::uuid FOR UPDATE`;
       const inv = await tx.invoice.findUnique({ where: { id: invoiceId }, select: { id: true, tenantId: true, number: true, status: true, currency: true } });
       if (!inv) throw new NotFoundException({ code: 'INVOICE_NOT_FOUND', message: 'Invoice not found.' });
-      const payment = await tx.payment.findFirst({ where: { invoiceId, status: { in: ['SUCCEEDED', 'PARTIALLY_REFUNDED', 'REFUNDED'] } }, orderBy: { createdAt: 'desc' } });
-      if (!payment) throw new ConflictException({ code: 'NOTHING_TO_REFUND', message: 'This invoice has no payment to refund.' });
-      const used = await tx.refund.aggregate({ where: { paymentId: payment.id, status: { in: ['REQUESTED', 'APPROVED', 'PROCESSING', 'SUCCEEDED'] } }, _sum: { amount: true } });
-      const remaining = toPaise(payment.amount) - toPaise(used._sum.amount ?? 0);
-      if (remaining <= 0) throw new ConflictException({ code: 'ALREADY_REFUNDED', message: 'This payment has already been refunded in full.' });
+      // An invoice can have several payments (paid in parts). Each refund comes out of one payment, newest first, because a
+      // gateway refund is always against one payment; what is left on older payments is refunded next time.
+      const payments = await tx.payment.findMany({ where: { invoiceId, status: { in: ['SUCCEEDED', 'PARTIALLY_REFUNDED', 'REFUNDED'] } }, orderBy: { createdAt: 'desc' } });
+      if (!payments.length) throw new ConflictException({ code: 'NOTHING_TO_REFUND', message: 'This invoice has no payment to refund.' });
+      const withRemaining = await Promise.all(payments.map(async (p) => {
+        const used = await tx.refund.aggregate({ where: { paymentId: p.id, status: { in: ['REQUESTED', 'APPROVED', 'PROCESSING', 'SUCCEEDED'] } }, _sum: { amount: true } });
+        return { p, remaining: toPaise(p.amount) - toPaise(used._sum.amount ?? 0) };
+      }));
+      const next = withRemaining.find((x) => x.remaining > 0);
+      if (!next) throw new ConflictException({ code: 'ALREADY_REFUNDED', message: 'Every payment on this invoice has already been refunded in full.' });
+      const payment = next.p;
+      const remaining = next.remaining;
+      const refundableInAll = withRemaining.reduce((t, x) => t + Math.max(0, x.remaining), 0);
       const wanted = dto.amount === undefined ? remaining : toPaise(dto.amount);
       if (wanted > remaining) {
-        throw new ConflictException({ code: 'REFUND_TOO_LARGE', message: `At most ${(remaining / 100).toFixed(2)} can still be refunded on this payment.` });
+        throw new ConflictException({
+          code: 'REFUND_TOO_LARGE',
+          message: refundableInAll > remaining
+            ? `This invoice was paid in parts. At most ${(remaining / 100).toFixed(2)} can be refunded in one go, from the latest payment; refund again for the rest (${((refundableInAll - remaining) / 100).toFixed(2)} more).`
+            : `At most ${(remaining / 100).toFixed(2)} can still be refunded on this invoice.`,
+        });
       }
       const refund = await tx.refund.create({
         data: { tenantId: inv.tenantId, paymentId: payment.id, invoiceId, amount: (wanted / 100).toFixed(2), currency: inv.currency, reason: dto.reason, status: 'PROCESSING', requestedById: user.id, approvedById: user.id },
@@ -217,8 +252,12 @@ export class AdminBillingService {
       }
       await tx.refund.update({ where: { id: started.refundId }, data: { status: 'SUCCEEDED', providerRefundId: result.providerRefundId } });
       const refunded = await tx.refund.aggregate({ where: { paymentId: started.payment.id, status: 'SUCCEEDED' }, _sum: { amount: true } });
-      const fully = toPaise(refunded._sum.amount ?? 0) >= toPaise(started.payment.amount);
-      await tx.payment.update({ where: { id: started.payment.id }, data: { status: fully ? 'REFUNDED' : 'PARTIALLY_REFUNDED' } });
+      const paymentDone = toPaise(refunded._sum.amount ?? 0) >= toPaise(started.payment.amount);
+      await tx.payment.update({ where: { id: started.payment.id }, data: { status: paymentDone ? 'REFUNDED' : 'PARTIALLY_REFUNDED' } });
+      // The invoice is refunded when everything that reached us, across all its payments, has gone back.
+      const received = await tx.payment.aggregate({ where: { invoiceId, status: { in: ['SUCCEEDED', 'PARTIALLY_REFUNDED', 'REFUNDED'] } }, _sum: { amount: true } });
+      const refundedAll = await tx.refund.aggregate({ where: { invoiceId, status: 'SUCCEEDED' }, _sum: { amount: true } });
+      const fully = toPaise(refundedAll._sum.amount ?? 0) >= toPaise(received._sum.amount ?? 0);
       if (fully) await tx.invoice.update({ where: { id: invoiceId }, data: { status: 'REFUNDED' } });
 
       // A GST credit note for this refund: the taxable value and the tax inside it, split the way the invoice was.

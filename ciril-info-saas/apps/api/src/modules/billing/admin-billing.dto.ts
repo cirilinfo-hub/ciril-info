@@ -32,9 +32,15 @@ export class RefundDto {
 export const MANUAL_METHODS = ['BANK_TRANSFER', 'UPI', 'CHEQUE', 'CASH', 'OTHER'] as const;
 export type ManualMethod = (typeof MANUAL_METHODS)[number];
 
-/** Money that reached you outside the checkout: a bank transfer, a UPI payment, a cheque or cash. The whole outstanding amount is recorded. */
+/**
+ * Money that reached you outside the checkout: a bank transfer, a UPI payment, a cheque or cash. Without an amount, everything due
+ * is recorded (less any TDS). A smaller amount is a part payment: the invoice stays open for the rest.
+ */
 export class RecordPaymentDto {
   @ApiProperty({ enum: MANUAL_METHODS }) @IsIn(MANUAL_METHODS) method!: ManualMethod;
+
+  @ApiPropertyOptional({ description: 'Rupees received. Leave out when the customer paid everything due.' })
+  @IsOptional() @Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Enter the amount in rupees, up to two decimals.' }) @Min(0.01) @Max(10_000_000) amount?: number;
 
   @ApiPropertyOptional({ description: 'The bank reference (UTR), UPI transaction id or cheque number. Required except for cash and other.' })
   @IsOptional() @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value)) @IsString() @MaxLength(80) reference?: string;

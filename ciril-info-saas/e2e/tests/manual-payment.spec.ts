@@ -157,4 +157,49 @@ test.describe('Manual payments', () => {
     await page.reload();
     await expect(page.getByRole('region', { name: 'TDS' })).toContainText('We have received your TDS certificate');
   });
+
+  test('a part payment leaves the rest due, and the customer pays just the rest online', async ({ page, browser }, info) => {
+    test.skip(info.project.name !== 'desktop', 'runs once');
+    test.setTimeout(150_000);
+    const org = `PW Part Org ${Math.random().toString(36).slice(2, 8)}`;
+    const email = uniqueEmail('partpay');
+    await call('POST', 'auth/register', { firstName: 'Pia', lastName: 'Part', email, password: CUSTOMER_PASSWORD, organisationName: org, acceptTerms: true });
+    await call('POST', 'auth/verify-email', { token: new URL(await linkFromEmail(email, 'verify-email')).searchParams.get('token') });
+    const token = (await call('POST', 'auth/login', { email, password: CUSTOMER_PASSWORD, portal: 'customer' }))['accessToken'] as string;
+    await call('POST', 'organisation/addresses', { line1: '4 River Road', city: 'Pune', stateCode: '27', postalCode: '411001' }, token);
+    const order = await call('POST', 'orders', { planRef: 'pw-hosting/pw-starter', billingCycle: 'YEARLY' }, token);
+    const inv = order['invoice'] as { id: string; number: string; total: string };
+    const rest = (Number(inv.total) - 100).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const staffEmail = uniqueEmail('partadmin');
+    const { secret } = fixture('create-staff-ready', staffEmail, STAFF_PASSWORD, 'SUPER_ADMIN') as { secret: string };
+    const ctx = await browser.newContext();
+    const staff = await ctx.newPage();
+    await staffSignIn(staff, staffEmail, secret);
+    await staff.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Invoices' }).click();
+    await staff.getByRole('searchbox', { name: 'Search invoices' }).fill(org);
+    await staff.getByRole('row', { name: new RegExp(inv.number) }).getByRole('button', { name: 'View' }).click();
+    await staff.getByRole('dialog', { name: inv.number }).getByRole('button', { name: 'Record payment' }).click();
+    const pay = staff.getByRole('dialog', { name: `Record a payment for ${inv.number}` });
+    await pay.getByLabel('Reference').fill(`UTRPART${Math.random().toString(36).slice(2, 9).toUpperCase()}`);
+    await pay.getByLabel('Amount received (₹)').fill('100');
+    await expect(pay.getByTestId('left-after')).toContainText(rest);
+    await pay.getByRole('button', { name: 'Record payment' }).click();
+    await expect(staff.getByText(`Payment recorded for ${inv.number}.`)).toBeVisible();
+    // Still open: more can be recorded.
+    await expect(staff.getByRole('dialog', { name: inv.number }).getByRole('button', { name: 'Record payment' })).toBeVisible();
+    await ctx.close();
+
+    await page.goto('/portal/login');
+    await page.getByLabel('Email address').fill(email);
+    await page.getByLabel('Password').fill(CUSTOMER_PASSWORD);
+    await page.getByRole('button', { name: 'Sign In' }).click();
+    await expect(page.getByRole('heading', { name: 'Welcome, Pia' })).toBeVisible();
+    await page.goto(`/portal/invoices/${inv.id}`);
+    await expect(page.getByTestId('paid-so-far')).toContainText('100.00');
+    await expect(page.getByTestId('still-due')).toContainText(rest);
+    await page.getByRole('button', { name: new RegExp(`^Pay ₹${rest.replace(/[.,]/g, '\\$&')}`) }).click();
+    await expect(page.getByText('Payment received. Your service is being set up.')).toBeVisible();
+    await expect(page.getByTestId('still-due')).toHaveCount(0);
+  });
 });

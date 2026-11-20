@@ -88,6 +88,10 @@ import { openRazorpayCheckout } from './razorpay-checkout';
             }
             @if (+i.discountTotal > 0) { <tr><td colspan="2">Discount{{ i.billingSnapshot?.coupon ? ' (' + i.billingSnapshot?.coupon?.code + ')' : '' }}</td><td class="r">−{{ fmt(i.discountTotal, i.currency) }}</td></tr> }
             <tr class="total"><td colspan="2">Total</td><td class="r">{{ fmt(i.total, i.currency) }}</td></tr>
+            @if (i.status === 'PARTIALLY_PAID') {
+              <tr data-testid="paid-so-far"><td colspan="2">Paid so far</td><td class="r">{{ fmt(i.amountPaid, i.currency) }}</td></tr>
+              <tr class="total" data-testid="still-due"><td colspan="2">Still due</td><td class="r">{{ fmt(due(i), i.currency) }}</td></tr>
+            }
           </tbody>
         </table>
 
@@ -96,7 +100,7 @@ import { openRazorpayCheckout } from './razorpay-checkout';
           @else { <p class="ts-body-sm no-print" style="margin-top:var(--space-4)">You pay in Razorpay's secure window with UPI, card or net banking. Ciril Info never sees your card or bank details.</p> }
           @if (auth.can('billing:pay')) {
             <div class="pay no-print">
-              <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy()" (click)="pay()">{{ busy() ? 'Processing…' : (i.testMode ? 'Pay ' + fmt(i.total, i.currency) + ' (test)' : 'Pay ' + fmt(i.total, i.currency)) }}</button>
+              <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy()" (click)="pay()">{{ busy() ? 'Processing…' : (i.testMode ? 'Pay ' + fmt(due(i), i.currency) + ' (test)' : 'Pay ' + fmt(due(i), i.currency)) }}</button>
             </div>
           } @else {
             <p class="ts-body-sm">Your role cannot pay invoices. Ask an organisation owner.</p>
@@ -118,7 +122,7 @@ import { openRazorpayCheckout } from './razorpay-checkout';
         @if (i.status === 'ISSUED' || i.status === 'OVERDUE' || i.status === 'PARTIALLY_PAID') {
           <section class="cf-card card" aria-labelledby="bank-h">
             <h2 id="bank-h" class="ts-heading-5">Pay by bank transfer or UPI</h2>
-            <p class="cf-help">Prefer not to pay online? Transfer the amount below and quote <strong>{{ i.number }}</strong> as the reference. We mark the invoice paid when the money reaches us, usually within a working day.</p>
+            <p class="cf-help">Prefer not to pay online? Transfer {{ fmt(due(i), i.currency) }} and quote <strong>{{ i.number }}</strong> as the reference. We mark the invoice paid when the money reaches us, usually within a working day.</p>
             <dl class="bank">
               @if (bk.accountName) { <div><dt>Account name</dt><dd>{{ bk.accountName }}</dd></div> }
               @if (bk.bankName) { <div><dt>Bank</dt><dd>{{ bk.bankName }}</dd></div> }
@@ -201,6 +205,11 @@ export class InvoiceDetailPage implements OnInit {
       }
     }
     this.notice.set('Your payment is still being confirmed. You do not need to pay again: this invoice will show as paid as soon as your bank confirms.');
+  }
+
+  /** What is left to pay: an invoice can be paid in parts (for example a bank transfer recorded by our team). */
+  protected due(i: InvoiceDetail) {
+    return (Math.max(0, Math.round((Number(i.total) - Number(i.amountPaid)) * 100)) / 100).toFixed(2);
   }
 
   protected payable(i: InvoiceDetail) {

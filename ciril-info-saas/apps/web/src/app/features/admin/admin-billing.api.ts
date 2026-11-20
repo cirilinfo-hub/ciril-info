@@ -114,7 +114,7 @@ export class AdminBillingApi {
   recordTdsCertificate(invoiceId: string, certificateNumber: string) {
     return firstValueFrom(this.http.post<AdminInvoiceDetail>(`${this.base}/invoices/${invoiceId}/tds-certificate`, { certificateNumber }));
   }
-  recordPayment(id: string, body: { method: 'BANK_TRANSFER' | 'UPI' | 'CHEQUE' | 'CASH' | 'OTHER'; reference?: string; receivedOn: string; note?: string; idempotencyKey: string; tdsAmount?: number; tdsSection?: string }) {
+  recordPayment(id: string, body: { method: 'BANK_TRANSFER' | 'UPI' | 'CHEQUE' | 'CASH' | 'OTHER'; reference?: string; receivedOn: string; note?: string; idempotencyKey: string; amount?: number; tdsAmount?: number; tdsSection?: string }) {
     return firstValueFrom(this.http.post<AdminInvoiceDetail>(`${this.base}/invoices/${id}/payments`, body));
   }
   refundInvoice(id: string, body: { amount?: number; reason: string; cancelService?: boolean }) {
