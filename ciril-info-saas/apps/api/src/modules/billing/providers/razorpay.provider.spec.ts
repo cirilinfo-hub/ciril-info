@@ -70,3 +70,23 @@ describe('Razorpay webhook parsing', () => {
     expect(JSON.stringify(params)).not.toContain(cfg.webhookSecret);
   });
 });
+
+describe('Razorpay chargeback webhooks', () => {
+  const event = (name: string, dispute: object, payment: object = { id: 'pay_9', amount: 118000, currency: 'INR' }) => {
+    const raw = Buffer.from(JSON.stringify({ entity: 'event', event: name, payload: { payment: { entity: payment }, dispute: { entity: dispute } } }));
+    return rzp.parseWebhook(raw, { 'x-razorpay-signature': hmac(cfg.webhookSecret, raw), 'x-razorpay-event-id': `evt_${name}` });
+  };
+
+  it('turns a new dispute into the facts we keep, with the deadline', () => {
+    expect(event('payment.dispute.created', { id: 'disp_1', payment_id: 'pay_9', amount: 118000, amount_deducted: 0, currency: 'INR', status: 'open', phase: 'chargeback', reason_code: 'fraud', reason_description: 'Customer says they did not pay', respond_by: 1_800_000_000 })).toMatchObject({
+      type: 'dispute.updated', providerPaymentId: 'pay_9',
+      dispute: { id: 'disp_1', providerPaymentId: 'pay_9', amountPaise: 118000, amountDeductedPaise: 0, currency: 'INR', status: 'OPEN', phase: 'chargeback', reasonCode: 'fraud', reason: 'Customer says they did not pay', respondBy: new Date(1_800_000_000_000) },
+    });
+  });
+
+  it('reports the outcome, falling back to the event name when the status is missing', () => {
+    expect(event('payment.dispute.lost', { id: 'disp_1', payment_id: 'pay_9', status: 'lost', amount_deducted: 118000 })?.dispute).toMatchObject({ status: 'LOST', amountDeductedPaise: 118000 });
+    expect(event('payment.dispute.won', { id: 'disp_1', payment_id: 'pay_9' })?.dispute?.status).toBe('WON');
+    expect(event('payment.dispute.under_review', { id: 'disp_1', payment_id: 'pay_9' })?.dispute?.status).toBe('UNDER_REVIEW');
+  });
+});

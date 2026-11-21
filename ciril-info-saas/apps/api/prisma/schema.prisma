@@ -211,6 +211,14 @@ enum PaymentProvider {
   MOCK
 }
 
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  WON
+  LOST
+  CLOSED
+}
+
 enum SavedCardStatus {
   /// Saved at the provider, waiting for the card's bank to confirm the standing instruction.
   PENDING
@@ -334,6 +342,7 @@ model Tenant {
   domainRenewals      DomainRenewal[]
   domainTransferOuts  DomainTransferOut[]
   savedCards          SavedCard[]
+  paymentDisputes     PaymentDispute[]
   tdsDeductions       TdsDeduction[]
   dnsRecords          DnsRecord[]
   domainTransfers     DomainTransfer[]
@@ -1146,6 +1155,7 @@ model Invoice {
   payments     Payment[]
   refunds      Refund[]
   creditNotes  CreditNote[]
+  disputes     PaymentDispute[]
 
   @@unique([number])
   @@index([tenantId, status])
@@ -1206,6 +1216,7 @@ model Payment {
   invoice Invoice  @relation(fields: [invoiceId], references: [id])
   savedCard SavedCard? @relation(fields: [savedCardId], references: [id], onDelete: SetNull)
   refunds Refund[]
+  disputes PaymentDispute[]
 
   @@unique([idempotencyKey])
   @@unique([provider, providerPaymentId])
@@ -1302,6 +1313,40 @@ model SavedCard {
   @@unique([provider, providerTokenId], map: "saved_cards_provider_token_key")
   @@index([tenantId])
   @@map("saved_cards")
+}
+
+/// A chargeback (dispute) a customer's bank raised against a payment, as the provider reports it. Staff answer it in the
+/// provider's dashboard; this keeps the deadline and the outcome. Staff only: customers do not see it.
+model PaymentDispute {
+  id                String          @id @default(uuid()) @db.Uuid
+  tenantId          String          @map("tenant_id") @db.Uuid
+  paymentId         String          @map("payment_id") @db.Uuid
+  invoiceId         String          @map("invoice_id") @db.Uuid
+  provider          PaymentProvider
+  providerDisputeId String          @map("provider_dispute_id") @db.VarChar(120)
+  amount            Decimal         @db.Decimal(14, 2)
+  currency          String          @default("INR") @db.Char(3)
+  /// What the provider has taken back from your balance for it.
+  amountDeducted    Decimal         @default(0) @map("amount_deducted") @db.Decimal(14, 2)
+  reasonCode        String?         @map("reason_code") @db.VarChar(60)
+  reason            String?         @db.VarChar(255)
+  /// chargeback, pre_arbitration, arbitration, retrieval or fraud, in the provider's words.
+  phase             String?         @db.VarChar(40)
+  status            DisputeStatus   @default(OPEN)
+  respondBy         DateTime?       @map("respond_by") @db.Timestamptz(3)
+  openedAt          DateTime        @default(now()) @map("opened_at") @db.Timestamptz(3)
+  resolvedAt        DateTime?       @map("resolved_at") @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerDisputeId], map: "payment_disputes_provider_dispute_key")
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@index([status])
+  @@map("payment_disputes")
 }
 
 model PaymentWebhook {

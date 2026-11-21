@@ -53,6 +53,13 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
             <strong>{{ b.activeSubscriptions }}</strong>
             <span class="hx-stat-hint">{{ b.pendingSubscriptions }} awaiting payment</span>
           </a>
+          @if (b.openDisputes) {
+            <a class="hx-stat is-link" [routerLink]="auth.link('/chargebacks')" data-testid="open-chargebacks">
+              <div class="hx-stat-top"><span class="hx-stat-label">Open chargebacks</span><span class="hx-stat-ic"><ci-icon name="shield" /></span></div>
+              <strong>{{ b.openDisputes }}</strong>
+              <span class="hx-stat-hint">Answer them in the payment provider's dashboard</span>
+            </a>
+          }
         }
         @if (d.tickets; as t) {
           <a class="hx-stat is-link" [routerLink]="auth.link('/support')">

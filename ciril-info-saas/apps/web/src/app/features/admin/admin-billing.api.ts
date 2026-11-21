@@ -30,6 +30,24 @@ export interface AdminInvoiceDetail extends AdminInvoiceRow {
   payments: { id: string; provider: string; status: string; amount: string; method: string | null; failureReason: string | null; providerPaymentId: string | null; createdAt: string }[];
   refunds: { id: string; amount: string; status: string; reason: string; createdAt: string; creditNote: { id: string; number: string } | null }[];
   tdsDeduction: { id: string; amount: string; section: string | null; certificateNumber: string | null; certificateAt: string | null; createdAt: string } | null;
+  disputes?: { id: string; providerDisputeId: string; amount: string; amountDeducted: string; status: DisputeRow['status']; phase: string | null; reason: string | null; respondBy: string | null; openedAt: string }[];
+}
+
+export interface DisputeRow {
+  id: string;
+  providerDisputeId: string;
+  amount: string;
+  amountDeducted: string;
+  currency: string;
+  status: 'OPEN' | 'UNDER_REVIEW' | 'WON' | 'LOST' | 'CLOSED';
+  phase: string | null;
+  reasonCode: string | null;
+  reason: string | null;
+  respondBy: string | null;
+  openedAt: string;
+  resolvedAt: string | null;
+  tenant: { id: string; name: string };
+  invoice: { id: string; number: string };
 }
 
 export interface TdsRow {
@@ -63,6 +81,7 @@ export interface BillingSummary {
   activeSubscriptions: number;
   pendingSubscriptions: number;
   includesTestPayments: boolean;
+  openDisputes?: number;
 }
 
 export interface AdminCoupon {
@@ -114,6 +133,9 @@ export class AdminBillingApi {
   }
   tdsList(page: number, pending: boolean, search: string) {
     return firstValueFrom(this.http.get<Paged<TdsRow>>(`${this.base}/tds`, { params: { page, pageSize: 20, ...(pending ? { pending: 'true' } : {}), ...(search ? { search } : {}) } }));
+  }
+  disputes(page: number, open: boolean, search: string) {
+    return firstValueFrom(this.http.get<Paged<DisputeRow>>(`${this.base}/disputes`, { params: { page, pageSize: 20, ...(open ? { open: 'true' } : {}), ...(search ? { search } : {}) } }));
   }
   recordTdsCertificate(invoiceId: string, certificateNumber: string) {
     return firstValueFrom(this.http.post<AdminInvoiceDetail>(`${this.base}/invoices/${invoiceId}/tds-certificate`, { certificateNumber }));

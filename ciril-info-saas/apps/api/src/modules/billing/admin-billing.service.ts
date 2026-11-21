@@ -51,6 +51,7 @@ export class AdminBillingService {
         payments: { orderBy: { createdAt: 'desc' }, select: { id: true, provider: true, status: true, amount: true, method: true, failureReason: true, providerPaymentId: true, createdAt: true } },
         refunds: { orderBy: { createdAt: 'desc' }, select: { id: true, amount: true, status: true, reason: true, createdAt: true, creditNote: { select: { id: true, number: true } } } },
         tdsDeduction: { select: { id: true, amount: true, section: true, certificateNumber: true, certificateAt: true, createdAt: true } },
+        disputes: { orderBy: { openedAt: 'desc' }, select: { id: true, providerDisputeId: true, amount: true, amountDeducted: true, status: true, phase: true, reason: true, respondBy: true, openedAt: true } },
       },
     });
     if (!inv) throw new NotFoundException({ code: 'INVOICE_NOT_FOUND', message: 'Invoice not found.' });
@@ -337,13 +338,14 @@ export class AdminBillingService {
   /** Headline billing figures for the dashboard. Money is summed from real invoices; test-mode payments are flagged, not hidden. */
   async summary() {
     const since = new Date(Date.now() - 30 * DAY);
-    const [paid, outstanding, unpaidCount, activeSubs, pendingSubs, mock] = await Promise.all([
+    const [paid, outstanding, unpaidCount, activeSubs, pendingSubs, mock, openDisputes] = await Promise.all([
       this.db.invoice.aggregate({ where: { status: 'PAID', paidAt: { gte: since } }, _sum: { total: true }, _count: true }),
       this.db.invoice.aggregate({ where: { status: { in: UNPAID } }, _sum: { total: true } }),
       this.db.invoice.count({ where: { status: { in: UNPAID } } }),
       this.db.subscription.count({ where: { status: 'ACTIVE' } }),
       this.db.subscription.count({ where: { status: 'PENDING' } }),
       this.db.payment.count({ where: { provider: 'MOCK', status: 'SUCCEEDED' } }),
+      this.db.paymentDispute.count({ where: { status: { in: ['OPEN', 'UNDER_REVIEW'] } } }),
     ]);
     return {
       paidLast30Days: { count: paid._count, total: money(paid._sum.total) },
@@ -352,6 +354,8 @@ export class AdminBillingService {
       pendingSubscriptions: pendingSubs,
       /** True when any recorded payment came from the test-mode mock, so the totals may not be real money. */
       includesTestPayments: mock > 0,
+      /** Chargebacks still open or under review. */
+      openDisputes,
     };
   }
 }

@@ -112,7 +112,7 @@ export interface WebhookEvent {
   eventId: string;
   /** The provider's own name for it, kept for the audit trail. */
   rawType: string;
-  type: 'payment.succeeded' | 'payment.failed' | 'token.updated' | 'ignored';
+  type: 'payment.succeeded' | 'payment.failed' | 'token.updated' | 'dispute.updated' | 'ignored';
   providerOrderId: string | null;
   providerPaymentId: string | null;
   amountPaise: number | null;
@@ -122,6 +122,22 @@ export interface WebhookEvent {
   /** token.updated only: the saved card and what happened to it. */
   tokenId?: string | null;
   tokenState?: SavedCardInfo['state'];
+  /** dispute.updated only: the chargeback as the provider describes it now. */
+  dispute?: ProviderDispute;
+}
+
+/** A chargeback, reduced to what we keep. Amounts in paise. */
+export interface ProviderDispute {
+  id: string;
+  providerPaymentId: string;
+  amountPaise: number;
+  amountDeductedPaise: number;
+  currency: string;
+  status: 'OPEN' | 'UNDER_REVIEW' | 'WON' | 'LOST' | 'CLOSED';
+  phase: string | null;
+  reasonCode: string | null;
+  reason: string | null;
+  respondBy: Date | null;
 }
 
 export interface RefundRequest {

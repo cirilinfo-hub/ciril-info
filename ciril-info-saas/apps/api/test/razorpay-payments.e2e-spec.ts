@@ -165,7 +165,7 @@ describe('Razorpay payments (e2e)', () => {
     await db.invoice.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.subscription.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.paymentWebhook.deleteMany({ where: { eventId: { startsWith: 'evt_' }, provider: 'RAZORPAY' } });
-    await db.notification.deleteMany({ where: { type: { in: ['payment.orphaned', 'payment.mismatch'] } } });
+    await db.notification.deleteMany({ where: { type: { in: ['payment.orphaned', 'payment.mismatch', 'payment.dispute'] } } });
     await db.outboxEvent.deleteMany({ where: { tenantId: { in: tenantIds }, type: { in: ['subscription.activated', 'subscription.cancelled', 'email.send'] } } });
     await db.pricingVersion.deleteMany({ where: { planId } });
     await db.plan.deleteMany({ where: { id: planId } });
@@ -422,6 +422,80 @@ describe('Razorpay payments (e2e)', () => {
       expect(await db.creditNote.count({ where: { invoiceId: o.invoiceId } })).toBe(0);
       // Nothing is stuck: a later refund (the provider is fine now) works.
       await http().post(api(`admin/invoices/${o.invoiceId}/refunds`)).set(auth(finance)).send({ reason: 'Customer left' }).expect(200);
+    });
+  });
+
+  describe('chargebacks', () => {
+    /** A paid invoice, and Razorpay's id for its payment. */
+    async function paidInvoice() {
+      const o = await order();
+      const c = await startCheckout(o.invoiceId);
+      const conf = paidAtProvider(c.checkout.orderId, o.paise);
+      await confirm(o.invoiceId, conf).expect(200);
+      return { ...o, paymentId: conf.providerPaymentId };
+    }
+    function disputeEvent(event: string, dispute: Record<string, unknown>, eventId = `evt_${randomUUID().slice(0, 8)}`) {
+      const raw = JSON.stringify({ entity: 'event', event, payload: { payment: { entity: { id: dispute['payment_id'], amount: dispute['amount'], currency: 'INR' } }, dispute: { entity: dispute } }, created_at: 1 });
+      return http().post('/api/v1/webhooks/razorpay').set('content-type', 'application/json').set('x-razorpay-signature', hmac(WEBHOOK_SECRET, raw)).set('x-razorpay-event-id', eventId).send(raw);
+    }
+    const respondBy = Math.floor(Date.now() / 1000) + 7 * 86_400;
+
+    it('a new chargeback is recorded with its deadline, billing staff are told, and it shows in the admin portal', async () => {
+      const o = await paidInvoice();
+      const id = `disp_${randomUUID().slice(0, 8)}`;
+      await disputeEvent('payment.dispute.created', { id, payment_id: o.paymentId, amount: o.paise, amount_deducted: 0, currency: 'INR', status: 'open', phase: 'chargeback', reason_code: 'fraud', reason_description: 'Customer does not recognise the payment', respond_by: respondBy }).expect(200);
+
+      const row = await db.paymentDispute.findFirstOrThrow({ where: { providerDisputeId: id } });
+      expect(row).toMatchObject({ status: 'OPEN', invoiceId: o.invoiceId, tenantId: alice.tenantId, phase: 'chargeback', reasonCode: 'fraud' });
+      expect(row.respondBy!.getTime()).toBe(respondBy * 1000);
+      expect(Math.round(Number(row.amount) * 100)).toBe(o.paise);
+      expect(await db.notification.count({ where: { userId: financeId, type: 'payment.dispute', title: 'New chargeback', body: { contains: o.number } } })).toBe(1);
+
+      const list = await http().get(api('admin/disputes?open=true')).set(auth(finance)).expect(200);
+      expect(list.body.data.find((d: { providerDisputeId: string }) => d.providerDisputeId === id)).toMatchObject({ status: 'OPEN', invoice: { number: o.number }, reason: 'Customer does not recognise the payment' });
+      expect((await http().get(api(`admin/invoices/${o.invoiceId}`)).set(auth(finance)).expect(200)).body.disputes[0]).toMatchObject({ providerDisputeId: id, status: 'OPEN' });
+      expect((await http().get(api('admin/billing/summary')).set(auth(finance)).expect(200)).body.openDisputes).toBeGreaterThanOrEqual(1);
+      // Customers never see chargebacks.
+      await http().get(api('admin/disputes')).set(auth(alice.token)).expect(403);
+    });
+
+    it('a repeated delivery changes nothing, and the outcome is recorded once decided', async () => {
+      const o = await paidInvoice();
+      const id = `disp_${randomUUID().slice(0, 8)}`;
+      const base = { id, payment_id: o.paymentId, amount: o.paise, currency: 'INR', phase: 'chargeback', respond_by: respondBy };
+      await disputeEvent('payment.dispute.created', { ...base, status: 'open' }).expect(200);
+      await disputeEvent('payment.dispute.created', { ...base, status: 'open' }).expect(200); // a different delivery of the same news
+      expect(await db.paymentDispute.count({ where: { providerDisputeId: id } })).toBe(1);
+      expect(await db.notification.count({ where: { userId: financeId, type: 'payment.dispute', body: { contains: o.number } } })).toBe(1);
+
+      await disputeEvent('payment.dispute.won', { ...base, status: 'won' }).expect(200);
+      const won = await db.paymentDispute.findFirstOrThrow({ where: { providerDisputeId: id } });
+      expect(won.status).toBe('WON');
+      expect(won.resolvedAt).not.toBeNull();
+      // An old "open" event arriving late does not undo the decision.
+      await disputeEvent('payment.dispute.created', { ...base, status: 'open' }).expect(200);
+      expect((await db.paymentDispute.findFirstOrThrow({ where: { providerDisputeId: id } })).status).toBe('WON');
+      // But a move to a new phase (pre-arbitration) reopens it.
+      await disputeEvent('payment.dispute.action_required', { ...base, status: 'open', phase: 'pre_arbitration' }).expect(200);
+      expect(await db.paymentDispute.findFirstOrThrow({ where: { providerDisputeId: id } })).toMatchObject({ status: 'OPEN', phase: 'pre_arbitration', resolvedAt: null });
+    });
+
+    it('a lost chargeback is recorded with what was taken back; the invoice and service are left for staff to decide', async () => {
+      const o = await paidInvoice();
+      const id = `disp_${randomUUID().slice(0, 8)}`;
+      await disputeEvent('payment.dispute.lost', { id, payment_id: o.paymentId, amount: o.paise, amount_deducted: o.paise, currency: 'INR', status: 'lost', phase: 'chargeback' }).expect(200);
+      const row = await db.paymentDispute.findFirstOrThrow({ where: { providerDisputeId: id } });
+      expect(row.status).toBe('LOST');
+      expect(Math.round(Number(row.amountDeducted) * 100)).toBe(o.paise);
+      expect(await db.notification.count({ where: { userId: financeId, type: 'payment.dispute', title: 'Chargeback lost', body: { contains: o.number } } })).toBe(1);
+      expect(await state(o.invoiceId, o.subscriptionId)).toMatchObject({ invoice: 'PAID', subscription: 'ACTIVE' });
+      expect(await db.auditLog.count({ where: { action: 'dispute.lost', entityId: o.invoiceId } })).toBe(1);
+    });
+
+    it('a dispute for a payment we do not know is acknowledged and noted', async () => {
+      const r = await disputeEvent('payment.dispute.created', { id: `disp_${randomUUID().slice(0, 8)}`, payment_id: 'pay_not_ours', amount: 100, currency: 'INR', status: 'open' }, `evt_stray_${tag}`).expect(200);
+      expect(r.body.received).toBe(true);
+      expect((await db.paymentWebhook.findFirstOrThrow({ where: { provider: 'RAZORPAY', eventId: `evt_stray_${tag}` } })).error).toContain('no payment');
     });
   });
 

@@ -131,6 +131,12 @@ const FILTERS: { key: InvoiceStatus | ''; label: string }[] = [
             </tbody>
           </table>
           @if (d.testMode) { <div class="cf-alert cf-alert-info"><ci-icon name="info" /><span>Test-mode payment: no real money was taken.</span></div> }
+          @for (x of d.disputes ?? []; track x.id) {
+            <div class="cf-alert" [class.cf-alert-error]="x.status === 'OPEN' || x.status === 'UNDER_REVIEW'" [class.cf-alert-info]="x.status !== 'OPEN' && x.status !== 'UNDER_REVIEW'" data-testid="dispute">
+              <ci-icon name="shield" />
+              <span>Chargeback {{ x.providerDisputeId }}: {{ fmt(x.amount, d.currency) }}, {{ x.status === 'UNDER_REVIEW' ? 'under review' : x.status.toLowerCase() }}@if (x.reason) { ({{ x.reason }}) }.@if (x.respondBy && (x.status === 'OPEN' || x.status === 'UNDER_REVIEW')) { Respond by {{ x.respondBy | date: 'd MMM y' }} in the payment provider's dashboard. }</span>
+            </div>
+          }
           @if (d.tdsDeduction; as t) {
             <div class="tds" data-testid="tds">
               <p><strong>TDS deducted by the customer: {{ fmt(t.amount, d.currency) }}</strong>@if (t.section) { (section {{ t.section }}) }. It counts towards this invoice, but it was paid to the government, not to you, so it cannot be refunded here.</p>

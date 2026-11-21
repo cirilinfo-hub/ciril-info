@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { BadGatewayException, HttpException } from '@nestjs/common';
 import type {
-  CardChargeRequest, CardChargeResult, CardHolder, CheckoutConfirmation, OrderRequest, OrderResult, PaymentProvider, ProviderPayment, RefundRequest, RefundResult,
+  CardChargeRequest, CardChargeResult, CardHolder, CheckoutConfirmation, OrderRequest, OrderResult, PaymentProvider, ProviderDispute, ProviderPayment, RefundRequest, RefundResult,
   SaveCardTerms, SavedCardInfo, WebhookEvent,
 } from './payment-provider.js';
 
@@ -47,6 +47,21 @@ interface RzpToken {
   recurring_details?: { status?: string | null; failure_reason?: string | null } | null;
   expired_at?: number | null;
 }
+
+interface RzpDispute {
+  id: string;
+  payment_id?: string;
+  amount?: number;
+  amount_deducted?: number;
+  currency?: string;
+  status?: string;
+  phase?: string | null;
+  reason_code?: string | null;
+  reason_description?: string | null;
+  respond_by?: number | null;
+}
+
+const DISPUTE_STATUS: Record<string, ProviderDispute['status']> = { open: 'OPEN', under_review: 'UNDER_REVIEW', won: 'WON', lost: 'LOST', closed: 'CLOSED' };
 
 const num = (v: number | string | null | undefined) => (v === null || v === undefined || v === '' ? null : Number(v));
 
@@ -187,7 +202,7 @@ export class RazorpayProvider implements PaymentProvider {
     const expected = createHmac('sha256', this.cfg.webhookSecret).update(rawBody).digest('hex');
     if (!safeEqualHex(expected, sig)) return null;
 
-    let body: { event?: string; payload?: { payment?: { entity?: RzpPayment }; token?: { entity?: RzpToken } } };
+    let body: { event?: string; payload?: { payment?: { entity?: RzpPayment }; token?: { entity?: RzpToken }; dispute?: { entity?: RzpDispute } } };
     try {
       body = JSON.parse(rawBody.toString('utf8'));
     } catch {
@@ -199,6 +214,20 @@ export class RazorpayProvider implements PaymentProvider {
     // payment.captured is the money arriving. order.paid also carries the payment, so either settles it.
     if ((rawType === 'payment.captured' || rawType === 'order.paid') && p?.id) return { ...base, type: 'payment.succeeded' };
     if (rawType === 'payment.failed' && p?.id) return { ...base, type: 'payment.failed' };
+    // A chargeback was raised, moved on, or decided (payment.dispute.created / under_review / action_required / won / lost / closed).
+    const d = body.payload?.dispute?.entity;
+    if (rawType.startsWith('payment.dispute.') && d?.id) {
+      const paymentId = d.payment_id ?? p?.id;
+      if (!paymentId) return { ...base, type: 'ignored' };
+      const status = DISPUTE_STATUS[d.status ?? ''] ?? (rawType.endsWith('.won') ? 'WON' : rawType.endsWith('.lost') ? 'LOST' : rawType.endsWith('.closed') ? 'CLOSED' : rawType.endsWith('.under_review') ? 'UNDER_REVIEW' : 'OPEN');
+      return {
+        ...base, type: 'dispute.updated', providerPaymentId: paymentId,
+        dispute: {
+          id: d.id, providerPaymentId: paymentId, amountPaise: d.amount ?? p?.amount ?? 0, amountDeductedPaise: d.amount_deducted ?? 0, currency: d.currency ?? p?.currency ?? 'INR', status,
+          phase: d.phase ?? null, reasonCode: d.reason_code ?? null, reason: d.reason_description ?? null, respondBy: d.respond_by ? new Date(d.respond_by * 1000) : null,
+        },
+      };
+    }
     // A saved card's standing instruction was confirmed, rejected, paused or cancelled.
     const t = body.payload?.token?.entity;
     if (rawType.startsWith('token.') && t?.id) {

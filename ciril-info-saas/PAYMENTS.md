@@ -31,7 +31,9 @@ Things that need a person are flagged to staff with billing access (bell in the 
 4. **Settings → Webhooks → Add new webhook**
    - URL: `https://<your API address>/api/v1/webhooks/razorpay` (for example `https://api.cirilinfo.com/api/v1/webhooks/razorpay`)
    - Secret: invent a long random one. This is `RAZORPAY_WEBHOOK_SECRET`.
-   - Events: **payment.captured**, **payment.failed**, **order.paid**.
+   - Events: **payment.captured**, **payment.failed**, **order.paid**, and for chargebacks **payment.dispute.created**,
+     **payment.dispute.under_review**, **payment.dispute.action_required**, **payment.dispute.won**, **payment.dispute.lost**,
+     **payment.dispute.closed**.
 5. Put the values in the **server's `.env` file only**:
 
    ```
@@ -85,6 +87,18 @@ In test mode, saved cards always work and the card is a pretend Visa ending 4242
 
 Tested against a pretend Razorpay only, like the rest of the Razorpay adapter.
 
+## Chargebacks
+
+When a customer's bank disputes a payment, Razorpay's webhook tells us. The chargeback is recorded against the invoice,
+billing staff get a notice with the amount, the reason and the date to respond by, and it shows under **Admin >
+Chargebacks**, on the dashboard while any are open, and on the invoice. Answer it with your evidence (the invoice, proof
+of the service) in Razorpay's dashboard before the deadline. When it is decided, staff are told whether it was won or
+lost and what Razorpay took back.
+
+A lost chargeback does **not** change the invoice or stop the service by itself: whether to suspend the service, ask the
+customer to pay again, or issue a credit note is a business decision. Ask your accountant how a lost chargeback should
+appear in your books.
+
 ## Refunds
 
 Staff with refund permission refund from the invoice. With Razorpay this calls Razorpay's refund API; Razorpay returns the money to the customer's original payment method on its own schedule. A refused refund (for example, insufficient balance) shows Razorpay's reason and records nothing. Every successful refund also issues a GST credit note.
@@ -100,4 +114,4 @@ Staff with refund permission refund from the invoice. With Razorpay this calls R
 
 - Stripe.
 - Saving a card without paying an invoice (a card is saved while paying one).
-- Disputes and chargebacks handling (they arrive as events we currently record but do not act on).
+- Sending chargeback evidence from our admin portal (it is done in Razorpay's dashboard).

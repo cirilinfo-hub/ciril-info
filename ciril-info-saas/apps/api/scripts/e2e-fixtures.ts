@@ -153,6 +153,20 @@ async function main() {
     const account = await db.hostingAccount.create({ data: { tenantId, subscriptionId: sub.id, planId: sub.items[0]!.planId, primaryDomain: domain, status: 'PROVISIONING' }, select: { id: true } });
     await db.provisioningJob.create({ data: { tenantId, hostingAccountId: account.id, action: 'CREATE', status: 'AWAITING_STAFF', idempotencyKey: `create:${account.id}` } });
     console.log(JSON.stringify({ accountId: account.id }));
+  } else if (cmd === 'add-dispute') {
+    // A chargeback on the test customer's latest successful payment, as Razorpay's webhook would record it.
+    const [email] = args as [string];
+    testOnly(email);
+    const user = await db.user.findUniqueOrThrow({ where: { email }, select: { memberships: { select: { tenantId: true }, take: 1 } } });
+    const p = await db.payment.findFirstOrThrow({ where: { tenantId: user.memberships[0]!.tenantId, status: 'SUCCEEDED' }, orderBy: { createdAt: 'desc' } });
+    const d = await db.paymentDispute.create({
+      data: {
+        tenantId: p.tenantId, paymentId: p.id, invoiceId: p.invoiceId, provider: p.provider, providerDisputeId: `disp_pw${Date.now()}`, amount: p.amount, currency: p.currency,
+        status: 'OPEN', phase: 'chargeback', reasonCode: 'fraud', reason: 'PW customer does not recognise the payment', respondBy: new Date(Date.now() + 7 * 86_400_000),
+      },
+      select: { providerDisputeId: true },
+    });
+    console.log(JSON.stringify(d));
   } else if (cmd === 'seed-public') {
     await cleanupPublic();
     const category = await db.productCategory.upsert({ where: { slug: 'hosting' }, update: {}, create: { slug: 'hosting', name: 'Hosting' } });

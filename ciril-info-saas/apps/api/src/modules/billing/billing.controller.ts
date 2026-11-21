@@ -7,7 +7,8 @@ import { ListQueryDto } from '../../common/http/pagination.js';
 import { CouponDto, CouponPatchDto } from './admin-coupons.dto.js';
 import { AdminCouponsService } from './admin-coupons.service.js';
 import { AdminBillingService } from './admin-billing.service.js';
-import { AdminInvoiceListQuery, AdminSubscriptionListQuery, RecordPaymentDto, RefundDto, TdsCertificateDto, TdsListQuery, VoidInvoiceDto } from './admin-billing.dto.js';
+import { AdminInvoiceListQuery, AdminSubscriptionListQuery, DisputeListQuery, RecordPaymentDto, RefundDto, TdsCertificateDto, TdsListQuery, VoidInvoiceDto } from './admin-billing.dto.js';
+import { DisputesService } from './disputes.service.js';
 import { AutoPayDto, BillingListQuery, CancelSubscriptionDto, ChangePlanDto, ConfirmPaymentDto, OrderDto, PayInvoiceDto, QuoteDto } from './billing.dto.js';
 import { SavedCardsService } from './saved-cards.service.js';
 import { PlanChangeService } from './plan-change.service.js';
@@ -130,7 +131,14 @@ export class BillingController {
 @ApiTags('admin · billing')
 @Controller('admin')
 export class AdminBillingController {
-  constructor(private readonly svc: AdminBillingService) {}
+  constructor(
+    private readonly svc: AdminBillingService,
+    private readonly disputes: DisputesService,
+  ) {}
+
+  /** Chargebacks raised against payments, newest first. Answered in the payment provider's dashboard. */
+  @Get('disputes') @RequirePlatform('billing:read')
+  listDisputes(@Query() q: DisputeListQuery) { return this.disputes.list(q); }
 
   @Get('billing/summary') @RequirePlatform('billing:read')
   summary() { return this.svc.summary(); }
