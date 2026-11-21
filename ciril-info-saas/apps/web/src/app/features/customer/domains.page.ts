@@ -120,6 +120,9 @@ const YEARS = [1, 2, 3, 4, 5];
                 <td>
                   <span class="cf-badge" [class]="'cf-badge ' + stage(d).cls">{{ stage(d).label }}</span>
                   <small>{{ d.stage === 'FAILED' && d.failureReason ? d.failureReason + ' We will refund your payment.' : stage(d).hint }}</small>
+                  @if (d.nameserverChanges?.[0]; as nc) {
+                    <small data-testid="nameserver-change">Changing nameservers to {{ nc.nameservers.join(', ') }}. We will email you when it is done.</small>
+                  }
                   @if (d.transferOuts?.[0]; as out) {
                     <small data-testid="transfer-out">{{ out.status === 'RELEASED' ? 'Unlocked for transfer. Show the code and give it to your new registrar.' : 'Transfer to another registrar asked for. We are unlocking it and getting its code, and will email you.' }}</small>
                   }
@@ -137,6 +140,11 @@ const YEARS = [1, 2, 3, 4, 5];
                     <button type="button" class="cf-btn cf-btn-secondary cf-btn-sm" [disabled]="busy()" (click)="openRenew(d)" [attr.aria-label]="'Renew ' + d.name">Renew</button>
                   }
                   @if (d.stage === 'ACTIVE' && auth.can('services:manage')) {
+                    @if (d.nameserverChanges?.length) {
+                      <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="withdrawNameservers(d)" [attr.aria-label]="'Withdraw the nameserver change for ' + d.name">Withdraw change</button>
+                    } @else {
+                      <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="openNameservers(d)" [attr.aria-label]="'Change the nameservers of ' + d.name">Nameservers</button>
+                    }
                     @if (d.transferOuts?.[0]; as out) {
                       @if (out.status === 'RELEASED') { <button type="button" class="cf-btn cf-btn-primary cf-btn-sm" [disabled]="busy()" (click)="showCode(d)" [attr.aria-label]="'Show the transfer code for ' + d.name">Show code</button> }
                       <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="withdrawFor.set(d)" [attr.aria-label]="'Withdraw the transfer of ' + d.name">Withdraw transfer</button>
@@ -257,6 +265,23 @@ const YEARS = [1, 2, 3, 4, 5];
       </ci-dialog>
     }
 
+    @if (nsFor(); as d) {
+      <ci-dialog [heading]="'Nameservers for ' + d.name" description="Nameservers decide where the domain's DNS records live, and so where your website and email point. Change them only if your new host or website builder asks you to." icon="globe" size="md" [dismissable]="false" (closed)="nsFor.set(null)">
+        <form id="ns-form" (ngSubmit)="saveNameservers(d)" novalidate>
+          @if (nsError(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+          <p class="cf-help">Now: {{ d.nameservers?.length ? d.nameservers!.join(', ') : 'not recorded here yet (the ones set when it was registered or transferred).' }}</p>
+          <label for="ns-list" class="ts-body-sm">New nameservers, one per line</label>
+          <textarea id="ns-list" name="nameservers" class="cf-input" rows="4" autocomplete="off" spellcheck="false" [ngModel]="nsText()" (ngModelChange)="nsText.set($event)" aria-describedby="ns-hint"></textarea>
+          <p id="ns-hint" class="cf-help">At least two, for example ns1.yourhost.com and ns2.yourhost.com. Changes take up to a day or two to be seen everywhere.</p>
+          @if (nsDefaults().length) { <button type="button" class="cf-btn cf-btn-secondary cf-btn-sm" (click)="nsText.set(nsDefaults().join('\n'))">Use our nameservers</button> }
+        </form>
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="nsFor.set(null)">Cancel</button>
+          <button type="submit" form="ns-form" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Saving…' : 'Change nameservers' }}</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
     @if (withdrawFor(); as d) {
       <ci-dialog heading="Withdraw this transfer?" [description]="d.name + ' stays with us and is locked again. The transfer code stops working once it is locked.'" icon="warning" tone="danger" [dismissable]="false" (closed)="withdrawFor.set(null)">
         <ng-container actions>
@@ -293,6 +318,10 @@ export class DomainsPage implements OnInit {
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly notice = signal<string | null>(null);
+  protected readonly nsFor = signal<CustomerDomain | null>(null);
+  protected readonly nsText = signal('');
+  protected readonly nsError = signal<string | null>(null);
+  protected readonly nsDefaults = signal<string[]>([]);
   protected readonly ordering = signal<string | null>(null);
   protected readonly cancelFor = signal<CustomerDomain | null>(null);
   protected readonly years = signal(1);
@@ -341,6 +370,7 @@ export class DomainsPage implements OnInit {
   private async load() {
     try {
       this.domains.set((await this.api.list()).data);
+      if (!this.nsDefaults().length) this.api.nameserverDefaults().then((r) => this.nsDefaults.set(r.nameservers)).catch(() => undefined);
     } catch (e) {
       this.error.set(toApiError(e).message);
     } finally {
@@ -558,6 +588,46 @@ export class DomainsPage implements OnInit {
       this.copied.set(true);
     } catch {
       // Copying is a convenience; the code can be selected on screen.
+    }
+  }
+
+  protected openNameservers(d: CustomerDomain) {
+    this.nsError.set(null);
+    this.nsText.set((d.nameservers ?? []).join('\n'));
+    this.nsFor.set(d);
+  }
+
+  protected async saveNameservers(d: CustomerDomain) {
+    const list = this.nsText().split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+    if (list.length < 2) {
+      this.nsError.set('Enter at least two nameservers, one per line.');
+      return;
+    }
+    this.busy.set(true);
+    this.nsError.set(null);
+    try {
+      await this.api.changeNameservers(d.id, list);
+      this.nsFor.set(null);
+      this.notice.set(`We are changing the nameservers of ${d.name}. We will email you when it is done.`);
+      await this.load();
+    } catch (e) {
+      this.nsError.set(toApiError(e).message);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async withdrawNameservers(d: CustomerDomain) {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.cancelNameservers(d.id);
+      this.notice.set(`The nameserver change for ${d.name} was withdrawn.`);
+    } catch (e) {
+      this.error.set(toApiError(e).message);
+    } finally {
+      this.busy.set(false);
+      await this.load();
     }
   }
 

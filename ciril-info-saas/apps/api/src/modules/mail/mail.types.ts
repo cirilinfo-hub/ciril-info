@@ -12,6 +12,7 @@ export type EmailMessage =
   | { template: 'domain-transferred'; to: string; data: { domain: string; expiresOn: string; link: string } }
   | { template: 'domain-transfer-code'; to: string; data: { domain: string; link: string } }
   | { template: 'domain-transferred-out'; to: string; data: { domain: string; link: string } }
+  | { template: 'domain-nameservers-changed'; to: string; data: { domain: string; nameservers: string; link: string } }
   | { template: 'domain-renewed'; to: string; data: { domain: string; expiresOn: string; link: string } }
   | { template: 'domain-expiring'; to: string; data: { domain: string; when: string; link: string } }
   | { template: 'renewal-invoice'; to: string; data: { number: string; total: string; dueDate: string; link: string; autoPay?: { card: string; date: string } } }

@@ -65,6 +65,8 @@ export interface RegistrarAutomation {
   releaseForTransfer(domain: string): Promise<{ authCode: string }>;
   /** Locks the domain again (a transfer away that was withdrawn). */
   lock(domain: string): Promise<void>;
+  /** Points the domain at these nameservers (already checked and lower-case). */
+  setNameservers(domain: string, nameservers: string[]): Promise<void>;
 }
 
 /**

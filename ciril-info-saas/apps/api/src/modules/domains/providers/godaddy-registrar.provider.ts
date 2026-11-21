@@ -79,6 +79,7 @@ export class GoDaddyRegistrarProvider implements RegistrarProvider {
       transfer: (r) => this.transfer(r),
       releaseForTransfer: (d) => this.release(d),
       lock: (d) => this.setLock(d, true),
+      setNameservers: (d, ns) => this.setNameservers(d, ns),
     };
   }
 
@@ -157,6 +158,11 @@ export class GoDaddyRegistrarProvider implements RegistrarProvider {
     const r = await this.call<{ authCode?: string }>('GET', `/v1/domains/${encodeURIComponent(domain)}`);
     if (!r?.authCode) throw new RegistrarError(`GoDaddy unlocked ${domain} but did not give its authorisation code. Get it from the GoDaddy account and enter it by hand.`, false, 'NO_AUTH_CODE');
     return { authCode: r.authCode };
+  }
+
+  private async setNameservers(domain: string, nameServers: string[]): Promise<void> {
+    if (!(await this.info(domain))) throw new RegistrarError(`The registrar account does not hold ${domain}, so its nameservers cannot be changed there. Change them where it is registered, then mark it done.`, false, 'NOT_IN_ACCOUNT');
+    await this.call('PATCH', `/v1/domains/${encodeURIComponent(domain)}`, { nameServers });
   }
 
   private async setLock(domain: string, locked: boolean): Promise<void> {

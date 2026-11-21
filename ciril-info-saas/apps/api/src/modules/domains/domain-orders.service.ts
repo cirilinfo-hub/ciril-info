@@ -31,6 +31,9 @@ const domainSelect = {
   renewals: { where: { status: 'PENDING' as const }, take: 1, select: { id: true, years: true, requestedAt: true, invoice: { select: { id: true, number: true, status: true, total: true, currency: true } } } },
   // A transfer away to another registrar that is still going.
   transferOuts: { where: { status: { in: LIVE_TRANSFER_OUT } }, take: 1, select: { id: true, status: true, requestedAt: true, releasedAt: true } },
+  // The nameservers we last recorded, and a change still waiting to be made.
+  nameservers: true,
+  nameserverChanges: { where: { status: 'REQUESTED' as const }, take: 1, select: { id: true, nameservers: true, requestedAt: true } },
 } as const;
 
 type DomainRow = { renewals: { id: string; years: number; requestedAt: Date; invoice: { id: string; number: string; status: InvoiceStatus; total: unknown; currency: string } }[] };

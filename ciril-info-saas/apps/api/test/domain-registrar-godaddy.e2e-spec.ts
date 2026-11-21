@@ -267,4 +267,26 @@ describe('Domain registrar: GoDaddy (e2e)', () => {
     expect((await row(name('stay'))).locked).toBe(true);
     expect(await tasks(name('stay'))).toHaveLength(0);
   });
+
+  it('changes nameservers at GoDaddy and records them, with no task for staff', async () => {
+    const d = await db.domain.create({ data: { tenantId: alice.tenantId, name: name('dns'), tld, status: 'ACTIVE', registeredAt: new Date(Date.now() - 100 * 86_400_000), expiresAt: new Date(Date.now() + 100 * 86_400_000) } });
+    gd.owned.set(name('dns'), { domainId: 5152, status: 'ACTIVE', expires: d.expiresAt! });
+    await http().post(api(`domains/${d.id}/nameservers`)).set(auth(alice.token)).send({ nameservers: ['ns1.site.io', 'ns2.site.io'] }).expect(201);
+    const c = await db.domainNameserverChange.findFirstOrThrow({ where: { domainId: d.id } });
+    await events.handle('domain.nameservers_requested', { changeId: c.id }, { final: false });
+    expect(gd.called('PATCH', `/v1/domains/${name('dns')}`).at(-1)!.body).toEqual({ nameServers: ['ns1.site.io', 'ns2.site.io'] });
+    expect(gd.owned.get(name('dns'))!.nameServers).toEqual(['ns1.site.io', 'ns2.site.io']);
+    expect((await row(name('dns'))).nameservers).toEqual(['ns1.site.io', 'ns2.site.io']);
+    expect((await db.domainNameserverChange.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('DONE');
+    expect(await tasks(name('dns'))).toHaveLength(0);
+  });
+
+  it('hands a nameserver change to staff when GoDaddy does not hold the domain', async () => {
+    const d = await db.domain.create({ data: { tenantId: alice.tenantId, name: name('elsewhere'), tld, status: 'ACTIVE', registeredAt: new Date(Date.now() - 100 * 86_400_000), expiresAt: new Date(Date.now() + 100 * 86_400_000) } });
+    await http().post(api(`domains/${d.id}/nameservers`)).set(auth(alice.token)).send({ nameservers: ['ns1.site.io', 'ns2.site.io'] }).expect(201);
+    const c = await db.domainNameserverChange.findFirstOrThrow({ where: { domainId: d.id } });
+    await events.handle('domain.nameservers_requested', { changeId: c.id }, { final: false });
+    expect((await db.domainNameserverChange.findUniqueOrThrow({ where: { id: c.id } }))).toMatchObject({ status: 'REQUESTED', failureReason: expect.stringContaining('does not hold') });
+    expect((await tasks(name('elsewhere')))[0]!.body).toContain('could not change them');
+  });
 });

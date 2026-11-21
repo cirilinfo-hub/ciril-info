@@ -23,6 +23,8 @@ const select = {
   transfers: { where: { status: { in: LIVE_TRANSFER } }, take: 1, select: { id: true, status: true, failureReason: true, invoice: { select: { id: true, number: true, status: true, total: true } } } },
   renewals: { where: { status: 'PENDING' as const }, take: 1, select: { id: true, years: true, requestedAt: true, failureReason: true, invoice: { select: { id: true, number: true, status: true, total: true } } } },
   transferOuts: { where: { status: { in: LIVE_TRANSFER_OUT } }, take: 1, select: { id: true, status: true, requestedAt: true, releasedAt: true, failureReason: true } },
+  nameservers: true,
+  nameserverChanges: { where: { status: 'REQUESTED' as const }, take: 1, select: { id: true, nameservers: true, requestedAt: true, failureReason: true } },
 } as const;
 
 /**
@@ -46,7 +48,7 @@ export class AdminRegistrationsService {
   async list(q: AdminRegistrationListQuery) {
     const where: Prisma.DomainWhereInput = {
       ...(q.status ? { status: q.status } : {}),
-      ...(q.needsAction ? { OR: [{ status: 'PENDING_REGISTRATION' as const, orderInvoice: { status: 'PAID' as const } }, { renewals: { some: { status: 'PENDING' as const, invoice: { status: 'PAID' as const } } } }, { status: 'PENDING_TRANSFER' as const, transfers: { some: { status: { in: ['REQUESTED' as const, 'IN_PROGRESS' as const] }, invoice: { status: 'PAID' as const } } } }, { transferOuts: { some: { status: 'REQUESTED' as const } } }] } : {}),
+      ...(q.needsAction ? { OR: [{ status: 'PENDING_REGISTRATION' as const, orderInvoice: { status: 'PAID' as const } }, { renewals: { some: { status: 'PENDING' as const, invoice: { status: 'PAID' as const } } } }, { status: 'PENDING_TRANSFER' as const, transfers: { some: { status: { in: ['REQUESTED' as const, 'IN_PROGRESS' as const] }, invoice: { status: 'PAID' as const } } } }, { transferOuts: { some: { status: 'REQUESTED' as const } } }, { nameserverChanges: { some: { status: 'REQUESTED' as const } } }] } : {}),
       ...(q.search ? { AND: [{ OR: [{ name: { contains: q.search, mode: 'insensitive' } }, { tenant: { name: { contains: q.search, mode: 'insensitive' } } }] }] } : {}),
     };
     const [rows, total] = await Promise.all([
@@ -252,6 +254,42 @@ export class AdminRegistrationsService {
     if (r.count === 0) throw new ConflictException({ code: 'TRANSFER_OUT_NOT_WAITING', message: 'This domain has no transfer away waiting to be released.' });
     await this.audit.record({ action: 'domain.transfer_out_declined', actorId: actor?.id ?? null, tenantId: d.tenant.id, entityType: 'domain', entityId: id, metadata: { name: d.name, reason }, meta });
     await this.tellOwners(d.tenant.id, { type: 'domain.transfer_out_declined', title: `We could not release ${d.name} for transfer`, body: reason, link: '/domains' });
+    return this.one(id);
+  }
+
+  /** A nameserver change waiting to be made, or the precise reason there is none. */
+  private async nameserverChangeWaiting(id: string) {
+    const d = await this.db.domain.findUnique({ where: { id }, select });
+    if (!d) throw new NotFoundException({ code: 'DOMAIN_NOT_FOUND', message: 'Domain not found.' });
+    const c = d.nameserverChanges[0];
+    if (!c) throw new ConflictException({ code: 'NAMESERVER_CHANGE_NOT_WAITING', message: 'This domain has no nameserver change waiting.' });
+    return { d, c };
+  }
+
+  /** The nameservers were changed at the registrar: recorded on the domain, and the customer is told. */
+  async completeNameservers(actor: { id: string } | null, id: string, meta?: RequestMeta) {
+    const { d, c } = await this.nameserverChangeWaiting(id);
+    await this.db.$transaction(async (tx) => {
+      const r = await tx.domainNameserverChange.updateMany({ where: { id: c.id, status: 'REQUESTED' }, data: { status: 'DONE', completedAt: new Date(), failureReason: null } });
+      if (r.count === 0) throw new ConflictException({ code: 'NAMESERVER_CHANGE_NOT_WAITING', message: 'This domain has no nameserver change waiting.' });
+      await tx.domain.update({ where: { id }, data: { nameservers: c.nameservers } });
+    });
+    await this.audit.record({ action: 'domain.nameservers_changed', actorId: actor?.id ?? null, tenantId: d.tenant.id, entityType: 'domain', entityId: id, metadata: { name: d.name, nameservers: c.nameservers }, meta });
+    const owners = await this.db.tenantMembership.findMany({ where: { tenantId: d.tenant.id, status: 'ACTIVE', role: { key: 'TENANT_OWNER' } }, select: { user: { select: { id: true, email: true } } } });
+    if (owners.length) {
+      await this.db.notification.createMany({ data: owners.map((o) => ({ userId: o.user.id, tenantId: d.tenant.id, type: 'domain.nameservers_changed', title: `${d.name} now uses new nameservers`, body: 'It can take up to a day or two for the whole internet to see the change.', link: '/domains' })) });
+      for (const o of owners) await this.mail.enqueue({ template: 'domain-nameservers-changed', to: o.user.email, data: { domain: d.name, nameservers: c.nameservers.join(', '), link: `${this.portalUrl}/domains` } }, undefined, d.tenant.id);
+    }
+    return this.one(id);
+  }
+
+  /** Staff cannot make the change (for example the domain is registered elsewhere). The customer is told why. */
+  async declineNameservers(actor: { id: string } | null, id: string, reason: string, meta?: RequestMeta) {
+    const { d, c } = await this.nameserverChangeWaiting(id);
+    const r = await this.db.domainNameserverChange.updateMany({ where: { id: c.id, status: 'REQUESTED' }, data: { status: 'CANCELLED', failureReason: reason.slice(0, 255) } });
+    if (r.count === 0) throw new ConflictException({ code: 'NAMESERVER_CHANGE_NOT_WAITING', message: 'This domain has no nameserver change waiting.' });
+    await this.audit.record({ action: 'domain.nameservers_declined', actorId: actor?.id ?? null, tenantId: d.tenant.id, entityType: 'domain', entityId: id, metadata: { name: d.name, reason }, meta });
+    await this.tellOwners(d.tenant.id, { type: 'domain.nameservers_declined', title: `We could not change the nameservers of ${d.name}`, body: reason, link: '/domains' });
     return this.one(id);
   }
 

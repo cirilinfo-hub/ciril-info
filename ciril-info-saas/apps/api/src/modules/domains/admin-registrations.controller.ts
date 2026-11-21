@@ -60,6 +60,13 @@ export class AdminRegistrationsController {
   @Post(':id/transfer-out/decline') @HttpCode(200) @RequirePlatform('domains:write')
   declineTransferOut(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: CannotRegisterDto, @ReqMeta() meta: RequestMeta) { return this.svc.declineTransferOut(u, id, dto.reason, meta); }
 
+  /** Staff changed the nameservers at the registrar by hand. */
+  @Post(':id/nameservers/complete') @HttpCode(200) @RequirePlatform('domains:write')
+  completeNameservers(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.svc.completeNameservers(u, id, meta); }
+
+  @Post(':id/nameservers/decline') @HttpCode(200) @RequirePlatform('domains:write')
+  declineNameservers(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: CannotRegisterDto, @ReqMeta() meta: RequestMeta) { return this.svc.declineNameservers(u, id, dto.reason, meta); }
+
   @Post(':id/cannot-register') @HttpCode(200) @RequirePlatform('domains:write')
   cannotRegister(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: CannotRegisterDto, @ReqMeta() meta: RequestMeta) { return this.svc.decline(u, id, dto.reason, meta); }
 }

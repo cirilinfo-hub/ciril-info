@@ -76,7 +76,17 @@ emailed that the code is ready and reads it in their client area. When the domai
 Transferred away automatically. If the customer withdraws, the domain is locked again. Without automation, staff unlock it by
 hand, enter the code with **Enter code**, and use **Mark transferred away** once it has gone.
 
+## Nameservers
+
+A customer can point an active domain at other nameservers from their Domains page (for example a website builder's), or
+back to yours with **Use our nameservers** (the ones in `GODADDY_NAMESERVERS`). The list is checked first: two to thirteen
+valid names, and none inside the domain itself (those need glue records, which staff set up by hand). The worker makes
+the change at GoDaddy and the customer is emailed. Without automation, or if GoDaddy refuses (for example the domain is
+not in your account), staff get a task, change them by hand, and use **Mark changed**, or **Can't change** with a reason
+the customer sees. A change can be withdrawn until it has been made.
+
 ## Not built yet
 
-- Changing a domain's nameservers or contacts from the portal.
+- Changing a domain's contacts (registrant details) from the portal. A registrant change can trigger the registry's
+  confirmation emails and a 60-day transfer lock, so it is done by staff at the registrar for now.
 - Tried against a pretend GoDaddy only. Do the OTE run above before going live.

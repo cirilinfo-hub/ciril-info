@@ -40,7 +40,7 @@ const FILTERS = [
       @if (canWrite()) { <a class="cf-btn cf-btn-secondary" [routerLink]="auth.link('/domain-prices')">Domain prices</a> }
     </ci-page-head>
     @if (toast(); as t) { <div class="cf-alert cf-alert-success" role="status"><ci-icon name="check-circle" /><span>{{ t }}</span></div> }
-    @if (error() && !doneFor() && !cannotFor() && !codeFor() && !releaseFor() && !declineOutFor() && !goneFor(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ error() }}</span></div> }
+    @if (error() && !doneFor() && !cannotFor() && !codeFor() && !releaseFor() && !declineOutFor() && !goneFor() && !nsDoneFor() && !nsDeclineFor(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ error() }}</span></div> }
 
     <div class="bar">
       <div class="search">
@@ -68,10 +68,11 @@ const FILTERS = [
                 @if (d.status === 'FAILED' && d.failureReason) { <small>{{ d.failureReason }}</small> }
                 @else if (registrarIssue(d); as why) { <small class="issue" data-testid="registrar-issue">Registrar: {{ why }}</small> }
                 @else if (d.registrarRef) { <small>Ref {{ d.registrarRef }}</small> }
+                @if (d.nameserverChanges?.[0]; as nc) { <small data-testid="ns-change">Nameservers asked for: {{ nc.nameservers.join(', ') }}</small> }
               </td>
               <td>{{ d.expiresAt ? (d.expiresAt | date: 'd MMM y') : '—' }}</td>
               <td class="row-actions">
-                @if (canWrite() && automated() && (waiting(d) || transferWaiting(d) || renewalWaiting(d) || d.transferOuts?.length)) {
+                @if (canWrite() && automated() && (waiting(d) || transferWaiting(d) || renewalWaiting(d) || d.transferOuts?.length || d.nameserverChanges?.length)) {
                   <button type="button" class="cf-btn cf-btn-secondary cf-btn-sm" [disabled]="busy()" (click)="retry(d)" [attr.aria-label]="(d.transfers[0]?.status === 'IN_PROGRESS' ? 'Check the transfer of ' : 'Try ') + d.name + (d.transfers[0]?.status === 'IN_PROGRESS' ? ' now' : ' at the registrar again')">{{ d.transfers[0]?.status === 'IN_PROGRESS' ? 'Check now' : 'Try at registrar' }}</button>
                 }
                 @if (canWrite() && d.transferOuts?.[0]; as out) {
@@ -81,6 +82,10 @@ const FILTERS = [
                   } @else {
                     <button type="button" class="cf-btn cf-btn-primary cf-btn-sm" [disabled]="busy()" (click)="goneFor.set(d)" [attr.aria-label]="'Mark ' + d.name + ' transferred away'">Mark transferred away</button>
                   }
+                }
+                @if (canWrite() && d.nameserverChanges?.length) {
+                  <button type="button" class="cf-btn cf-btn-primary cf-btn-sm" [disabled]="busy()" (click)="nsDoneFor.set(d)" [attr.aria-label]="'Mark the nameservers of ' + d.name + ' changed'">Mark changed</button>
+                  <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="openDeclineNs(d)" [attr.aria-label]="'Cannot change the nameservers of ' + d.name">Can't change</button>
                 }
                 @if (canWrite() && waiting(d)) {
                   <button type="button" class="cf-btn cf-btn-primary cf-btn-sm" [disabled]="busy()" (click)="openDone(d, false)" [attr.aria-label]="'Mark ' + d.name + ' registered'">Mark registered</button>
@@ -162,6 +167,31 @@ const FILTERS = [
       </ci-dialog>
     }
 
+    @if (nsDoneFor(); as d) {
+      <ci-dialog [heading]="'Mark the nameservers of ' + d.name + ' changed?'" [description]="'Only once they are set at the registrar to: ' + (d.nameserverChanges?.[0]?.nameservers ?? []).join(', ') + '. The customer is told.'" icon="globe" size="md" [dismissable]="false" (closed)="nsDoneFor.set(null)">
+        @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="nsDoneFor.set(null)">Cancel</button>
+          <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy()" (click)="nsDone(d)">{{ busy() ? 'Saving…' : 'Mark changed' }}</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
+    @if (nsDeclineFor(); as d) {
+      <ci-dialog [heading]="'Cannot change the nameservers of ' + d.name" description="The request is closed and the customer is told why. The nameservers stay as they are." icon="warning" tone="danger" [dismissable]="false" (closed)="nsDeclineFor.set(null)">
+        <form id="decline-ns-form" [formGroup]="cannotForm" (ngSubmit)="nsDecline(d)" novalidate>
+          @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+          <ci-field label="Reason" for="ns-reason" [control]="cannotForm.controls.reason" [required]="true" errorLabel="why they cannot be changed" hint="The customer reads this.">
+            <input id="ns-reason" class="cf-input" autocomplete="off" formControlName="reason" [attr.aria-describedby]="describedBy('ns-reason', cannotForm.controls.reason, true)" />
+          </ci-field>
+        </form>
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="nsDeclineFor.set(null)">Cancel</button>
+          <button type="submit" form="decline-ns-form" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Saving…' : 'Close request' }}</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
     @if (goneFor(); as d) {
       <ci-dialog [heading]="'Mark ' + d.name + ' transferred away?'" description="Only once the domain has left your registrar account. The customer is told, the stored code is deleted, and any unpaid renewal invoice is voided." icon="swap" size="md" [dismissable]="false" (closed)="goneFor.set(null)">
         @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
@@ -232,6 +262,8 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
   protected readonly releaseFor = signal<AdminRegistration | null>(null);
   protected readonly declineOutFor = signal<AdminRegistration | null>(null);
   protected readonly goneFor = signal<AdminRegistration | null>(null);
+  protected readonly nsDoneFor = signal<AdminRegistration | null>(null);
+  protected readonly nsDeclineFor = signal<AdminRegistration | null>(null);
   protected readonly releaseForm = inject(NonNullableFormBuilder).group({ authCode: ['', [Validators.required, Validators.pattern(/^[!-~]{6,128}$/)]] });
   protected readonly codeFor = signal<{ d: AdminRegistration; code: string | null } | null>(null);
   protected readonly copied = signal(false);
@@ -250,6 +282,7 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
     if (this.transferWaiting(d)) return d.transfers[0]!.failureReason;
     if (this.renewalWaiting(d)) return d.renewals[0]!.failureReason;
     if (d.transferOuts?.[0]?.status === 'REQUESTED') return d.transferOuts[0].failureReason;
+    if (d.nameserverChanges?.[0]) return d.nameserverChanges[0].failureReason;
     return null;
   }
 
@@ -285,6 +318,33 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
     if (ok) {
       this.declineOutFor.set(null);
       this.toast.set(`The transfer request for ${d.name} is closed. The customer has been told.`);
+      await this.load();
+    }
+  }
+
+  protected openDeclineNs(d: AdminRegistration) {
+    this.error.set(null);
+    this.cannotForm.reset({ reason: '' });
+    this.nsDeclineFor.set(d);
+  }
+
+  protected async nsDone(d: AdminRegistration) {
+    const ok = await this.run(async () => void (await this.api.completeNameservers(d.id)));
+    if (ok) {
+      this.nsDoneFor.set(null);
+      this.toast.set(`The nameservers of ${d.name} are marked changed. The customer has been told.`);
+      await this.load();
+    }
+  }
+
+  protected async nsDecline(d: AdminRegistration) {
+    this.cannotForm.markAllAsTouched();
+    if (this.cannotForm.invalid) return;
+    const reason = this.cannotForm.getRawValue().reason.trim();
+    const ok = await this.run(async () => void (await this.api.declineNameservers(d.id, reason)));
+    if (ok) {
+      this.nsDeclineFor.set(null);
+      this.toast.set(`The nameserver request for ${d.name} is closed. The customer has been told.`);
       await this.load();
     }
   }

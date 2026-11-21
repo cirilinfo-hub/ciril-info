@@ -43,6 +43,8 @@ export interface AdminRegistration {
   transfers: { id: string; status: 'REQUESTED' | 'PENDING_AUTH' | 'IN_PROGRESS'; failureReason: string | null; invoice: { id: string; number: string; status: string; total: string } | null }[];
   /** The renewal waiting right now, if any. */
   transferOuts?: { id: string; status: 'REQUESTED' | 'RELEASED'; requestedAt: string; releasedAt: string | null; failureReason: string | null }[];
+  nameservers?: string[];
+  nameserverChanges?: { id: string; nameservers: string[]; requestedAt: string; failureReason: string | null }[];
   renewals: { id: string; years: number; requestedAt: string; failureReason: string | null; invoice: { id: string; number: string; status: string; total: string } }[];
 }
 
@@ -91,6 +93,12 @@ export class AdminDomainsApi {
   }
   completeTransferOut(id: string) {
     return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/transfer-out/complete`, {}));
+  }
+  completeNameservers(id: string) {
+    return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/nameservers/complete`, {}));
+  }
+  declineNameservers(id: string, reason: string) {
+    return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/nameservers/decline`, { reason }));
   }
   declineTransferOut(id: string, reason: string) {
     return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/transfer-out/decline`, { reason }));

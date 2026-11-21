@@ -3,7 +3,8 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
 import { CurrentTenant, ReqMeta, RequireTenant } from '../auth/decorators.js';
-import { DomainOrderDto, DomainQuoteQuery, RenewDomainDto, TransferOrderDto, TransferQuoteQuery } from './domain-orders.dto.js';
+import { DomainOrderDto, DomainQuoteQuery, NameserversDto, RenewDomainDto, TransferOrderDto, TransferQuoteQuery } from './domain-orders.dto.js';
+import { DomainNameserversService } from './domain-nameservers.service.js';
 import { DomainOrdersService } from './domain-orders.service.js';
 import { DomainTransferOutsService } from './domain-transfer-outs.service.js';
 
@@ -16,7 +17,19 @@ export class DomainOrdersController {
   constructor(
     private readonly svc: DomainOrdersService,
     private readonly outs: DomainTransferOutsService,
+    private readonly ns: DomainNameserversService,
   ) {}
+
+  /** Our own nameservers, offered as a one-click choice when changing a domain's. */
+  @Get('nameservers/defaults') @RequireTenant('services:read')
+  nameserverDefaults() { return this.ns.defaults(); }
+
+  /** Point the domain at other nameservers. Made at the registrar by the worker, or by staff. */
+  @Post(':id/nameservers') @HttpCode(201) @Throttle({ default: { limit: 10, ttl: 60_000 } }) @RequireTenant('services:manage')
+  changeNameservers(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @Body() dto: NameserversDto, @ReqMeta() meta: RequestMeta) { return this.ns.request(ctx, id, dto.nameservers, meta); }
+
+  @Post(':id/nameservers/cancel') @HttpCode(200) @RequireTenant('services:manage')
+  cancelNameservers(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.ns.cancel(ctx, id, meta); }
 
   @Get() @RequireTenant('services:read')
   list(@CurrentTenant() ctx: TenantContext) { return this.svc.list(ctx); }

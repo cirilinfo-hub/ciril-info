@@ -147,6 +147,12 @@ enum DnsRecordType {
   CAA
 }
 
+enum NameserverChangeStatus {
+  REQUESTED
+  DONE
+  CANCELLED
+}
+
 enum TransferOutStatus {
   REQUESTED
   RELEASED
@@ -343,6 +349,7 @@ model Tenant {
   domainTransferOuts  DomainTransferOut[]
   savedCards          SavedCard[]
   paymentDisputes     PaymentDispute[]
+  nameserverChanges   DomainNameserverChange[]
   tdsDeductions       TdsDeduction[]
   dnsRecords          DnsRecord[]
   domainTransfers     DomainTransfer[]
@@ -882,6 +889,26 @@ model DomainRenewal {
 /// Moving a domain away to another registrar. REQUESTED: waiting for the domain to be unlocked and its code issued. RELEASED:
 /// the customer has the code and starts the transfer at the new registrar. It ends COMPLETED when the domain leaves, or
 /// CANCELLED. One live request per domain (partial unique index in the migration).
+/// A nameserver change the customer asked for. Made at the registrar by the worker, or by staff by hand.
+model DomainNameserverChange {
+  id            String                 @id @default(uuid()) @db.Uuid
+  tenantId      String                 @map("tenant_id") @db.Uuid
+  domainId      String                 @map("domain_id") @db.Uuid
+  nameservers   String[]
+  status        NameserverChangeStatus @default(REQUESTED)
+  failureReason String?                @map("failure_reason") @db.VarChar(255)
+  requestedAt   DateTime               @default(now()) @map("requested_at") @db.Timestamptz(3)
+  completedAt   DateTime?              @map("completed_at") @db.Timestamptz(3)
+  updatedAt     DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  domain Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("domain_nameserver_changes")
+}
+
 model DomainTransferOut {
   id            String            @id @default(uuid()) @db.Uuid
   tenantId      String            @map("tenant_id") @db.Uuid
@@ -975,6 +1002,7 @@ model Domain {
   tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   renewals     DomainRenewal[]
   transferOuts DomainTransferOut[]
+  nameserverChanges DomainNameserverChange[]
   subscription Subscription?    @relation(fields: [subscriptionId], references: [id])
   registrar    DomainRegistrar? @relation(fields: [registrarId], references: [id])
   orderInvoice Invoice?         @relation("DomainOrderInvoice", fields: [orderInvoiceId], references: [id])

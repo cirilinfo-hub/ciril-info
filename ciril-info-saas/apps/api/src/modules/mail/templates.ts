@@ -63,6 +63,8 @@ export function renderEmail(m: EmailMessage): RenderedEmail {
       return build(`The transfer code for ${m.data.domain} is ready`, 'Your transfer code is ready', [`${m.data.domain} is unlocked and its authorisation code is ready. Sign in to see it, then give it to your new registrar to start the transfer.`, 'For your security the code is shown in your client area, not in this email. If you did not ask for this, withdraw the transfer there.'], { label: 'Open Domains', url: m.data.link });
     case 'domain-transferred-out':
       return build(`${m.data.domain} has moved to its new registrar`, 'Your domain has moved', [`${m.data.domain} has been transferred to your new registrar, who now manages it. It no longer appears in your client area as active.`], { label: 'Open Domains', url: m.data.link });
+    case 'domain-nameservers-changed':
+      return build(`${m.data.domain} now uses new nameservers`, 'Nameservers changed', [`${m.data.domain} now uses these nameservers: ${m.data.nameservers}.`, 'It can take up to a day or two for the whole internet to see the change. Your website and email follow the DNS records at the new nameservers.', 'If you did not ask for this, contact us straight away.'], { label: 'Open Domains', url: m.data.link });
     case 'domain-renewed':
       return build(`${m.data.domain} is renewed`, 'Your domain is renewed', [`${m.data.domain} has been renewed. It is now registered until ${m.data.expiresOn}.`], { label: 'Open Domains', url: m.data.link });
     case 'domain-expiring':

@@ -2,7 +2,7 @@ import { type IncomingMessage, type Server, type ServerResponse, createServer } 
 import type { AddressInfo } from 'node:net';
 
 export interface GoDaddyCall { method: string; path: string; body: any }
-interface Held { domainId: number; status: string; expires: Date; locked?: boolean; authCode?: string }
+interface Held { domainId: number; status: string; expires: Date; locked?: boolean; authCode?: string; nameServers?: string[] }
 
 const PHONE = /^\+\d{1,3}\.\d{4,14}$/;
 
@@ -142,6 +142,7 @@ export class FakeGoDaddy {
     if (!held) return send(404, { code: 'NOT_FOUND', message: 'Domain not found' });
     if (req.method === 'PATCH') {
       if (typeof body?.locked === 'boolean') held.locked = body.locked;
+      if (Array.isArray(body?.nameServers)) held.nameServers = body.nameServers as string[];
       return send(204);
     }
     return send(200, { domain, domainId: held.domainId, status: held.status, expires: held.expires.toISOString(), renewAuto: false, locked: held.locked ?? true, authCode: held.authCode ?? `AUTH-${held.domainId}` });

@@ -1,5 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import { IsInt, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsInt, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { MAX_YEARS } from './domain-rules.js';
 
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
@@ -25,4 +25,9 @@ export class TransferQuoteQuery {
 export class TransferOrderDto {
   @Transform(trim) @IsString() @MinLength(3) @MaxLength(253) domain!: string;
   @Transform(trim) @IsString() @MaxLength(200) authCode!: string;
+}
+
+/** The nameservers to point the domain at, one per entry (checked and cleaned up by the service). */
+export class NameserversDto {
+  @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(253, { each: true }) nameservers!: string[];
 }

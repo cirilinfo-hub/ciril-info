@@ -25,6 +25,9 @@ export interface CustomerDomain {
   renewal: { id: string; years: number; stage: 'AWAITING_PAYMENT' | 'RENEWING'; invoice: { id: string; number: string; status: string; total: string; currency: string } } | null;
   /** A move to another registrar that is still going: being unlocked, or unlocked with its code ready. */
   transferOuts?: { id: string; status: 'REQUESTED' | 'RELEASED'; requestedAt: string; releasedAt: string | null }[];
+  /** The nameservers we last recorded (empty: not recorded), and a change still waiting to be made. */
+  nameservers?: string[];
+  nameserverChanges?: { id: string; nameservers: string[]; requestedAt: string }[];
 }
 
 export type DnsType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SRV' | 'CAA';
@@ -149,6 +152,15 @@ export class DomainsApi {
   }
   transferOutCode(id: string) {
     return firstValueFrom(this.http.get<{ authCode: string }>(`${this.base}/${id}/transfer-out/code`));
+  }
+  nameserverDefaults() {
+    return firstValueFrom(this.http.get<{ nameservers: string[] }>(`${this.base}/nameservers/defaults`));
+  }
+  changeNameservers(id: string, nameservers: string[]) {
+    return firstValueFrom(this.http.post<{ id: string; status: string }>(`${this.base}/${id}/nameservers`, { nameservers }));
+  }
+  cancelNameservers(id: string) {
+    return firstValueFrom(this.http.post<{ id: string; status: string }>(`${this.base}/${id}/nameservers/cancel`, {}));
   }
   cancelTransferOut(id: string) {
     return firstValueFrom(this.http.post<{ id: string; status: string }>(`${this.base}/${id}/transfer-out/cancel`, {}));

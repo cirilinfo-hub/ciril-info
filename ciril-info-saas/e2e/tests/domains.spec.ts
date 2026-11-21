@@ -447,6 +447,56 @@ test.describe('Domains', () => {
     await expect(page.getByRole('row', { name: new RegExp(domain) }).locator('.cf-badge', { hasText: 'Transferred away' })).toBeVisible();
   });
 
+  test('a customer changes nameservers: staff make the change and the customer sees the new ones', async ({ page, browser }, info) => {
+    test.skip(info.project.name !== 'desktop', 'runs once');
+    test.setTimeout(180_000);
+    const tld = `pw${rand()}`;
+    const name = `pwns${rand()}`;
+    const domain = `${name}.${tld}`;
+    fixture('add-tld', tld, '500', '600', '400');
+    const email = await newCustomer('domns');
+    fixture('add-domain', email, name, tld, '300');
+    await page.goto('/portal/login');
+    await page.getByLabel('Email address').fill(email);
+    await page.getByLabel('Password').fill(CUSTOMER_PASSWORD);
+    await page.getByRole('button', { name: 'Sign In' }).click();
+    await page.getByRole('complementary').getByRole('link', { name: 'Domains' }).click();
+    const mine = page.getByRole('row', { name: new RegExp(domain) });
+    await expect(mine).toBeVisible({ timeout: 15_000 });
+    await mine.getByRole('button', { name: `Change the nameservers of ${domain}` }).click();
+    const dialog = page.getByRole('dialog', { name: `Nameservers for ${domain}` });
+    await dialog.getByLabel('New nameservers, one per line').fill('ns1.pwhost.com');
+    await dialog.getByRole('button', { name: 'Change nameservers' }).click();
+    await expect(dialog.getByRole('alert')).toContainText('at least two');
+    await dialog.getByLabel('New nameservers, one per line').fill(`ns1.${domain}\nns2.pwhost.com`);
+    await dialog.getByRole('button', { name: 'Change nameservers' }).click();
+    await expect(dialog.getByRole('alert')).toContainText('glue records');
+    await dialog.getByLabel('New nameservers, one per line').fill('NS1.PWHost.com\nns2.pwhost.com');
+    await dialog.getByRole('button', { name: 'Change nameservers' }).click();
+    await expect(page.getByText(`We are changing the nameservers of ${domain}.`)).toBeVisible();
+    await expect(mine.getByTestId('nameserver-change')).toContainText('ns1.pwhost.com, ns2.pwhost.com');
+
+    const staffEmail = uniqueEmail('domadmin6');
+    const { secret } = fixture('create-staff-ready', staffEmail, STAFF_PASSWORD, 'SUPER_ADMIN') as { secret: string };
+    const ctx = await browser.newContext();
+    const staff = await ctx.newPage();
+    await staffSignIn(staff, staffEmail, secret);
+    await staff.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Domains', exact: true }).click();
+    await staff.getByRole('button', { name: 'Needs action' }).click();
+    await staff.getByRole('searchbox', { name: 'Search domains' }).fill(name);
+    const row = staff.getByRole('row', { name: new RegExp(domain) });
+    await expect(row.getByTestId('ns-change')).toContainText('ns1.pwhost.com, ns2.pwhost.com');
+    await row.getByRole('button', { name: `Mark the nameservers of ${domain} changed` }).click();
+    await staff.getByRole('dialog', { name: `Mark the nameservers of ${domain} changed?` }).getByRole('button', { name: 'Mark changed' }).click();
+    await expect(staff.getByText(`The nameservers of ${domain} are marked changed.`)).toBeVisible();
+    await ctx.close();
+
+    await page.reload();
+    await expect(mine.getByTestId('nameserver-change')).toHaveCount(0);
+    await mine.getByRole('button', { name: `Change the nameservers of ${domain}` }).click();
+    await expect(page.getByRole('dialog', { name: `Nameservers for ${domain}` })).toContainText('Now: ns1.pwhost.com, ns2.pwhost.com');
+  });
+
   test('an unpaid renewal can be cancelled', async ({ page }, info) => {
     test.skip(info.project.name !== 'desktop', 'runs once');
     test.setTimeout(120_000);
