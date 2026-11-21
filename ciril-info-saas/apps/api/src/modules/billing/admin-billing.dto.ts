@@ -65,6 +65,11 @@ export class TdsCertificateDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value)) @IsString() @Length(3, 60, { message: 'Enter the certificate number.' }) certificateNumber!: string;
 }
 
+export class EndDiscountDto {
+  @ApiProperty({ description: 'Why the discount ends. The customer reads this.' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value)) @IsString() @Length(3, 255) reason!: string;
+}
+
 export class DisputeListQuery extends ListQueryDto {
   @ApiPropertyOptional({ description: 'Only disputes still open or under review.' })
   @IsOptional() @Transform(({ value }) => value === true || value === 'true') @IsBoolean() open?: boolean;

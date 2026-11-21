@@ -100,6 +100,18 @@ test.describe('Coupons', () => {
     await page.getByRole('row', { name: /PW-SAVE10/ }).getByRole('button', { name: 'Turn off' }).click();
     await expect(page.getByText('PW-SAVE10 was turned off.')).toBeVisible();
     await expect(page.getByRole('row', { name: /PW-SAVE10/ }).getByText('Off', { exact: true })).toBeVisible();
+
+    // The recurring discount is on the customer's subscription; staff can end it early.
+    await page.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Subscriptions' }).click();
+    await page.getByRole('searchbox', { name: 'Search subscriptions' }).fill('PW Coupon Org');
+    const sub = page.getByRole('row', { name: /PW Coupon Org/ }).first();
+    await expect(sub.getByTestId('discount')).toHaveText('PW-SAVE10: 10% off the next 2 renewals');
+    await sub.getByRole('button', { name: 'End the discount for PW Coupon Org' }).click();
+    const end = page.getByRole('dialog', { name: 'End the PW-SAVE10 discount?' });
+    await end.getByLabel('Reason').fill('The offer was for new customers only.');
+    await end.getByRole('button', { name: 'End discount' }).click();
+    await expect(page.getByText('The PW-SAVE10 discount for PW Coupon Org has ended.')).toBeVisible();
+    await expect(sub.getByTestId('discount')).toHaveCount(0);
     await ctx.close();
   });
 

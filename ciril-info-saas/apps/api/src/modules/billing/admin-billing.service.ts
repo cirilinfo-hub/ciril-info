@@ -328,11 +328,30 @@ export class AdminBillingService {
         select: {
           id: true, status: true, billingCycle: true, currency: true, currentPeriodStart: true, currentPeriodEnd: true, cancelAtPeriodEnd: true, createdAt: true, scheduledPlan: { select: { id: true, name: true } },
           tenant: { select: { id: true, name: true } }, items: { select: { description: true, unitPrice: true, renewalPrice: true } },
+          couponPeriodsLeft: true, coupon: { select: { code: true, discountType: true, discountValue: true } },
         },
       }),
       this.db.subscription.count({ where }),
     ]);
     return page(rows, total, q);
+  }
+
+  /**
+   * Stops a recurring discount on one subscription: renewal invoices issued from now on are full price. A renewal invoice
+   * already issued keeps its discount (void and reissue it if it must change). The customer is told.
+   */
+  async endDiscount(user: AuthUser, subscriptionId: string, reason: string, meta: RequestMeta) {
+    const sub = await this.db.subscription.findUnique({ where: { id: subscriptionId }, select: { id: true, tenantId: true, couponPeriodsLeft: true, coupon: { select: { code: true } } } });
+    if (!sub) throw new NotFoundException({ code: 'SUBSCRIPTION_NOT_FOUND', message: 'Subscription not found.' });
+    if (!sub.coupon || sub.couponPeriodsLeft === 0) throw new ConflictException({ code: 'NO_RECURRING_DISCOUNT', message: 'This subscription has no recurring discount left to end.' });
+    const r = await this.db.subscription.updateMany({ where: { id: subscriptionId, couponPeriodsLeft: sub.couponPeriodsLeft }, data: { couponPeriodsLeft: 0 } });
+    if (r.count === 0) throw new ConflictException({ code: 'SUBSCRIPTION_CHANGED', message: 'This subscription has just changed. Reload the page.' });
+    await this.audit.record({ action: 'subscription.discount_ended', actorId: user.id, tenantId: sub.tenantId, entityType: 'subscription', entityId: subscriptionId, metadata: { code: sub.coupon.code, periodsLeft: sub.couponPeriodsLeft, reason }, meta });
+    const owners = await this.db.tenantMembership.findMany({ where: { tenantId: sub.tenantId, status: 'ACTIVE', role: { key: 'TENANT_OWNER' } }, select: { userId: true } });
+    if (owners.length) {
+      await this.db.notification.createMany({ data: owners.map((o) => ({ userId: o.userId, tenantId: sub.tenantId, type: 'subscription.discount_ended', title: `The ${sub.coupon!.code} discount has ended`, body: `${reason} Future renewals are at the full price.`, link: '/services' })) });
+    }
+    return { id: subscriptionId, couponPeriodsLeft: 0 };
   }
 
   /** Headline billing figures for the dashboard. Money is summed from real invoices; test-mode payments are flagged, not hidden. */

@@ -219,6 +219,22 @@ describe('Coupons (e2e)', () => {
       expect((await renewalOf(sub)).discountTotal.toString()).toBe('0');
     });
 
+    it('staff can end a recurring discount early, and later renewals are full price', async () => {
+      await newCoupon('ENDME', { duration: 'FOREVER' }).expect(201);
+      const sub = await activeWith(code('ENDME'));
+      const end = (token: string, body: object = { reason: 'The launch offer has ended.' }) => http().post(api(`admin/subscriptions/${sub}/end-discount`)).set(auth(token)).send(body);
+      await end(bob.token).expect(403);
+      await end(finance, { reason: '' }).expect(400);
+      const listed = await http().get(api('admin/subscriptions')).set(auth(finance)).expect(200);
+      expect(listed.body.data.find((x: { id: string }) => x.id === sub)).toMatchObject({ couponPeriodsLeft: null, coupon: { code: code('ENDME') } });
+
+      expect((await end(finance).expect(200)).body).toEqual({ id: sub, couponPeriodsLeft: 0 });
+      expect((await end(finance).expect(409)).body.error.code).toBe('NO_RECURRING_DISCOUNT');
+      expect(await db.notification.count({ where: { userId: bob.userId, type: 'subscription.discount_ended', body: { startsWith: 'The launch offer has ended.' } } })).toBe(1);
+      expect(await db.auditLog.count({ where: { action: 'subscription.discount_ended', entityId: sub } })).toBe(1);
+      expect((await renewalOf(sub)).discountTotal.toString()).toBe('0');
+    });
+
     it('a renewal on a plan the coupon does not cover is full price', async () => {
       await newCoupon('MAINONLY', { duration: 'FOREVER', planIds: [planId] }).expect(201);
       const sub = await activeWith(code('MAINONLY'));

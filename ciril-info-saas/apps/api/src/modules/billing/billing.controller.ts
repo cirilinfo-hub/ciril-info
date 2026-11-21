@@ -7,7 +7,7 @@ import { ListQueryDto } from '../../common/http/pagination.js';
 import { CouponDto, CouponPatchDto } from './admin-coupons.dto.js';
 import { AdminCouponsService } from './admin-coupons.service.js';
 import { AdminBillingService } from './admin-billing.service.js';
-import { AdminInvoiceListQuery, AdminSubscriptionListQuery, DisputeListQuery, RecordPaymentDto, RefundDto, TdsCertificateDto, TdsListQuery, VoidInvoiceDto } from './admin-billing.dto.js';
+import { AdminInvoiceListQuery, AdminSubscriptionListQuery, DisputeListQuery, EndDiscountDto, RecordPaymentDto, RefundDto, TdsCertificateDto, TdsListQuery, VoidInvoiceDto } from './admin-billing.dto.js';
 import { DisputesService } from './disputes.service.js';
 import { AutoPayDto, BillingListQuery, CancelSubscriptionDto, ChangePlanDto, ConfirmPaymentDto, OrderDto, PayInvoiceDto, QuoteDto } from './billing.dto.js';
 import { SavedCardsService } from './saved-cards.service.js';
@@ -169,6 +169,10 @@ export class AdminBillingController {
 
   @Get('subscriptions') @RequirePlatform('subscriptions:read')
   subscriptions(@Query() q: AdminSubscriptionListQuery) { return this.svc.listSubscriptions(q); }
+
+  /** Ends a recurring discount on one subscription: later renewals are full price. */
+  @Post('subscriptions/:id/end-discount') @HttpCode(200) @RequirePlatform('billing:write')
+  endDiscount(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: EndDiscountDto, @ReqMeta() meta: RequestMeta) { return this.svc.endDiscount(u, id, dto.reason, meta); }
 }
 
 /** Admin portal: discount codes. Reading needs product access; creating and editing needs pricing access. */

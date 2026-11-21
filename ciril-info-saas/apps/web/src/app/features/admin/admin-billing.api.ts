@@ -73,6 +73,8 @@ export interface AdminSubscriptionRow {
   scheduledPlan: { id: string; name: string } | null;
   tenant: { id: string; name: string };
   items: { description: string; unitPrice: string; renewalPrice: string }[];
+  coupon?: { code: string; discountType: 'PERCENT' | 'FIXED'; discountValue: string } | null;
+  couponPeriodsLeft?: number | null;
 }
 
 export interface BillingSummary {
@@ -145,6 +147,9 @@ export class AdminBillingApi {
   }
   refundInvoice(id: string, body: { amount?: number; reason: string; cancelService?: boolean }) {
     return firstValueFrom(this.http.post<AdminInvoiceDetail>(`${this.base}/invoices/${id}/refunds`, body));
+  }
+  endDiscount(id: string, reason: string) {
+    return firstValueFrom(this.http.post<{ id: string; couponPeriodsLeft: number }>(`${this.base}/subscriptions/${id}/end-discount`, { reason }));
   }
   subscriptions(page: number, status: string, search: string) {
     return firstValueFrom(this.http.get<Paged<AdminSubscriptionRow>>(`${this.base}/subscriptions`, { params: { page, pageSize: 20, ...(status ? { status } : {}), ...(search ? { search } : {}) } }));
