@@ -5,6 +5,7 @@ import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
 import { CurrentTenant, ReqMeta, RequireTenant } from '../auth/decorators.js';
 import { DomainOrderDto, DomainQuoteQuery, RenewDomainDto, TransferOrderDto, TransferQuoteQuery } from './domain-orders.dto.js';
 import { DomainOrdersService } from './domain-orders.service.js';
+import { DomainTransferOutsService } from './domain-transfer-outs.service.js';
 
 const uuid = new ParseUUIDPipe({ version: '4' });
 
@@ -12,7 +13,10 @@ const uuid = new ParseUUIDPipe({ version: '4' });
 @ApiTags('domains')
 @Controller('domains')
 export class DomainOrdersController {
-  constructor(private readonly svc: DomainOrdersService) {}
+  constructor(
+    private readonly svc: DomainOrdersService,
+    private readonly outs: DomainTransferOutsService,
+  ) {}
 
   @Get() @RequireTenant('services:read')
   list(@CurrentTenant() ctx: TenantContext) { return this.svc.list(ctx); }
@@ -39,6 +43,16 @@ export class DomainOrdersController {
 
   @Post('renewals/:id/cancel') @HttpCode(200) @RequireTenant('services:manage')
   cancelRenewal(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.svc.cancelRenewal(ctx, id, meta); }
+
+  /** Move the domain to another registrar: it is unlocked and its authorisation code issued. */
+  @Post(':id/transfer-out') @HttpCode(201) @Throttle({ default: { limit: 5, ttl: 60_000 } }) @RequireTenant('services:manage')
+  transferOut(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.outs.request(ctx, id, meta); }
+
+  @Get(':id/transfer-out/code') @Throttle({ default: { limit: 10, ttl: 60_000 } }) @RequireTenant('services:manage')
+  transferOutCode(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.outs.code(ctx, id, meta); }
+
+  @Post(':id/transfer-out/cancel') @HttpCode(200) @RequireTenant('services:manage')
+  cancelTransferOut(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.outs.cancel(ctx, id, meta); }
 
   @Post(':id/cancel') @HttpCode(200) @RequireTenant('services:manage')
   cancel(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.svc.cancel(ctx, id, meta); }

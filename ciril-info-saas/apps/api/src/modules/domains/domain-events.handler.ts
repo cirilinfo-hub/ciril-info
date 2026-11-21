@@ -20,6 +20,8 @@ export class DomainEventsHandler {
   async handle(type: string, payload: unknown, opts: { final: boolean } = { final: true }): Promise<boolean> {
     if (type === 'domain.renewal_requested') return this.renewal(payload, opts.final);
     if (type === 'domain.transfer_requested') return this.transfer(payload, opts.final);
+    if (type === 'domain.transfer_out_requested') return this.transferOut(payload, opts.final);
+    if (type === 'domain.transfer_out_cancelled') return this.transferOutCancelled(payload, opts.final);
     if (type !== 'domain.registration_requested') return false;
     const domainId = (payload as { domainId?: string } | null)?.domainId;
     if (!domainId) return false;
@@ -45,6 +47,36 @@ export class DomainEventsHandler {
     await this.staff.notify('domains:write', {
       type: 'domain.task', title: `Transfer in ${t.domain.name}`.slice(0, 190),
       body: why ? `The registrar could not start the transfer: ${why} Fix the cause and try again from Domains, or start it by hand.` : 'Paid. Start the transfer at your registrar with the authorisation code (open the domain to see it), then mark it started and finally transferred.',
+      link: '/domains',
+    });
+    return true;
+  }
+
+  private async transferOut(payload: unknown, final: boolean): Promise<boolean> {
+    const transferOutId = (payload as { transferOutId?: string } | null)?.transferOutId;
+    if (!transferOutId) return false;
+    const t = await this.db.domainTransferOut.findUnique({ where: { id: transferOutId }, select: { status: true, domain: { select: { name: true } } } });
+    if (!t || t.status !== 'REQUESTED') return true; // already dealt with, or withdrawn
+    const why = await this.tryRegistrar(() => this.automation.releaseOut(transferOutId, { final }));
+    if (why === null) return true;
+    await this.staff.notify('domains:write', {
+      type: 'domain.task', title: `Release ${t.domain.name} for transfer`.slice(0, 190),
+      body: why ? `The registrar could not release it: ${why} Fix the cause and try again from Domains, or unlock it by hand and enter its code.` : 'The customer wants to move it to another registrar. Unlock it at the registrar, get its authorisation code and enter it in Domains.',
+      link: '/domains',
+    });
+    return true;
+  }
+
+  private async transferOutCancelled(payload: unknown, final: boolean): Promise<boolean> {
+    const transferOutId = (payload as { transferOutId?: string } | null)?.transferOutId;
+    if (!transferOutId) return false;
+    const t = await this.db.domainTransferOut.findUnique({ where: { id: transferOutId }, select: { status: true, domain: { select: { name: true, status: true } } } });
+    if (!t || t.status !== 'CANCELLED' || t.domain.status !== 'ACTIVE') return true;
+    const why = await this.tryRegistrar(() => this.automation.relock(transferOutId, { final }));
+    if (why === null) return true;
+    await this.staff.notify('domains:write', {
+      type: 'domain.task', title: `Lock ${t.domain.name} again`.slice(0, 190),
+      body: why ? `The customer withdrew the transfer, but the registrar could not lock the domain: ${why} Lock it by hand at the registrar.` : 'The customer withdrew the transfer to another registrar. Lock the domain again at the registrar.',
       link: '/domains',
     });
     return true;

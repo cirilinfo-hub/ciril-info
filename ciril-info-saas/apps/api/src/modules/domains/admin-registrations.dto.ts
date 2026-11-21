@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsDate, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsDate, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import { ListQueryDto } from '../../common/http/pagination.js';
 
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
@@ -23,4 +23,10 @@ export class CompleteRegistrationDto {
 export class CannotRegisterDto {
   @ApiPropertyOptional({ description: 'Shown to the customer.' })
   @Transform(trim) @IsString() @MinLength(3, { message: 'Say why, so the customer is told.' }) @MaxLength(200) reason!: string;
+}
+
+/** The authorisation code staff got from the registrar after unlocking the domain. */
+export class TransferOutCodeDto {
+  @ApiPropertyOptional({ description: 'Shown to the customer only, on request. Stored encrypted.' })
+  @Transform(trim) @IsString() @Matches(/^[!-~]{6,128}$/, { message: 'Enter the code exactly as the registrar shows it: 6 to 128 characters, no spaces.' }) authCode!: string;
 }

@@ -12,6 +12,7 @@ import { MailService } from '../mail/mail.service.js';
 import type { AdminRegistrationListQuery, CompleteRegistrationDto } from './admin-registrations.dto.js';
 import { addYears } from './domain-rules.js';
 import { LIVE_TRANSFER } from './domain-orders.service.js';
+import { LIVE_TRANSFER_OUT } from './domain-transfer-outs.service.js';
 import { DOMAIN_SECRET_BOX } from './secret-box.js';
 
 const select = {
@@ -21,6 +22,7 @@ const select = {
   reminderStage: true,
   transfers: { where: { status: { in: LIVE_TRANSFER } }, take: 1, select: { id: true, status: true, failureReason: true, invoice: { select: { id: true, number: true, status: true, total: true } } } },
   renewals: { where: { status: 'PENDING' as const }, take: 1, select: { id: true, years: true, requestedAt: true, failureReason: true, invoice: { select: { id: true, number: true, status: true, total: true } } } },
+  transferOuts: { where: { status: { in: LIVE_TRANSFER_OUT } }, take: 1, select: { id: true, status: true, requestedAt: true, releasedAt: true, failureReason: true } },
 } as const;
 
 /**
@@ -44,7 +46,7 @@ export class AdminRegistrationsService {
   async list(q: AdminRegistrationListQuery) {
     const where: Prisma.DomainWhereInput = {
       ...(q.status ? { status: q.status } : {}),
-      ...(q.needsAction ? { OR: [{ status: 'PENDING_REGISTRATION' as const, orderInvoice: { status: 'PAID' as const } }, { renewals: { some: { status: 'PENDING' as const, invoice: { status: 'PAID' as const } } } }, { status: 'PENDING_TRANSFER' as const, transfers: { some: { status: { in: ['REQUESTED' as const, 'IN_PROGRESS' as const] }, invoice: { status: 'PAID' as const } } } }] } : {}),
+      ...(q.needsAction ? { OR: [{ status: 'PENDING_REGISTRATION' as const, orderInvoice: { status: 'PAID' as const } }, { renewals: { some: { status: 'PENDING' as const, invoice: { status: 'PAID' as const } } } }, { status: 'PENDING_TRANSFER' as const, transfers: { some: { status: { in: ['REQUESTED' as const, 'IN_PROGRESS' as const] }, invoice: { status: 'PAID' as const } } } }, { transferOuts: { some: { status: 'REQUESTED' as const } } }] } : {}),
       ...(q.search ? { AND: [{ OR: [{ name: { contains: q.search, mode: 'insensitive' } }, { tenant: { name: { contains: q.search, mode: 'insensitive' } } }] }] } : {}),
     };
     const [rows, total] = await Promise.all([
@@ -199,6 +201,65 @@ export class AdminRegistrationsService {
     await this.audit.record({ action: 'domain.renewal_failed', actorId: actor?.id ?? null, tenantId: d.tenant.id, entityType: 'domain', entityId: id, metadata: { name: d.name, reason }, meta });
     await this.tellRenewal(d.tenant.id, { type: 'domain.renewal_failed', title: `We could not renew ${d.name}`, body: `${reason} We will refund your payment.`, link: '/domains' });
     return this.db.domain.findUniqueOrThrow({ where: { id }, select });
+  }
+
+  /** A transfer away still going, or the precise reason there is none. */
+  private async transferOutWaiting(id: string, statuses: ('REQUESTED' | 'RELEASED')[]) {
+    const d = await this.db.domain.findUnique({ where: { id }, select });
+    if (!d) throw new NotFoundException({ code: 'DOMAIN_NOT_FOUND', message: 'Domain not found.' });
+    const t = d.transferOuts[0];
+    if (!t || !(statuses as string[]).includes(t.status)) throw new ConflictException({ code: 'TRANSFER_OUT_NOT_WAITING', message: statuses.length === 1 && statuses[0] === 'REQUESTED' ? 'This domain has no transfer away waiting to be released.' : 'This domain has no transfer away going.' });
+    return { d, t };
+  }
+
+  /** The domain is unlocked at the registrar and its code is known: the customer is told the code is ready (never sent it). */
+  async releaseTransferOut(actor: { id: string } | null, id: string, authCode: string, meta?: RequestMeta) {
+    const { d, t } = await this.transferOutWaiting(id, ['REQUESTED']);
+    const now = new Date();
+    await this.db.$transaction(async (tx) => {
+      const r = await tx.domainTransferOut.updateMany({ where: { id: t.id, status: 'REQUESTED' }, data: { status: 'RELEASED', releasedAt: now, failureReason: null, authCodeEnc: this.box.encrypt(authCode, `transfer-out:${t.id}`) } });
+      if (r.count === 0) throw new ConflictException({ code: 'TRANSFER_OUT_NOT_WAITING', message: 'This domain has no transfer away waiting to be released.' });
+      await tx.domain.update({ where: { id }, data: { locked: false } });
+    });
+    await this.audit.record({ action: 'domain.transfer_out_released', actorId: actor?.id ?? null, tenantId: d.tenant.id, entityType: 'domain', entityId: id, metadata: { name: d.name }, meta });
+    await this.tellOwners(d.tenant.id, { type: 'domain.transfer_code', title: `The transfer code for ${d.name} is ready`, body: 'Open Domains to see it, then give it to your new registrar.', link: '/domains' }, { template: 'domain-transfer-code', domain: d.name });
+    return this.one(id);
+  }
+
+  /** The domain has left for its new registrar. Waiting renewals are closed (unpaid invoices voided) and the code is deleted. */
+  async completeTransferOut(actor: { id: string } | null, id: string, meta?: RequestMeta) {
+    const { d, t } = await this.transferOutWaiting(id, ['REQUESTED', 'RELEASED']);
+    const now = new Date();
+    await this.db.$transaction(async (tx) => {
+      const r = await tx.domainTransferOut.updateMany({ where: { id: t.id, status: { in: ['REQUESTED', 'RELEASED'] } }, data: { status: 'COMPLETED', completedAt: now, authCodeEnc: null } });
+      if (r.count === 0) throw new ConflictException({ code: 'TRANSFER_OUT_NOT_WAITING', message: 'This domain has no transfer away going.' });
+      await tx.domain.update({ where: { id }, data: { status: 'TRANSFERRED_OUT', locked: false } });
+      const pending = await tx.domainRenewal.findMany({ where: { domainId: id, status: 'PENDING' }, select: { id: true, invoiceId: true, invoice: { select: { status: true } } } });
+      for (const p of pending) {
+        await tx.domainRenewal.update({ where: { id: p.id }, data: { status: 'CANCELLED', failureReason: 'The domain was transferred to another registrar.' } });
+        if (['ISSUED', 'OVERDUE'].includes(p.invoice.status)) await tx.invoice.update({ where: { id: p.invoiceId }, data: { status: 'VOID', voidedAt: now } });
+      }
+    });
+    await this.audit.record({ action: 'domain.transferred_out', actorId: actor?.id ?? null, tenantId: d.tenant.id, entityType: 'domain', entityId: id, metadata: { name: d.name }, meta });
+    await this.tellOwners(d.tenant.id, { type: 'domain.transferred_out', title: `${d.name} has moved to its new registrar`, body: 'Your new registrar now manages it.', link: '/domains' }, { template: 'domain-transferred-out', domain: d.name });
+    return this.one(id);
+  }
+
+  /** Staff cannot release the domain (for example it is locked by the registry, or the request looks fraudulent). The customer is told why. */
+  async declineTransferOut(actor: { id: string } | null, id: string, reason: string, meta?: RequestMeta) {
+    const { d, t } = await this.transferOutWaiting(id, ['REQUESTED']);
+    const r = await this.db.domainTransferOut.updateMany({ where: { id: t.id, status: 'REQUESTED' }, data: { status: 'CANCELLED', failureReason: reason.slice(0, 255) } });
+    if (r.count === 0) throw new ConflictException({ code: 'TRANSFER_OUT_NOT_WAITING', message: 'This domain has no transfer away waiting to be released.' });
+    await this.audit.record({ action: 'domain.transfer_out_declined', actorId: actor?.id ?? null, tenantId: d.tenant.id, entityType: 'domain', entityId: id, metadata: { name: d.name, reason }, meta });
+    await this.tellOwners(d.tenant.id, { type: 'domain.transfer_out_declined', title: `We could not release ${d.name} for transfer`, body: reason, link: '/domains' });
+    return this.one(id);
+  }
+
+  private async tellOwners(tenantId: string, n: { type: string; title: string; body: string; link: string }, email?: { template: 'domain-transfer-code' | 'domain-transferred-out'; domain: string }) {
+    const owners = await this.db.tenantMembership.findMany({ where: { tenantId, status: 'ACTIVE', role: { key: 'TENANT_OWNER' } }, select: { user: { select: { id: true, email: true } } } });
+    if (!owners.length) return;
+    await this.db.notification.createMany({ data: owners.map((o) => ({ userId: o.user.id, tenantId, type: n.type, title: n.title, body: n.body, link: n.link })) });
+    if (email) for (const o of owners) await this.mail.enqueue({ template: email.template, to: o.user.email, data: { domain: email.domain, link: `${this.portalUrl}/domains` } }, undefined, tenantId);
   }
 
   private async tellRenewal(tenantId: string, n: { type: string; title: string; body: string; link: string }, email?: { template: 'domain-renewed'; domain: string; expiresOn: string }) {

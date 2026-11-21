@@ -235,4 +235,36 @@ describe('Domain registrar: GoDaddy (e2e)', () => {
     expect(after.failureReason).toContain('authorization code is not valid');
     expect((await tasks(name('wrong')))[0]!.body).toContain('could not start the transfer');
   });
+
+  it('releases a domain for transfer away at GoDaddy, and records it gone once it leaves', async () => {
+    const d = await db.domain.create({ data: { tenantId: alice.tenantId, name: name('leave'), tld, status: 'ACTIVE', registeredAt: new Date(Date.now() - 400 * 86_400_000), expiresAt: new Date(Date.now() + 100 * 86_400_000) } });
+    gd.owned.set(name('leave'), { domainId: 5150, status: 'ACTIVE', expires: d.expiresAt!, authCode: 'GD-Auth-777' });
+    await http().post(api(`domains/${d.id}/transfer-out`)).set(auth(alice.token)).send({}).expect(201);
+    const t = await db.domainTransferOut.findFirstOrThrow({ where: { domainId: d.id } });
+    await events.handle('domain.transfer_out_requested', { transferOutId: t.id }, { final: false });
+    expect(gd.called('PATCH', `/v1/domains/${name('leave')}`)[0]!.body).toEqual({ locked: false });
+    expect(gd.owned.get(name('leave'))!.locked).toBe(false);
+    expect((await db.domainTransferOut.findUniqueOrThrow({ where: { id: t.id } })).status).toBe('RELEASED');
+    expect((await http().get(api(`domains/${d.id}/transfer-out/code`)).set(auth(alice.token)).expect(200)).body).toEqual({ authCode: 'GD-Auth-777' });
+    expect(await tasks(name('leave'))).toHaveLength(0);
+
+    expect(await automation.syncTransfers()).toBe(0); // still here
+    gd.transferAway(name('leave'));
+    expect(await automation.syncTransfers()).toBeGreaterThanOrEqual(1);
+    expect((await row(name('leave'))).status).toBe('TRANSFERRED_OUT');
+    expect((await db.domainTransferOut.findUniqueOrThrow({ where: { id: t.id } }))).toMatchObject({ status: 'COMPLETED', authCodeEnc: null });
+  });
+
+  it('locks a domain again at GoDaddy when the transfer away is withdrawn', async () => {
+    const d = await db.domain.create({ data: { tenantId: alice.tenantId, name: name('stay'), tld, status: 'ACTIVE', registeredAt: new Date(Date.now() - 400 * 86_400_000), expiresAt: new Date(Date.now() + 100 * 86_400_000) } });
+    gd.owned.set(name('stay'), { domainId: 5151, status: 'ACTIVE', expires: d.expiresAt! });
+    await http().post(api(`domains/${d.id}/transfer-out`)).set(auth(alice.token)).send({}).expect(201);
+    const t = await db.domainTransferOut.findFirstOrThrow({ where: { domainId: d.id } });
+    await events.handle('domain.transfer_out_requested', { transferOutId: t.id }, { final: false });
+    await http().post(api(`domains/${d.id}/transfer-out/cancel`)).set(auth(alice.token)).send({}).expect(200);
+    await events.handle('domain.transfer_out_cancelled', { transferOutId: t.id }, { final: false });
+    expect(gd.owned.get(name('stay'))!.locked).toBe(true);
+    expect((await row(name('stay'))).locked).toBe(true);
+    expect(await tasks(name('stay'))).toHaveLength(0);
+  });
 });

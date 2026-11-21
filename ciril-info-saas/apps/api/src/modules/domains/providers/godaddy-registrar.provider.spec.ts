@@ -131,6 +131,18 @@ describe('GoDaddyRegistrarProvider', () => {
       expect(await p.automation.info('notours.com')).toBeNull();
     });
 
+    it('releases a domain for transfer away (unlock, then the code), locks it again, and sees it gone', async () => {
+      gd.owned.set('away.com', { domainId: 9, status: 'ACTIVE', expires: new Date('2027-01-01'), authCode: 'Code-Away-1' });
+      const p = make();
+      expect(await p.automation.releaseForTransfer('away.com')).toEqual({ authCode: 'Code-Away-1' });
+      expect(gd.called('PATCH', '/v1/domains/away.com')[0]!.body).toEqual({ locked: false });
+      await p.automation.lock('away.com');
+      expect(gd.owned.get('away.com')!.locked).toBe(true);
+      await expect(p.automation.releaseForTransfer('notmine.com')).rejects.toMatchObject({ code: 'NOT_IN_ACCOUNT', retryable: false });
+      gd.transferAway('away.com');
+      expect((await p.automation.info('away.com'))!.state).toBe('GONE');
+    });
+
     it('handles names under a second-level ending', async () => {
       await make().automation.register({ domain: 'shop.co.in', years: 1, registrant: person, consent });
       expect(gd.called('GET', '/v1/domains/agreements?tlds=co.in&')).toHaveLength(1);

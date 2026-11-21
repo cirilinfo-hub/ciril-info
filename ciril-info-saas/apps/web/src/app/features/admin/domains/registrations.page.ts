@@ -40,7 +40,7 @@ const FILTERS = [
       @if (canWrite()) { <a class="cf-btn cf-btn-secondary" [routerLink]="auth.link('/domain-prices')">Domain prices</a> }
     </ci-page-head>
     @if (toast(); as t) { <div class="cf-alert cf-alert-success" role="status"><ci-icon name="check-circle" /><span>{{ t }}</span></div> }
-    @if (error() && !doneFor() && !cannotFor() && !codeFor(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ error() }}</span></div> }
+    @if (error() && !doneFor() && !cannotFor() && !codeFor() && !releaseFor() && !declineOutFor() && !goneFor(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ error() }}</span></div> }
 
     <div class="bar">
       <div class="search">
@@ -71,8 +71,16 @@ const FILTERS = [
               </td>
               <td>{{ d.expiresAt ? (d.expiresAt | date: 'd MMM y') : '—' }}</td>
               <td class="row-actions">
-                @if (canWrite() && automated() && (waiting(d) || transferWaiting(d) || renewalWaiting(d))) {
+                @if (canWrite() && automated() && (waiting(d) || transferWaiting(d) || renewalWaiting(d) || d.transferOuts?.length)) {
                   <button type="button" class="cf-btn cf-btn-secondary cf-btn-sm" [disabled]="busy()" (click)="retry(d)" [attr.aria-label]="(d.transfers[0]?.status === 'IN_PROGRESS' ? 'Check the transfer of ' : 'Try ') + d.name + (d.transfers[0]?.status === 'IN_PROGRESS' ? ' now' : ' at the registrar again')">{{ d.transfers[0]?.status === 'IN_PROGRESS' ? 'Check now' : 'Try at registrar' }}</button>
+                }
+                @if (canWrite() && d.transferOuts?.[0]; as out) {
+                  @if (out.status === 'REQUESTED') {
+                    <button type="button" class="cf-btn cf-btn-primary cf-btn-sm" [disabled]="busy()" (click)="openRelease(d)" [attr.aria-label]="'Enter the transfer code for ' + d.name">Enter code</button>
+                    <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="openDeclineOut(d)" [attr.aria-label]="'Cannot release ' + d.name">Can't release</button>
+                  } @else {
+                    <button type="button" class="cf-btn cf-btn-primary cf-btn-sm" [disabled]="busy()" (click)="goneFor.set(d)" [attr.aria-label]="'Mark ' + d.name + ' transferred away'">Mark transferred away</button>
+                  }
                 }
                 @if (canWrite() && waiting(d)) {
                   <button type="button" class="cf-btn cf-btn-primary cf-btn-sm" [disabled]="busy()" (click)="openDone(d, false)" [attr.aria-label]="'Mark ' + d.name + ' registered'">Mark registered</button>
@@ -120,6 +128,46 @@ const FILTERS = [
           @if (c.d.transfers[0]?.status === 'REQUESTED') {
             <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy() || !c.code" (click)="started(c.d)">{{ busy() ? 'Saving…' : 'I started it at the registrar' }}</button>
           }
+        </ng-container>
+      </ci-dialog>
+    }
+
+    @if (releaseFor(); as d) {
+      <ci-dialog [heading]="'Release ' + d.name + ' for transfer'" description="Unlock the domain at the registrar, then enter its authorisation code. The customer is emailed that the code is ready and reads it in their client area." icon="key" size="md" [dismissable]="false" (closed)="releaseFor.set(null)">
+        <form id="release-form" [formGroup]="releaseForm" (ngSubmit)="release(d)" novalidate>
+          @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+          <ci-field label="Authorisation code" for="o-code" [control]="releaseForm.controls.authCode" [required]="true" errorLabel="the code exactly as the registrar shows it" hint="Stored encrypted. Only the customer sees it.">
+            <input id="o-code" class="cf-input" autocomplete="off" formControlName="authCode" [attr.aria-describedby]="describedBy('o-code', releaseForm.controls.authCode, true)" />
+          </ci-field>
+        </form>
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="releaseFor.set(null)">Cancel</button>
+          <button type="submit" form="release-form" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Saving…' : 'Release for transfer' }}</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
+    @if (declineOutFor(); as d) {
+      <ci-dialog [heading]="'Cannot release ' + d.name" [description]="'The transfer request for ' + d.name + ' is closed and the customer is told why. The domain stays locked.'" icon="warning" tone="danger" [dismissable]="false" (closed)="declineOutFor.set(null)">
+        <form id="decline-out-form" [formGroup]="cannotForm" (ngSubmit)="declineOut(d)" novalidate>
+          @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+          <ci-field label="Reason" for="o-reason" [control]="cannotForm.controls.reason" [required]="true" errorLabel="why it cannot be released" hint="The customer reads this.">
+            <input id="o-reason" class="cf-input" autocomplete="off" formControlName="reason" [attr.aria-describedby]="describedBy('o-reason', cannotForm.controls.reason, true)" />
+          </ci-field>
+        </form>
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="declineOutFor.set(null)">Cancel</button>
+          <button type="submit" form="decline-out-form" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Saving…' : 'Close request' }}</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
+    @if (goneFor(); as d) {
+      <ci-dialog [heading]="'Mark ' + d.name + ' transferred away?'" description="Only once the domain has left your registrar account. The customer is told, the stored code is deleted, and any unpaid renewal invoice is voided." icon="swap" size="md" [dismissable]="false" (closed)="goneFor.set(null)">
+        @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="goneFor.set(null)">Cancel</button>
+          <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy()" (click)="gone(d)">{{ busy() ? 'Saving…' : 'Mark transferred away' }}</button>
         </ng-container>
       </ci-dialog>
     }
@@ -181,6 +229,10 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
   protected readonly cannotTransfer = signal(false);
   /** A registrar places paid orders by itself; staff only step in when it refuses. */
   protected readonly automated = signal(false);
+  protected readonly releaseFor = signal<AdminRegistration | null>(null);
+  protected readonly declineOutFor = signal<AdminRegistration | null>(null);
+  protected readonly goneFor = signal<AdminRegistration | null>(null);
+  protected readonly releaseForm = inject(NonNullableFormBuilder).group({ authCode: ['', [Validators.required, Validators.pattern(/^[!-~]{6,128}$/)]] });
   protected readonly codeFor = signal<{ d: AdminRegistration; code: string | null } | null>(null);
   protected readonly copied = signal(false);
   protected readonly doneForm = inject(NonNullableFormBuilder).group({ expiresAt: ['', [Validators.required]], registrarRef: ['', [Validators.maxLength(120)]] });
@@ -197,7 +249,53 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
     if (this.waiting(d)) return d.failureReason;
     if (this.transferWaiting(d)) return d.transfers[0]!.failureReason;
     if (this.renewalWaiting(d)) return d.renewals[0]!.failureReason;
+    if (d.transferOuts?.[0]?.status === 'REQUESTED') return d.transferOuts[0].failureReason;
     return null;
+  }
+
+  protected openRelease(d: AdminRegistration) {
+    this.error.set(null);
+    this.releaseForm.reset({ authCode: '' });
+    this.releaseFor.set(d);
+  }
+
+  protected openDeclineOut(d: AdminRegistration) {
+    this.error.set(null);
+    this.cannotForm.reset({ reason: '' });
+    this.declineOutFor.set(d);
+  }
+
+  protected async release(d: AdminRegistration) {
+    this.releaseForm.markAllAsTouched();
+    if (this.releaseForm.invalid) return;
+    const code = this.releaseForm.getRawValue().authCode.trim();
+    const ok = await this.run(async () => void (await this.api.releaseTransferOut(d.id, code)));
+    if (ok) {
+      this.releaseFor.set(null);
+      this.toast.set(`${d.name} is released for transfer. The customer has been emailed that the code is ready.`);
+      await this.load();
+    }
+  }
+
+  protected async declineOut(d: AdminRegistration) {
+    this.cannotForm.markAllAsTouched();
+    if (this.cannotForm.invalid) return;
+    const reason = this.cannotForm.getRawValue().reason.trim();
+    const ok = await this.run(async () => void (await this.api.declineTransferOut(d.id, reason)));
+    if (ok) {
+      this.declineOutFor.set(null);
+      this.toast.set(`The transfer request for ${d.name} is closed. The customer has been told.`);
+      await this.load();
+    }
+  }
+
+  protected async gone(d: AdminRegistration) {
+    const ok = await this.run(async () => void (await this.api.completeTransferOut(d.id)));
+    if (ok) {
+      this.goneFor.set(null);
+      this.toast.set(`${d.name} is marked transferred away. The customer has been told.`);
+      await this.load();
+    }
   }
 
   protected async retry(d: AdminRegistration) {
@@ -237,8 +335,11 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
   }
 
   protected label(d: AdminRegistration) {
+    const out = d.transferOuts?.[0];
+    if (out) return out.status === 'REQUESTED' ? { text: 'Transfer away asked for', cls: 'cf-badge-warning' } : { text: 'Released for transfer', cls: 'cf-badge-info' };
     switch (d.status) {
       case 'ACTIVE': return { text: 'Active', cls: 'cf-badge-success' };
+      case 'TRANSFERRED_OUT': return { text: 'Transferred away', cls: 'cf-badge-neutral' };
       case 'FAILED': return { text: 'Not registered', cls: 'cf-badge-danger' };
       case 'CANCELLED': return { text: 'Cancelled', cls: 'cf-badge-neutral' };
       case 'EXPIRED': return { text: 'Expired', cls: 'cf-badge-neutral' };

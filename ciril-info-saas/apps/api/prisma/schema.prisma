@@ -147,6 +147,13 @@ enum DnsRecordType {
   CAA
 }
 
+enum TransferOutStatus {
+  REQUESTED
+  RELEASED
+  COMPLETED
+  CANCELLED
+}
+
 enum TransferStatus {
   REQUESTED
   PENDING_AUTH
@@ -315,6 +322,7 @@ model Tenant {
   provisioningJobs    ProvisioningJob[]
   domains             Domain[]
   domainRenewals      DomainRenewal[]
+  domainTransferOuts  DomainTransferOut[]
   tdsDeductions       TdsDeduction[]
   dnsRecords          DnsRecord[]
   domainTransfers     DomainTransfer[]
@@ -845,6 +853,30 @@ model DomainRenewal {
   @@map("domain_renewals")
 }
 
+/// Moving a domain away to another registrar. REQUESTED: waiting for the domain to be unlocked and its code issued. RELEASED:
+/// the customer has the code and starts the transfer at the new registrar. It ends COMPLETED when the domain leaves, or
+/// CANCELLED. One live request per domain (partial unique index in the migration).
+model DomainTransferOut {
+  id            String            @id @default(uuid()) @db.Uuid
+  tenantId      String            @map("tenant_id") @db.Uuid
+  domainId      String            @map("domain_id") @db.Uuid
+  status        TransferOutStatus @default(REQUESTED)
+  /// The authorisation code, encrypted. Shown only to the customer, on request; deleted when the request ends.
+  authCodeEnc   String?           @map("auth_code_enc")
+  failureReason String?           @map("failure_reason") @db.VarChar(255)
+  requestedAt   DateTime          @default(now()) @map("requested_at") @db.Timestamptz(3)
+  releasedAt    DateTime?         @map("released_at") @db.Timestamptz(3)
+  completedAt   DateTime?         @map("completed_at") @db.Timestamptz(3)
+  updatedAt     DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  domain Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("domain_transfer_outs")
+}
+
 /// Tax a business customer deducted at source (TDS) instead of paying it to us. It counts towards paying the invoice, but it is
 /// not money we received, so it can never be refunded by us. The customer owes us the TDS certificate (Form 16A).
 model TdsDeduction {
@@ -916,6 +948,7 @@ model Domain {
 
   tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   renewals     DomainRenewal[]
+  transferOuts DomainTransferOut[]
   subscription Subscription?    @relation(fields: [subscriptionId], references: [id])
   registrar    DomainRegistrar? @relation(fields: [registrarId], references: [id])
   orderInvoice Invoice?         @relation("DomainOrderInvoice", fields: [orderInvoiceId], references: [id])

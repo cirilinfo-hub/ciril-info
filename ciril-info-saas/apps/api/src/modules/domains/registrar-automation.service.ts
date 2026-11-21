@@ -108,6 +108,33 @@ export class RegistrarAutomationService {
     }, (reason) => this.db.domainTransfer.updateMany({ where: { id: transferId, status: 'REQUESTED' }, data: { failureReason: reason } }));
   }
 
+  /** A customer asked to move a domain away: it is unlocked at the registrar and its code stored for them. */
+  async releaseOut(transferOutId: string, opts: AutomationOptions): Promise<AutomationOutcome> {
+    const auto = this.gateway.provider.automation;
+    if (!auto) return { result: 'manual', reason: 'No registrar is connected.' };
+    const t = await this.db.domainTransferOut.findUnique({ where: { id: transferOutId }, select: { status: true, domain: { select: { id: true, name: true } } } });
+    if (!t || t.status !== 'REQUESTED') return { result: 'skipped' };
+    return this.attempt(opts, async () => {
+      const { authCode } = await auto.releaseForTransfer(t.domain.name);
+      await this.admin.releaseTransferOut(opts.actor ?? null, t.domain.id, authCode, opts.meta);
+      return { result: 'done' };
+    }, (reason) => this.db.domainTransferOut.updateMany({ where: { id: transferOutId, status: 'REQUESTED' }, data: { failureReason: reason } }));
+  }
+
+  /** A transfer away was withdrawn after the domain was unlocked: it is locked again, unless another request has since started. */
+  async relock(transferOutId: string, opts: AutomationOptions): Promise<AutomationOutcome> {
+    const auto = this.gateway.provider.automation;
+    if (!auto) return { result: 'manual', reason: 'No registrar is connected.' };
+    const t = await this.db.domainTransferOut.findUnique({ where: { id: transferOutId }, select: { status: true, domain: { select: { id: true, name: true, status: true } } } });
+    if (!t || t.status !== 'CANCELLED' || t.domain.status !== 'ACTIVE') return { result: 'skipped' };
+    if (await this.db.domainTransferOut.count({ where: { domainId: t.domain.id, status: { in: ['REQUESTED', 'RELEASED'] } } })) return { result: 'skipped' };
+    return this.attempt(opts, async () => {
+      await auto.lock(t.domain.name);
+      await this.db.domain.update({ where: { id: t.domain.id }, data: { locked: true } });
+      return { result: 'done' };
+    }, async () => undefined);
+  }
+
   /** Transfers under way at the registrar that have arrived are recorded as done. Run by the worker every few minutes. */
   async syncTransfers(limit = 50): Promise<number> {
     if (!this.automated) return 0;
@@ -122,7 +149,25 @@ export class RegistrarAutomationService {
         this.log.warn(`Transfer check for ${t.domain.name} failed: ${(e as Error).message}`);
       }
     }
+    // Domains released to move away: done once the registrar account no longer holds them.
+    const leaving = await this.db.domainTransferOut.findMany({ where: { status: 'RELEASED' }, take: limit, orderBy: { updatedAt: 'asc' }, select: { id: true, domain: { select: { id: true, name: true } } } });
+    for (const t of leaving) {
+      try {
+        await this.db.domainTransferOut.update({ where: { id: t.id }, data: { updatedAt: new Date() } });
+        if (await this.left(t.domain.id, t.domain.name, null)) done++;
+      } catch (e) {
+        this.log.warn(`Transfer-away check for ${t.domain.name} failed: ${(e as Error).message}`);
+      }
+    }
     return done;
+  }
+
+  /** Whether a domain released for transfer has left our registrar account; if so it is recorded as transferred out. */
+  private async left(domainId: string, name: string, actor: { id: string } | null, meta?: RequestMeta): Promise<boolean> {
+    const held = await this.gateway.provider.automation!.info(name);
+    if (held && held.state !== 'GONE') return false;
+    await this.admin.completeTransferOut(actor, domainId, meta);
+    return true;
   }
 
   /** Whether a transfer under way has reached our registrar account; if so it is recorded as done. */
@@ -141,13 +186,26 @@ export class RegistrarAutomationService {
     if (!this.automated) throw new ConflictException({ code: 'NO_REGISTRAR', message: 'No registrar is connected, so this has to be done by hand.' });
     const d = await this.db.domain.findUnique({
       where: { id: domainId },
-      select: { name: true, status: true, renewals: { where: { status: 'PENDING' }, take: 1, select: { id: true } }, transfers: { where: { status: { in: ['REQUESTED', 'IN_PROGRESS'] } }, take: 1, select: { id: true, status: true } } },
+      select: {
+        name: true, status: true, renewals: { where: { status: 'PENDING' }, take: 1, select: { id: true } },
+        transfers: { where: { status: { in: ['REQUESTED', 'IN_PROGRESS'] } }, take: 1, select: { id: true, status: true } },
+        transferOuts: { where: { status: { in: ['REQUESTED', 'RELEASED'] } }, take: 1, select: { id: true, status: true } },
+      },
     });
     if (!d) throw new NotFoundException({ code: 'DOMAIN_NOT_FOUND', message: 'Domain not found.' });
     const opts: AutomationOptions = { final: true, actor, meta };
     const t = d.transfers[0];
+    const out = d.transferOuts[0];
     let outcome: AutomationOutcome;
-    if (d.status === 'PENDING_REGISTRATION') outcome = await this.register(domainId, opts);
+    if (out?.status === 'REQUESTED') outcome = await this.releaseOut(out.id, opts);
+    else if (out?.status === 'RELEASED') {
+      try {
+        outcome = (await this.left(domainId, d.name, actor, meta)) ? { result: 'done' } : { result: 'started' };
+      } catch (e) {
+        if (!(e instanceof RegistrarError)) throw e;
+        outcome = { result: 'manual', reason: e.message };
+      }
+    } else if (d.status === 'PENDING_REGISTRATION') outcome = await this.register(domainId, opts);
     else if (t?.status === 'REQUESTED') outcome = await this.transfer(t.id, opts);
     else if (t?.status === 'IN_PROGRESS') {
       try {

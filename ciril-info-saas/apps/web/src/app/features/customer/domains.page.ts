@@ -35,6 +35,7 @@ const YEARS = [1, 2, 3, 4, 5];
     .price small { color: var(--color-text-secondary); }
     td small { display: block; color: var(--color-text-secondary); }
     .row-actions { text-align: right; white-space: nowrap; }
+    .code { margin: 0; padding: var(--space-3); border: 1px solid var(--color-border-subtle); border-radius: 8px; font-size: 16px; overflow-wrap: anywhere; user-select: all; }
     .sum { display: grid; gap: var(--space-2); margin: var(--space-4) 0 0; }
     .sum div { display: flex; justify-content: space-between; gap: var(--space-4); }
     .sum .total { font-weight: 700; border-top: 1px solid var(--color-border-subtle); padding-top: var(--space-2); }
@@ -119,6 +120,9 @@ const YEARS = [1, 2, 3, 4, 5];
                 <td>
                   <span class="cf-badge" [class]="'cf-badge ' + stage(d).cls">{{ stage(d).label }}</span>
                   <small>{{ d.stage === 'FAILED' && d.failureReason ? d.failureReason + ' We will refund your payment.' : stage(d).hint }}</small>
+                  @if (d.transferOuts?.[0]; as out) {
+                    <small data-testid="transfer-out">{{ out.status === 'RELEASED' ? 'Unlocked for transfer. Show the code and give it to your new registrar.' : 'Transfer to another registrar asked for. We are unlocking it and getting its code, and will email you.' }}</small>
+                  }
                   @if (d.renewal; as rn) {
                     <small>{{ rn.stage === 'AWAITING_PAYMENT' ? 'Renewal for ' + rn.years + (rn.years === 1 ? ' year' : ' years') + ' is awaiting payment.' : 'Renewal paid. Our team is renewing it and will email you when it is done.' }}</small>
                   }
@@ -129,8 +133,16 @@ const YEARS = [1, 2, 3, 4, 5];
                   @if (d.renewal?.stage === 'AWAITING_PAYMENT') {
                     @if (auth.can('billing:read')) { <a class="cf-btn cf-btn-primary cf-btn-sm" [routerLink]="[auth.link('/invoices'), d.renewal!.invoice.id]" [attr.aria-label]="'Pay the renewal for ' + d.name">Pay renewal</a> }
                     @if (auth.can('services:manage')) { <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="cancelRenewalFor.set(d)" [attr.aria-label]="'Cancel the renewal for ' + d.name">Cancel renewal</button> }
-                  } @else if (!d.renewal && (d.stage === 'ACTIVE' || d.stage === 'EXPIRED') && auth.can('services:manage')) {
+                  } @else if (!d.renewal && !d.transferOuts?.length && (d.stage === 'ACTIVE' || d.stage === 'EXPIRED') && auth.can('services:manage')) {
                     <button type="button" class="cf-btn cf-btn-secondary cf-btn-sm" [disabled]="busy()" (click)="openRenew(d)" [attr.aria-label]="'Renew ' + d.name">Renew</button>
+                  }
+                  @if (d.stage === 'ACTIVE' && auth.can('services:manage')) {
+                    @if (d.transferOuts?.[0]; as out) {
+                      @if (out.status === 'RELEASED') { <button type="button" class="cf-btn cf-btn-primary cf-btn-sm" [disabled]="busy()" (click)="showCode(d)" [attr.aria-label]="'Show the transfer code for ' + d.name">Show code</button> }
+                      <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="withdrawFor.set(d)" [attr.aria-label]="'Withdraw the transfer of ' + d.name">Withdraw transfer</button>
+                    } @else if (!d.renewal) {
+                      <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="outFor.set(d)" [attr.aria-label]="'Transfer ' + d.name + ' to another registrar'">Transfer away</button>
+                    }
                   }
                   @if (d.stage === 'TRANSFER_AWAITING_PAYMENT' && d.transfers?.[0]?.invoice; as inv) {
                     @if (auth.can('billing:read')) { <a class="cf-btn cf-btn-primary cf-btn-sm" [routerLink]="[auth.link('/invoices'), inv.id]" [attr.aria-label]="'Pay for the transfer of ' + d.name">Pay now</a> }
@@ -226,6 +238,34 @@ const YEARS = [1, 2, 3, 4, 5];
       </ci-dialog>
     }
 
+    @if (outFor(); as d) {
+      <ci-dialog [heading]="'Transfer ' + d.name + ' to another registrar?'" description="We unlock the domain and get its authorisation code, and email you when it is ready (usually within a day). You then give the code to your new registrar, who charges you for the transfer and usually adds a year. Keep your DNS settings noted: they may not move with it." icon="swap" size="md" [dismissable]="false" (closed)="outFor.set(null)">
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="outFor.set(null)">Keep it here</button>
+          <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy()" (click)="transferOut(d)">{{ busy() ? 'Asking…' : 'Get the transfer code' }}</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
+    @if (codeFor(); as c) {
+      <ci-dialog [heading]="'Transfer code for ' + c.d.name" description="Give this code to your new registrar to start the transfer. Keep it private: anyone with it can move your domain." icon="key" size="md" (closed)="codeFor.set(null)">
+        <p class="code" data-testid="transfer-code"><code>{{ c.code }}</code></p>
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="copyCode(c.code)">{{ copied() ? 'Copied' : 'Copy' }}</button>
+          <button type="button" class="cf-btn cf-btn-primary" (click)="codeFor.set(null)">Done</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
+    @if (withdrawFor(); as d) {
+      <ci-dialog heading="Withdraw this transfer?" [description]="d.name + ' stays with us and is locked again. The transfer code stops working once it is locked.'" icon="warning" tone="danger" [dismissable]="false" (closed)="withdrawFor.set(null)">
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="withdrawFor.set(null)">Keep transferring</button>
+          <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy()" (click)="withdraw(d)">{{ busy() ? 'Withdrawing…' : 'Withdraw transfer' }}</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
     @if (cancelFor(); as d) {
       <ci-dialog heading="Cancel this order?" [description]="'The invoice for ' + d.name + ' is cancelled and the name is released for others.'" icon="warning" tone="danger" [dismissable]="false" (closed)="cancelFor.set(null)">
         <ng-container actions>
@@ -268,6 +308,10 @@ export class DomainsPage implements OnInit {
   protected readonly renewQuote = signal<RenewalQuote | null>(null);
   protected readonly renewQuoting = signal(false);
   protected readonly cancelRenewalFor = signal<CustomerDomain | null>(null);
+  protected readonly outFor = signal<CustomerDomain | null>(null);
+  protected readonly withdrawFor = signal<CustomerDomain | null>(null);
+  protected readonly codeFor = signal<{ d: CustomerDomain; code: string } | null>(null);
+  protected readonly copied = signal(false);
   private latestRenewQuote = 0;
   /** Answers can arrive out of order; only the newest is shown. */
   private latestSearch = 0;
@@ -473,6 +517,60 @@ export class DomainsPage implements OnInit {
       await this.load();
     } catch (e) {
       this.cancelRenewalFor.set(null);
+      this.error.set(toApiError(e).message);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async transferOut(d: CustomerDomain) {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.transferOut(d.id);
+      this.outFor.set(null);
+      this.notice.set(`We are unlocking ${d.name} and getting its transfer code. We will email you when it is ready.`);
+      await this.load();
+    } catch (e) {
+      this.outFor.set(null);
+      this.error.set(toApiError(e).message);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async showCode(d: CustomerDomain) {
+    this.busy.set(true);
+    this.error.set(null);
+    this.copied.set(false);
+    try {
+      this.codeFor.set({ d, code: (await this.api.transferOutCode(d.id)).authCode });
+    } catch (e) {
+      this.error.set(toApiError(e).message);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async copyCode(code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+      this.copied.set(true);
+    } catch {
+      // Copying is a convenience; the code can be selected on screen.
+    }
+  }
+
+  protected async withdraw(d: CustomerDomain) {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.cancelTransferOut(d.id);
+      this.withdrawFor.set(null);
+      this.notice.set(`The transfer of ${d.name} was withdrawn. It stays with us.`);
+      await this.load();
+    } catch (e) {
+      this.withdrawFor.set(null);
       this.error.set(toApiError(e).message);
     } finally {
       this.busy.set(false);

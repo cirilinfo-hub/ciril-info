@@ -2,7 +2,7 @@ import { type IncomingMessage, type Server, type ServerResponse, createServer } 
 import type { AddressInfo } from 'node:net';
 
 export interface GoDaddyCall { method: string; path: string; body: any }
-interface Held { domainId: number; status: string; expires: Date }
+interface Held { domainId: number; status: string; expires: Date; locked?: boolean; authCode?: string }
 
 const PHONE = /^\+\d{1,3}\.\d{4,14}$/;
 
@@ -56,6 +56,12 @@ export class FakeGoDaddy {
   /** Calls of one kind, for example "POST /v1/domains/purchase". */
   called(method: string, pathStart: string) {
     return this.calls.filter((c) => c.method === method && c.path.startsWith(pathStart));
+  }
+
+  /** The domain left for another registrar. */
+  transferAway(domain: string) {
+    const h = this.owned.get(domain);
+    if (h) h.status = 'TRANSFERRED_OUT';
   }
 
   /** The losing registrar let go: the transfer is finished. */
@@ -134,6 +140,10 @@ export class FakeGoDaddy {
       return send(200, { orderId: this.nextId++, itemCount: 1, total: 8_990_000, currency: 'USD' });
     }
     if (!held) return send(404, { code: 'NOT_FOUND', message: 'Domain not found' });
-    return send(200, { domain, domainId: held.domainId, status: held.status, expires: held.expires.toISOString(), renewAuto: false });
+    if (req.method === 'PATCH') {
+      if (typeof body?.locked === 'boolean') held.locked = body.locked;
+      return send(204);
+    }
+    return send(200, { domain, domainId: held.domainId, status: held.status, expires: held.expires.toISOString(), renewAuto: false, locked: held.locked ?? true, authCode: held.authCode ?? `AUTH-${held.domainId}` });
   }
 }

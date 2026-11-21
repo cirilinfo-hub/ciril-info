@@ -45,8 +45,11 @@ export interface RegisteredDomain {
 }
 
 export interface RegistrarDomainInfo {
-  /** ACTIVE: in our account and usable. PENDING: in our account but not finished (for example a transfer still going). */
-  state: 'ACTIVE' | 'PENDING' | 'OTHER';
+  /**
+   * ACTIVE: in our account and usable. PENDING: in our account but not finished (for example a transfer still going).
+   * GONE: transferred away to another registrar.
+   */
+  state: 'ACTIVE' | 'PENDING' | 'GONE' | 'OTHER';
   expiresAt: Date | null;
   ref: string | null;
 }
@@ -58,6 +61,10 @@ export interface RegistrarAutomation {
   renew(req: { domain: string; years: number }): Promise<RegisteredDomain>;
   /** Starts a transfer in. It finishes days later, when the losing registrar lets go; `info` then shows it ACTIVE. */
   transfer(req: { domain: string; authCode: string; registrant: RegistrantContact; consent: RegistrationConsent }): Promise<{ ref: string | null }>;
+  /** Unlocks the domain and returns its authorisation code, so the customer can move it to another registrar. */
+  releaseForTransfer(domain: string): Promise<{ authCode: string }>;
+  /** Locks the domain again (a transfer away that was withdrawn). */
+  lock(domain: string): Promise<void>;
 }
 
 /**

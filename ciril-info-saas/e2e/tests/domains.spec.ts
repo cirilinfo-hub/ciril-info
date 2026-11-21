@@ -391,6 +391,62 @@ test.describe('Domains', () => {
     await expect(table.getByRole('row', { name: /www/ })).toHaveCount(0);
   });
 
+  test('a customer moves a domain away: staff release it with its code, the customer reads it, and staff mark it gone', async ({ page, browser }, info) => {
+    test.skip(info.project.name !== 'desktop', 'runs once');
+    test.setTimeout(180_000);
+    const tld = `pw${rand()}`;
+    const name = `pwout${rand()}`;
+    const domain = `${name}.${tld}`;
+    const CODE = 'Leave#Code-4471';
+    fixture('add-tld', tld, '500', '600', '400');
+    const email = await newCustomer('domout');
+    fixture('add-domain', email, name, tld, '300');
+    await page.goto('/portal/login');
+    await page.getByLabel('Email address').fill(email);
+    await page.getByLabel('Password').fill(CUSTOMER_PASSWORD);
+    await page.getByRole('button', { name: 'Sign In' }).click();
+    await page.getByRole('complementary').getByRole('link', { name: 'Domains' }).click();
+    const mine = page.getByRole('row', { name: new RegExp(domain) });
+    await expect(mine).toBeVisible({ timeout: 15_000 });
+    await mine.getByRole('button', { name: `Transfer ${domain} to another registrar` }).click();
+    await page.getByRole('dialog', { name: `Transfer ${domain} to another registrar?` }).getByRole('button', { name: 'Get the transfer code' }).click();
+    await expect(page.getByText(`We are unlocking ${domain}`)).toBeVisible();
+    await expect(mine.getByTestId('transfer-out')).toContainText('We are unlocking it');
+    await expect(mine.getByRole('button', { name: `Renew ${domain}` })).toHaveCount(0); // no renewing while it is leaving
+
+    const staffEmail = uniqueEmail('domadmin5');
+    const { secret } = fixture('create-staff-ready', staffEmail, STAFF_PASSWORD, 'SUPER_ADMIN') as { secret: string };
+    const ctx = await browser.newContext();
+    const staff = await ctx.newPage();
+    await staffSignIn(staff, staffEmail, secret);
+    await staff.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Domains', exact: true }).click();
+    await staff.getByRole('button', { name: 'Needs action' }).click();
+    await staff.getByRole('searchbox', { name: 'Search domains' }).fill(name);
+    const row = staff.getByRole('row', { name: new RegExp(domain) });
+    await expect(row).toContainText('Transfer away asked for');
+    await row.getByRole('button', { name: `Enter the transfer code for ${domain}` }).click();
+    const rel = staff.getByRole('dialog', { name: `Release ${domain} for transfer` });
+    await rel.getByLabel('Authorisation code').fill(CODE);
+    await rel.getByRole('button', { name: 'Release for transfer' }).click();
+    await expect(staff.getByText(`${domain} is released for transfer.`)).toBeVisible();
+
+    // The customer reads the code; it was never emailed or shown to anyone else.
+    await page.reload();
+    await mine.getByRole('button', { name: `Show the transfer code for ${domain}` }).click();
+    await expect(page.getByRole('dialog', { name: `Transfer code for ${domain}` }).getByTestId('transfer-code')).toHaveText(CODE);
+    await page.getByRole('dialog', { name: `Transfer code for ${domain}` }).getByRole('button', { name: 'Done' }).click();
+
+    await staff.getByRole('button', { name: 'Needs action' }).click(); // show everything, not just what needs action
+    await expect(row).toContainText('Released for transfer');
+    await row.getByRole('button', { name: `Mark ${domain} transferred away` }).click();
+    await staff.getByRole('dialog', { name: `Mark ${domain} transferred away?` }).getByRole('button', { name: 'Mark transferred away' }).click();
+    await expect(staff.getByText(`${domain} is marked transferred away.`)).toBeVisible();
+    await ctx.close();
+
+    await page.reload();
+    await expect(page.getByRole('row', { name: new RegExp(domain) }).locator('.cf-badge', { hasText: 'Transferred away' })).toBeVisible();
+  });
+
   test('an unpaid renewal can be cancelled', async ({ page }, info) => {
     test.skip(info.project.name !== 'desktop', 'runs once');
     test.setTimeout(120_000);

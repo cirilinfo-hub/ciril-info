@@ -68,8 +68,15 @@ registering domains on the customer's behalf.
 
 Privacy (WHOIS masking) is not bought, and GoDaddy's own auto-renew is switched off: renewals are invoiced to the customer first.
 
+## Transfer away
+
+A customer can move an active domain to another registrar from their Domains page (not within 60 days of it being registered
+or transferred, which registries forbid). The worker unlocks it at GoDaddy and stores its authorisation code; the customer is
+emailed that the code is ready and reads it in their client area. When the domain leaves the GoDaddy account, it is marked
+Transferred away automatically. If the customer withdraws, the domain is locked again. Without automation, staff unlock it by
+hand, enter the code with **Enter code**, and use **Mark transferred away** once it has gone.
+
 ## Not built yet
 
-- Transfer out (the customer moving a domain away). Do it by hand at GoDaddy.
 - Changing a domain's nameservers or contacts from the portal.
 - Tried against a pretend GoDaddy only. Do the OTE run above before going live.

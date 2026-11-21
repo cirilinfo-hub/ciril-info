@@ -77,6 +77,8 @@ export class GoDaddyRegistrarProvider implements RegistrarProvider {
       register: (r) => this.register(r),
       renew: (r) => this.renew(r),
       transfer: (r) => this.transfer(r),
+      releaseForTransfer: (d) => this.release(d),
+      lock: (d) => this.setLock(d, true),
     };
   }
 
@@ -102,7 +104,7 @@ export class GoDaddyRegistrarProvider implements RegistrarProvider {
     if (!r) return null;
     const status = (r.status ?? '').toUpperCase();
     return {
-      state: status === 'ACTIVE' ? 'ACTIVE' : status.startsWith('PENDING') ? 'PENDING' : 'OTHER',
+      state: status === 'ACTIVE' ? 'ACTIVE' : status.startsWith('TRANSFERRED') ? 'GONE' : status.startsWith('PENDING') ? 'PENDING' : 'OTHER',
       expiresAt: r.expires ? new Date(r.expires) : null,
       ref: r.domainId !== undefined ? String(r.domainId) : null,
     };
@@ -148,6 +150,19 @@ export class GoDaddyRegistrarProvider implements RegistrarProvider {
     return { ref: order?.orderId !== undefined ? String(order.orderId) : null };
   }
 
+  private async release(domain: string): Promise<{ authCode: string }> {
+    const held = await this.info(domain);
+    if (!held) throw new RegistrarError(`The registrar account does not hold ${domain}, so it cannot release it.`, false, 'NOT_IN_ACCOUNT');
+    await this.setLock(domain, false);
+    const r = await this.call<{ authCode?: string }>('GET', `/v1/domains/${encodeURIComponent(domain)}`);
+    if (!r?.authCode) throw new RegistrarError(`GoDaddy unlocked ${domain} but did not give its authorisation code. Get it from the GoDaddy account and enter it by hand.`, false, 'NO_AUTH_CODE');
+    return { authCode: r.authCode };
+  }
+
+  private async setLock(domain: string, locked: boolean): Promise<void> {
+    await this.call('PATCH', `/v1/domains/${encodeURIComponent(domain)}`, { locked });
+  }
+
   private guardPrice(domain: string, check: { price?: number; currency?: string; period?: number }) {
     if (check.price === undefined) return;
     const perYear = check.price / 1_000_000 / Math.max(1, check.period ?? 1); // GoDaddy states prices in millionths
@@ -177,7 +192,7 @@ export class GoDaddyRegistrarProvider implements RegistrarProvider {
   }
 
   /** One API call. A 404 is null when `missingIsNull`; every other failure is a RegistrarError saying whether to try again. */
-  private async call<T>(method: 'GET' | 'POST', path: string, body?: unknown, missingIsNull = false): Promise<T | null> {
+  private async call<T>(method: 'GET' | 'POST' | 'PATCH', path: string, body?: unknown, missingIsNull = false): Promise<T | null> {
     let res: Response;
     try {
       res = await fetch(`${this.base}${path}`, {

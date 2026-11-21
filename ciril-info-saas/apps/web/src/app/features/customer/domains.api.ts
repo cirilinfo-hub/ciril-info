@@ -4,7 +4,7 @@ import { firstValueFrom } from 'rxjs';
 import { AuthService } from '../../core/auth/auth.service';
 import type { DomainSearchResponse } from '../public/shared/public-api';
 
-export type DomainStage = 'AWAITING_PAYMENT' | 'REGISTERING' | 'TRANSFER_AWAITING_PAYMENT' | 'TRANSFERRING' | 'ACTIVE' | 'FAILED' | 'CANCELLED' | 'EXPIRED' | 'OTHER';
+export type DomainStage = 'AWAITING_PAYMENT' | 'REGISTERING' | 'TRANSFER_AWAITING_PAYMENT' | 'TRANSFERRING' | 'ACTIVE' | 'FAILED' | 'CANCELLED' | 'EXPIRED' | 'TRANSFERRED_OUT' | 'OTHER';
 
 export interface CustomerDomain {
   id: string;
@@ -23,6 +23,8 @@ export interface CustomerDomain {
   transfers?: { id: string; status: string; invoice: { id: string; number: string; status: string; total: string; currency: string } | null }[];
   /** A renewal that has been asked for and not finished: waiting for payment, or paid and waiting for our team. */
   renewal: { id: string; years: number; stage: 'AWAITING_PAYMENT' | 'RENEWING'; invoice: { id: string; number: string; status: string; total: string; currency: string } } | null;
+  /** A move to another registrar that is still going: being unlocked, or unlocked with its code ready. */
+  transferOuts?: { id: string; status: 'REQUESTED' | 'RELEASED'; requestedAt: string; releasedAt: string | null }[];
 }
 
 export type DnsType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SRV' | 'CAA';
@@ -91,6 +93,7 @@ export const DOMAIN_STAGE: Record<DomainStage, { label: string; cls: string; hin
   FAILED: { label: 'Not registered', cls: 'cf-badge-danger', hint: 'We could not register this name.' },
   CANCELLED: { label: 'Cancelled', cls: 'cf-badge-neutral', hint: 'This order was cancelled.' },
   EXPIRED: { label: 'Expired', cls: 'cf-badge-neutral', hint: 'This registration has ended.' },
+  TRANSFERRED_OUT: { label: 'Transferred away', cls: 'cf-badge-neutral', hint: 'This domain moved to another registrar, who now manages it.' },
   OTHER: { label: 'In progress', cls: 'cf-badge-neutral', hint: '' },
 };
 
@@ -139,6 +142,16 @@ export class DomainsApi {
   }
   cancelRenewal(renewalId: string) {
     return firstValueFrom(this.http.post<{ id: string; status: string }>(`${this.base}/renewals/${renewalId}/cancel`, {}));
+  }
+  /** Ask to move the domain to another registrar. */
+  transferOut(id: string) {
+    return firstValueFrom(this.http.post<{ id: string; status: string }>(`${this.base}/${id}/transfer-out`, {}));
+  }
+  transferOutCode(id: string) {
+    return firstValueFrom(this.http.get<{ authCode: string }>(`${this.base}/${id}/transfer-out/code`));
+  }
+  cancelTransferOut(id: string) {
+    return firstValueFrom(this.http.post<{ id: string; status: string }>(`${this.base}/${id}/transfer-out/cancel`, {}));
   }
   cancel(id: string) {
     return firstValueFrom(this.http.post<{ id: string; stage: DomainStage }>(`${this.base}/${id}/cancel`, {}));

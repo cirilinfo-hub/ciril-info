@@ -11,6 +11,7 @@ import { nextInvoiceNumber } from '../billing/numbering.js';
 import { readSeller } from '../billing/seller.js';
 import { MAX_YEARS, addYears, cleanAuthCode, parseDomainQuery, registrationPaise } from './domain-rules.js';
 import { RegistrarGateway } from './registrar-gateway.js';
+import { LIVE_TRANSFER_OUT } from './domain-transfer-outs.service.js';
 import { DOMAIN_SECRET_BOX } from './secret-box.js';
 
 const DUE_DAYS = 7;
@@ -28,6 +29,8 @@ const domainSelect = {
   // The renewal waiting right now, if any: asked for and either unpaid or paid and waiting for staff.
   transfers: { where: { status: { in: LIVE_TRANSFER } }, take: 1, select: { id: true, status: true, invoice: { select: { id: true, number: true, status: true, total: true, currency: true } } } },
   renewals: { where: { status: 'PENDING' as const }, take: 1, select: { id: true, years: true, requestedAt: true, invoice: { select: { id: true, number: true, status: true, total: true, currency: true } } } },
+  // A transfer away to another registrar that is still going.
+  transferOuts: { where: { status: { in: LIVE_TRANSFER_OUT } }, take: 1, select: { id: true, status: true, requestedAt: true, releasedAt: true } },
 } as const;
 
 type DomainRow = { renewals: { id: string; years: number; requestedAt: Date; invoice: { id: string; number: string; status: InvoiceStatus; total: unknown; currency: string } }[] };
@@ -38,7 +41,7 @@ export function renewalView(d: DomainRow) {
 }
 
 /** What the customer sees: where the domain is in its life, in words that need no explaining. */
-export function stageOf(d: { status: DomainStatus; orderInvoice: { status: InvoiceStatus } | null; transfers?: { invoice: { status: InvoiceStatus } | null }[] }): 'AWAITING_PAYMENT' | 'REGISTERING' | 'TRANSFER_AWAITING_PAYMENT' | 'TRANSFERRING' | 'ACTIVE' | 'FAILED' | 'CANCELLED' | 'EXPIRED' | 'OTHER' {
+export function stageOf(d: { status: DomainStatus; orderInvoice: { status: InvoiceStatus } | null; transfers?: { invoice: { status: InvoiceStatus } | null }[] }): 'AWAITING_PAYMENT' | 'REGISTERING' | 'TRANSFER_AWAITING_PAYMENT' | 'TRANSFERRING' | 'ACTIVE' | 'FAILED' | 'CANCELLED' | 'EXPIRED' | 'TRANSFERRED_OUT' | 'OTHER' {
   switch (d.status) {
     case 'PENDING_TRANSFER': {
       const inv = d.transfers?.[0]?.invoice;
@@ -50,6 +53,7 @@ export function stageOf(d: { status: DomainStatus; orderInvoice: { status: Invoi
     case 'FAILED': return 'FAILED';
     case 'CANCELLED': return 'CANCELLED';
     case 'EXPIRED': case 'REDEMPTION': return 'EXPIRED';
+    case 'TRANSFERRED_OUT': return 'TRANSFERRED_OUT';
     default: return 'OTHER';
   }
 }
@@ -185,6 +189,9 @@ export class DomainOrdersService {
         // Two clicks at once must not create two renewals: the database allows one waiting renewal per domain.
         await tx.$queryRaw`SELECT id FROM domains WHERE id = ${id}::uuid FOR UPDATE`;
         if (await tx.domainRenewal.count({ where: { domainId: id, status: 'PENDING' } })) throw new ConflictException({ code: 'RENEWAL_PENDING', message: 'This domain already has a renewal waiting.' });
+        if (await tx.domainTransferOut.count({ where: { domainId: id, status: { in: ['REQUESTED', 'RELEASED'] } } })) {
+          throw new ConflictException({ code: 'TRANSFER_OUT_PENDING', message: 'This domain is being transferred to another registrar, which renews it as part of the transfer. Withdraw the transfer first to renew it here.' });
+        }
 
         const number = await nextInvoiceNumber(tx, now);
         const invoice = await tx.invoice.create({

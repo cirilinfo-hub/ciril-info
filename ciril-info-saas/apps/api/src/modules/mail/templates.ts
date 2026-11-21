@@ -59,6 +59,10 @@ export function renderEmail(m: EmailMessage): RenderedEmail {
       return build(`${m.data.domain} is registered`, 'Your domain is registered', [`${m.data.domain} is now registered in your name. You can see its details and expiry date in your client area.`], { label: 'Open Domains', url: m.data.link });
     case 'domain-transferred':
       return build(`${m.data.domain} has been transferred to us`, 'Your domain has been transferred', [`${m.data.domain} is now with us. It is registered until ${m.data.expiresOn}, and you can manage its DNS records in your client area.`], { label: 'Open Domains', url: m.data.link });
+    case 'domain-transfer-code':
+      return build(`The transfer code for ${m.data.domain} is ready`, 'Your transfer code is ready', [`${m.data.domain} is unlocked and its authorisation code is ready. Sign in to see it, then give it to your new registrar to start the transfer.`, 'For your security the code is shown in your client area, not in this email. If you did not ask for this, withdraw the transfer there.'], { label: 'Open Domains', url: m.data.link });
+    case 'domain-transferred-out':
+      return build(`${m.data.domain} has moved to its new registrar`, 'Your domain has moved', [`${m.data.domain} has been transferred to your new registrar, who now manages it. It no longer appears in your client area as active.`], { label: 'Open Domains', url: m.data.link });
     case 'domain-renewed':
       return build(`${m.data.domain} is renewed`, 'Your domain is renewed', [`${m.data.domain} has been renewed. It is now registered until ${m.data.expiresOn}.`], { label: 'Open Domains', url: m.data.link });
     case 'domain-expiring':

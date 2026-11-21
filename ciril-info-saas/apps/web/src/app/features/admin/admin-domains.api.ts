@@ -42,6 +42,7 @@ export interface AdminRegistration {
   /** The transfer still going, if the domain is being brought to us. The authorisation code is fetched separately and only on request. */
   transfers: { id: string; status: 'REQUESTED' | 'PENDING_AUTH' | 'IN_PROGRESS'; failureReason: string | null; invoice: { id: string; number: string; status: string; total: string } | null }[];
   /** The renewal waiting right now, if any. */
+  transferOuts?: { id: string; status: 'REQUESTED' | 'RELEASED'; requestedAt: string; releasedAt: string | null; failureReason: string | null }[];
   renewals: { id: string; years: number; requestedAt: string; failureReason: string | null; invoice: { id: string; number: string; status: string; total: string } }[];
 }
 
@@ -84,6 +85,15 @@ export class AdminDomainsApi {
   }
   failTransfer(id: string, reason: string) {
     return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/transfer/fail`, { reason }));
+  }
+  releaseTransferOut(id: string, authCode: string) {
+    return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/transfer-out/release`, { authCode }));
+  }
+  completeTransferOut(id: string) {
+    return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/transfer-out/complete`, {}));
+  }
+  declineTransferOut(id: string, reason: string) {
+    return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/transfer-out/decline`, { reason }));
   }
   cannotRegister(id: string, reason: string) {
     return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/cannot-register`, { reason }));
