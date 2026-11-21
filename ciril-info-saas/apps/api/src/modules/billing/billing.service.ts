@@ -11,6 +11,8 @@ import { couponProblem } from './coupons.js';
 import type { BillingListQuery, PayInvoiceDto, QuoteDto } from './billing.dto.js';
 import { PaymentGateway } from './payment-gateway.js';
 import { PaymentSettlementService } from './payment-settlement.service.js';
+import { AutoPayService } from './autopay.service.js';
+import { SavedCardsService } from './saved-cards.service.js';
 import { settleInvoicePayment } from './settlement.js';
 import { nextInvoiceNumber } from './numbering.js';
 import { readSeller } from './seller.js';
@@ -33,6 +35,8 @@ export class BillingService {
     private readonly platform: PlatformPrisma,
     private readonly gateway: PaymentGateway,
     private readonly settlement: PaymentSettlementService,
+    private readonly cards: SavedCardsService,
+    private readonly autopay: AutoPayService,
     config: ConfigService<Env, true>,
   ) {
     this.production = config.get('NODE_ENV', { infer: true }) === 'production';
@@ -183,7 +187,7 @@ export class BillingService {
       const invoice = await tx.invoice.findUnique({
         where: { id },
         select: {
-          ...invoiceSelect, billingSnapshot: true,
+          ...invoiceSelect, billingSnapshot: true, autoChargeAttempts: true,
           items: { select: { id: true, description: true, quantity: true, unitPrice: true, taxRate: true, taxAmount: true, lineTotal: true } },
           payments: { select: { id: true, provider: true, status: true, amount: true, method: true, failureReason: true, createdAt: true }, orderBy: { createdAt: 'desc' } },
           refunds: { where: { status: 'SUCCEEDED' }, select: { id: true, amount: true, reason: true, createdAt: true, creditNote: { select: { id: true, number: true } } }, orderBy: { createdAt: 'desc' } },
@@ -191,7 +195,14 @@ export class BillingService {
         },
       });
       if (!invoice) throw new NotFoundException({ code: 'INVOICE_NOT_FOUND', message: 'Invoice not found.' });
-      return { ...invoice, testMode: this.gateway.isMock };
+      const { autoChargeAttempts, ...rest } = invoice;
+      const planned = await this.autopay.plannedCharge(ctx.tenantId, invoice);
+      const live = this.cards.available ? await tx.savedCard.findFirst({ where: { status: { in: ['PENDING', 'ACTIVE'] } }, select: { id: true } }) : null;
+      return {
+        ...rest, testMode: this.gateway.isMock,
+        /** Whether a card can be saved when paying, whether one is already saved, and when this invoice will be charged to it. */
+        cards: { available: this.cards.available, saved: Boolean(live), autoPay: planned ? { card: planned.card, on: planned.on.toISOString() } : null },
+      };
     });
   }
 
@@ -208,8 +219,19 @@ export class BillingService {
   }
 
   /** Charge an unpaid invoice. A repeated idempotency key returns the first result and never charges twice. */
-  pay(ctx: TenantContext, id: string, dto: PayInvoiceDto, meta: RequestMeta) {
+  async pay(ctx: TenantContext, id: string, dto: PayInvoiceDto, meta: RequestMeta) {
     if (dto.simulate && this.production) throw new BadRequestException({ code: 'TEST_ONLY', message: 'Simulation is not available.' });
+    const saveCard = dto.saveCard === true;
+    if (saveCard && !this.cards.available) throw new ConflictException({ code: 'CARDS_NOT_AVAILABLE', message: 'Cards cannot be saved at the moment. Pay without saving it.' });
+    // The provider's customer record is made before the invoice is locked, so no provider call happens under that lock.
+    const customerId = saveCard ? await this.cards.customerId(ctx.tenantId) : null;
+    const r = await this.charge(ctx, id, dto, meta, customerId);
+    // Test mode settles at once: keep the card now. A real provider's checkout keeps it when its payment is settled.
+    if (saveCard && r.status === 'SUCCEEDED' && this.gateway.mode === 'instant') await this.cards.adopt(r.paymentId, ctx.userId);
+    return r;
+  }
+
+  private charge(ctx: TenantContext, id: string, dto: PayInvoiceDto, meta: RequestMeta, customerId: string | null) {
     const key = dto.idempotencyKey ?? `pay:${id}:${randomUUID()}`;
     return this.db.run(ctx, async (tx) => {
       const prior = await tx.payment.findUnique({ where: { idempotencyKey: key }, select: { id: true, invoiceId: true, status: true, failureReason: true } });
@@ -227,14 +249,14 @@ export class BillingService {
       }
 
       const outstanding = toPaise(invoice.total.toString()) - toPaise(invoice.amountPaid.toString());
-      if (this.gateway.mode === 'hosted') return this.startCheckout(tx, ctx, invoice, outstanding);
+      if (this.gateway.mode === 'hosted') return this.startCheckout(tx, ctx, invoice, outstanding, customerId);
       const result = await this.gateway.charge({ amountPaise: outstanding, currency: invoice.currency, invoiceNumber: invoice.number, idempotencyKey: key, simulate: dto.simulate });
 
       const payment = await tx.payment.create({
         data: {
           tenantId: ctx.tenantId, invoiceId: id, provider: result.provider, status: result.ok ? 'PENDING' : 'FAILED', amount: (outstanding / 100).toFixed(2),
           currency: invoice.currency, providerOrderId: result.providerOrderId, providerPaymentId: result.providerPaymentId, method: result.method,
-          failureReason: result.failureReason, idempotencyKey: key,
+          failureReason: result.failureReason, idempotencyKey: key, savesCard: customerId !== null,
         },
         select: { id: true },
       });
@@ -253,10 +275,12 @@ export class BillingService {
    * An order opened in the last 30 minutes for the same amount is reused, so a double click or a closed modal does not
    * pile up orders. Nothing is recorded as paid here: that only happens after a signed confirmation.
    */
-  private async startCheckout(tx: Tx, ctx: TenantContext, invoice: { id: string; number: string; currency: string }, outstanding: number) {
+  private async startCheckout(tx: Tx, ctx: TenantContext, invoice: { id: string; number: string; currency: string }, outstanding: number, customerId: string | null) {
     const amount = (outstanding / 100).toFixed(2);
+    // Saving the card makes it a card-only checkout tied to the provider's customer record.
+    const saveCard = customerId ? { customerId, maxAmountPaise: this.gateway.autopayMaxPaise } : undefined;
     const open = await tx.payment.findFirst({
-      where: { invoiceId: invoice.id, provider: this.gateway.id, status: { in: ['CREATED', 'PENDING'] }, amount, createdAt: { gt: new Date(Date.now() - 30 * 60_000) }, providerOrderId: { not: null } },
+      where: { invoiceId: invoice.id, provider: this.gateway.id, status: { in: ['CREATED', 'PENDING'] }, amount, savesCard: Boolean(saveCard), savedCardId: null, createdAt: { gt: new Date(Date.now() - 30 * 60_000) }, providerOrderId: { not: null } },
       orderBy: { createdAt: 'desc' },
       select: { id: true, providerOrderId: true },
     });
@@ -266,12 +290,12 @@ export class BillingService {
     let base: Record<string, string | number>;
     if (open?.providerOrderId) {
       paymentId = open.id;
-      base = this.gateway.checkoutParams(open.providerOrderId);
+      base = this.gateway.checkoutParams(open.providerOrderId, saveCard);
     } else {
       const key = `ord:${invoice.id}:${randomUUID()}`;
-      const order = await this.gateway.createOrder({ amountPaise: outstanding, currency: invoice.currency, receipt: invoice.number, idempotencyKey: key, notes: { invoiceId: invoice.id, invoiceNumber: invoice.number, tenantId: ctx.tenantId } });
+      const order = await this.gateway.createOrder({ amountPaise: outstanding, currency: invoice.currency, receipt: invoice.number, idempotencyKey: key, notes: { invoiceId: invoice.id, invoiceNumber: invoice.number, tenantId: ctx.tenantId }, saveCard });
       const created = await tx.payment.create({
-        data: { tenantId: ctx.tenantId, invoiceId: invoice.id, provider: this.gateway.id, status: 'CREATED', amount, currency: invoice.currency, providerOrderId: order.providerOrderId, idempotencyKey: key },
+        data: { tenantId: ctx.tenantId, invoiceId: invoice.id, provider: this.gateway.id, status: 'CREATED', amount, currency: invoice.currency, providerOrderId: order.providerOrderId, idempotencyKey: key, savesCard: Boolean(saveCard) },
         select: { id: true },
       });
       paymentId = created.id;

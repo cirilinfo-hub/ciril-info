@@ -3,6 +3,7 @@ import { PlatformPrisma } from '../../database/prisma-clients.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { PaymentGateway } from './payment-gateway.js';
 import { PaymentSettlementService } from './payment-settlement.service.js';
+import { SavedCardsService } from './saved-cards.service.js';
 
 /**
  * Inbound payment webhooks. The signature is checked on the exact bytes received before anything is read from the body.
@@ -18,6 +19,7 @@ export class PaymentWebhookService {
     private readonly db: PlatformPrisma,
     private readonly gateway: PaymentGateway,
     private readonly settlement: PaymentSettlementService,
+    private readonly cards: SavedCardsService,
   ) {}
 
   async handle(providerParam: string, raw: Buffer | undefined, headers: Record<string, string | string[] | undefined>) {
@@ -62,6 +64,7 @@ export class PaymentWebhookService {
   /** Returns a note to store when the event needed attention but is not worth retrying, otherwise null. */
   private async process(event: NonNullable<ReturnType<PaymentGateway['parseWebhook']>>): Promise<string | null> {
     if (event.type === 'ignored') return null;
+    if (event.type === 'token.updated') return event.tokenId && event.tokenState ? this.cards.applyState(event.tokenId, event.tokenState, event.failureReason) : 'no token';
     if (!event.providerOrderId) return 'no order reference';
     const payment = await this.db.payment.findFirst({ where: { provider: this.gateway.id, providerOrderId: event.providerOrderId }, select: { id: true } });
     // An order we never created (the provider account may serve other things): nothing to do, and nothing to retry.

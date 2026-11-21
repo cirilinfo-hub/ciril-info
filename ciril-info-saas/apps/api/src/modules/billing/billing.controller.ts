@@ -8,7 +8,8 @@ import { CouponDto, CouponPatchDto } from './admin-coupons.dto.js';
 import { AdminCouponsService } from './admin-coupons.service.js';
 import { AdminBillingService } from './admin-billing.service.js';
 import { AdminInvoiceListQuery, AdminSubscriptionListQuery, RecordPaymentDto, RefundDto, TdsCertificateDto, TdsListQuery, VoidInvoiceDto } from './admin-billing.dto.js';
-import { BillingListQuery, CancelSubscriptionDto, ChangePlanDto, ConfirmPaymentDto, OrderDto, PayInvoiceDto, QuoteDto } from './billing.dto.js';
+import { AutoPayDto, BillingListQuery, CancelSubscriptionDto, ChangePlanDto, ConfirmPaymentDto, OrderDto, PayInvoiceDto, QuoteDto } from './billing.dto.js';
+import { SavedCardsService } from './saved-cards.service.js';
 import { PlanChangeService } from './plan-change.service.js';
 import { BillingService } from './billing.service.js';
 
@@ -21,7 +22,27 @@ export class BillingController {
   constructor(
     private readonly billing: BillingService,
     private readonly planChange: PlanChangeService,
+    private readonly cards: SavedCardsService,
   ) {}
+
+  /** The organisation's saved card for automatic renewal payments, if any, and whether cards can be saved at all. */
+  @Get('billing/saved-card')
+  @RequireTenant('billing:read')
+  savedCard(@CurrentTenant() ctx: TenantContext) {
+    return this.cards.view(ctx);
+  }
+
+  @Patch('billing/saved-card')
+  @RequireTenant('billing:pay')
+  setAutoPay(@CurrentTenant() ctx: TenantContext, @Body() dto: AutoPayDto, @ReqMeta() meta: RequestMeta) {
+    return this.cards.setAutoPay(ctx, dto.autoPay, meta);
+  }
+
+  @Delete('billing/saved-card')
+  @RequireTenant('billing:pay')
+  removeCard(@CurrentTenant() ctx: TenantContext, @ReqMeta() meta: RequestMeta) {
+    return this.cards.remove(ctx, meta);
+  }
 
   @Post('orders/quote')
   @HttpCode(200)

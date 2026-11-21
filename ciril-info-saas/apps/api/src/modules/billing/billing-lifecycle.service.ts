@@ -7,6 +7,9 @@ import { AuditService } from '../audit/audit.service.js';
 import { MailService } from '../mail/mail.service.js';
 import { PaymentGateway } from './payment-gateway.js';
 import { PaymentSettlementService } from './payment-settlement.service.js';
+import { AutoPayService } from './autopay.service.js';
+import { SavedCardsService } from './saved-cards.service.js';
+import { autoChargeDate, cardLabel } from './saved-cards.logic.js';
 import { computeTotals, toPaise } from './billing.logic.js';
 import { nextInvoiceNumber } from './numbering.js';
 import { readSeller } from './seller.js';
@@ -24,6 +27,8 @@ export interface LifecycleResult {
   reconciled: number;
   /** Checkouts nobody completed, closed after three days. */
   checkoutsClosed: number;
+  /** Renewal invoices charged to a saved card (attempts started). */
+  autoCharged: number;
 }
 
 /**
@@ -51,6 +56,8 @@ export class BillingLifecycleService {
     private readonly mail: MailService,
     private readonly gateway: PaymentGateway,
     private readonly settlement: PaymentSettlementService,
+    private readonly autopay: AutoPayService,
+    private readonly cards: SavedCardsService,
     config: ConfigService<Env, true>,
   ) {
     this.leadDays = config.get('RENEWAL_LEAD_DAYS', { infer: true });
@@ -61,6 +68,8 @@ export class BillingLifecycleService {
 
   async run(now = new Date()): Promise<LifecycleResult> {
     const renewalInvoices = await this.issueRenewals(now);
+    await this.cards.refreshPending(now).catch((e: Error) => this.log.error(`saved card check failed: ${e.message}`));
+    const autoCharged = (await this.autopay.run(now).catch((e: Error) => (this.log.error(`automatic payments failed: ${e.message}`), { attempted: 0 }))).attempted;
     const overdue = await this.markOverdue(now);
     const { reconciled, checkoutsClosed } = await this.reconcilePayments(now);
     const abandoned = (await this.cancelAbandonedOrders(now)) + (await this.cancelAbandonedDomainOrders(now));
@@ -68,7 +77,7 @@ export class BillingLifecycleService {
     const domains = await this.processDomainExpiry(now);
     if (domains.reminded || domains.expired) this.log.log(`domain expiry: ${JSON.stringify(domains)}`);
     if (renewalInvoices || overdue || abandoned || pastDue || expired || reconciled || checkoutsClosed) this.log.log(`billing lifecycle: ${JSON.stringify({ renewalInvoices, overdue, abandoned, pastDue, expired, reconciled, checkoutsClosed })}`);
-    return { renewalInvoices, overdue, pastDue, expired, abandoned, reconciled, checkoutsClosed };
+    return { renewalInvoices, overdue, pastDue, expired, abandoned, reconciled, checkoutsClosed, autoCharged };
   }
 
   // ───────────────────────────── renewals ─────────────────────────────
@@ -142,9 +151,12 @@ export class BillingLifecycleService {
         select: { id: true, number: true, total: true, dueAt: true },
       });
 
-      await this.notifyOwners(tx, sub.tenantId, { type: 'invoice.renewal', title: `Renewal invoice ${invoice.number}`, body: `Due ${invoice.dueAt!.toISOString().slice(0, 10)}`, link: `/invoices/${invoice.id}` });
+      // With a saved card and automatic payments on, this email is also the advance notice of the charge: card, amount, date.
+      const card = this.gateway.savesCards ? await tx.savedCard.findFirst({ where: { tenantId: sub.tenantId, provider: this.gateway.id, status: 'ACTIVE', autoPay: true }, select: { network: true, last4: true, maxAmount: true } }) : null;
+      const autoPay = card && toPaise(invoice.total.toString()) <= toPaise(card.maxAmount.toString()) ? { card: cardLabel(card), date: autoChargeDate(now, invoice.dueAt!).toISOString().slice(0, 10) } : undefined;
+      await this.notifyOwners(tx, sub.tenantId, { type: 'invoice.renewal', title: `Renewal invoice ${invoice.number}`, body: autoPay ? `Due ${invoice.dueAt!.toISOString().slice(0, 10)}. It will be charged to your ${autoPay.card} on ${autoPay.date}.` : `Due ${invoice.dueAt!.toISOString().slice(0, 10)}`, link: `/invoices/${invoice.id}` });
       await this.mail.enqueue(
-        { template: 'renewal-invoice', to: account.billingEmail, data: { number: invoice.number, total: `${sub.currency} ${invoice.total.toString()}`, dueDate: invoice.dueAt!.toISOString().slice(0, 10), link: `${this.portalUrl}/invoices/${invoice.id}` } },
+        { template: 'renewal-invoice', to: account.billingEmail, data: { number: invoice.number, total: `${sub.currency} ${invoice.total.toString()}`, dueDate: invoice.dueAt!.toISOString().slice(0, 10), link: `${this.portalUrl}/invoices/${invoice.id}`, ...(autoPay ? { autoPay } : {}) } },
         tx, sub.tenantId,
       );
       await this.audit.record({ action: 'invoice.renewal_issued', tenantId: sub.tenantId, entityType: 'invoice', entityId: invoice.id, metadata: { subscriptionId, number: invoice.number } }, tx);
@@ -214,11 +226,10 @@ export class BillingLifecycleService {
         this.log.error(`payment reconciliation failed for payment ${p.id}: ${(e as Error).message}`);
       }
     }
-    const closed = await this.db.payment.updateMany({
-      where: { provider: this.gateway.id, status: { in: ['CREATED', 'PENDING'] }, createdAt: { lt: new Date(now.getTime() - 3 * DAY) } },
-      data: { status: 'FAILED', failureReason: 'Checkout was not completed.' },
-    });
-    return { reconciled, checkoutsClosed: closed.count };
+    const old = { provider: this.gateway.id, status: { in: ['CREATED' as const, 'PENDING' as const] }, createdAt: { lt: new Date(now.getTime() - 3 * DAY) } };
+    const closed = await this.db.payment.updateMany({ where: { ...old, savedCardId: null }, data: { status: 'FAILED', failureReason: 'Checkout was not completed.' } });
+    const autoClosed = await this.db.payment.updateMany({ where: { ...old, savedCardId: { not: null } }, data: { status: 'FAILED', failureReason: 'The automatic payment was never confirmed by the bank.' } });
+    return { reconciled, checkoutsClosed: closed.count + autoClosed.count };
   }
 
   // ───────────────────────────── abandoned first orders ─────────────────────────────

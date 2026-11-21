@@ -53,6 +53,38 @@ Things that need a person are flagged to staff with billing access (bell in the 
 - Before taking real money, fill in the **Company profile** (legal name, GSTIN, address with its GST state) so invoices and credit notes carry the seller's details, and have your accountant confirm the invoice and credit note format.
 - Do one small real payment and one refund of it yourself first.
 
+## Saved cards and automatic renewal payments
+
+A customer can tick **Save this card and pay renewals automatically** when paying an invoice. They then pay by card in
+Razorpay's window, and Razorpay keeps the card (we store only its token id, the network, the last four digits and the
+expiry, never the card number). After that:
+
+- Only **renewal invoices** are charged, never a new order. The renewal invoice email names the card, the amount and the
+  date of the charge, which is a day before the invoice is due and never sooner than a day after that email.
+- A declined charge is tried again once a day, **three times in all**, and the customer is emailed each time with
+  Razorpay's reason and a link to pay it themselves. A charge that goes through is confirmed by email.
+- An invoice above `CARD_AUTOPAY_MAX_AMOUNT` (₹15,000 by default, the RBI limit for charges without the customer) is
+  not charged; the customer is asked once to pay it.
+- Under **Invoices**, the customer sees the card, can switch automatic payments off, or remove the card (it is deleted
+  at Razorpay too). A card the bank rejects or cancels stops automatic payments and the owner is told.
+- A charge's result is settled exactly like any other payment: by Razorpay's webhook, or by the 10-minute lookup if the
+  webhook is lost. The same invoice is never charged twice at once.
+- Saving a card needs a phone number on the organisation (banks require one for standing instructions).
+
+To switch it on with Razorpay:
+
+1. Ask Razorpay support to enable **Recurring Payments (cards)** on your account. This is not on by default.
+2. Add these events to your Razorpay webhook: **token.confirmed**, **token.rejected**, **token.paused**, **token.cancelled**.
+3. Set `RAZORPAY_SAVED_CARDS=true` in the server's `.env` (and `CARD_AUTOPAY_MAX_AMOUNT` if you want a lower limit), then
+   restart the API and the worker.
+4. Test it with Razorpay's test cards for recurring payments before going live.
+
+Ask Razorpay how the advance (pre-debit) notice the RBI requires is handled for your account. Our renewal email gives
+the card, amount and date at least a day ahead, but confirm whether Razorpay or the card network must also send one.
+In test mode, saved cards always work and the card is a pretend Visa ending 4242.
+
+Tested against a pretend Razorpay only, like the rest of the Razorpay adapter.
+
 ## Refunds
 
 Staff with refund permission refund from the invoice. With Razorpay this calls Razorpay's refund API; Razorpay returns the money to the customer's original payment method on its own schedule. A refused refund (for example, insufficient balance) shows Razorpay's reason and records nothing. Every successful refund also issues a GST credit note.
@@ -67,6 +99,5 @@ Staff with refund permission refund from the invoice. With Razorpay this calls R
 ## Not built yet
 
 - Stripe.
-- Saved cards, automatic charging at renewal (renewals are invoiced and paid by the customer).
-- Partial payments of one invoice.
+- Saving a card without paying an invoice (a card is saved while paying one).
 - Disputes and chargebacks handling (they arrive as events we currently record but do not act on).

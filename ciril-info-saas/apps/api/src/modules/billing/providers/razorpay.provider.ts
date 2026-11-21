@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { BadGatewayException, HttpException } from '@nestjs/common';
 import type {
-  CheckoutConfirmation, OrderRequest, OrderResult, PaymentProvider, ProviderPayment, RefundRequest, RefundResult, WebhookEvent,
+  CardChargeRequest, CardChargeResult, CardHolder, CheckoutConfirmation, OrderRequest, OrderResult, PaymentProvider, ProviderPayment, RefundRequest, RefundResult,
+  SaveCardTerms, SavedCardInfo, WebhookEvent,
 } from './payment-provider.js';
 
 export interface RazorpayConfig {
@@ -22,6 +23,7 @@ function safeEqualHex(a: string, b: string): boolean {
 interface RzpPayment {
   id: string;
   order_id?: string | null;
+  token_id?: string | null;
   status?: string;
   amount?: number;
   currency?: string;
@@ -39,6 +41,33 @@ const toPayment = (p: RzpPayment): ProviderPayment => ({
   failureReason: p.error_description ?? null,
 });
 
+interface RzpToken {
+  id: string;
+  card?: { last4?: string | null; network?: string | null; expiry_month?: number | string | null; expiry_year?: number | string | null } | null;
+  recurring_details?: { status?: string | null; failure_reason?: string | null } | null;
+  expired_at?: number | null;
+}
+
+const num = (v: number | string | null | undefined) => (v === null || v === undefined || v === '' ? null : Number(v));
+
+/** Razorpay's "recurring_details.status": confirmed by the bank, still initiated, rejected, or cancelled/paused/expired. */
+const toCard = (t: RzpToken): SavedCardInfo => {
+  const s = t.recurring_details?.status ?? 'initiated';
+  const expired = t.expired_at ? t.expired_at * 1000 < Date.now() : false;
+  return {
+    tokenId: t.id,
+    state: expired ? 'GONE' : s === 'confirmed' ? 'ACTIVE' : s === 'initiated' ? 'PENDING' : s === 'rejected' ? 'REJECTED' : 'GONE',
+    network: t.card?.network ?? null,
+    last4: t.card?.last4 ? String(t.card.last4).slice(-4) : null,
+    expiryMonth: num(t.card?.expiry_month),
+    expiryYear: num(t.card?.expiry_year),
+    failureReason: t.recurring_details?.failure_reason ?? null,
+  };
+};
+
+/** How long a standing instruction lasts at most. The card's own expiry usually ends it sooner. */
+const MANDATE_YEARS = 10;
+
 /**
  * Razorpay (hosted checkout). The customer pays in Razorpay's modal; we trust a result only after checking Razorpay's
  * HMAC signature, either on the browser's confirmation (key secret) or on the webhook (webhook secret). API calls use
@@ -50,7 +79,7 @@ export class RazorpayProvider implements PaymentProvider {
 
   constructor(private readonly cfg: RazorpayConfig) {}
 
-  private async call<T>(method: 'GET' | 'POST', path: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
+  private async call<T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
     let res: Response;
     try {
       res = await fetch(`${this.cfg.apiBase}${path}`, {
@@ -75,12 +104,61 @@ export class RazorpayProvider implements PaymentProvider {
   }
 
   async createOrder(req: OrderRequest): Promise<OrderResult> {
-    const order = await this.call<{ id: string }>('POST', '/orders', { amount: req.amountPaise, currency: req.currency, receipt: req.receipt.slice(0, 40), notes: req.notes });
-    return { providerOrderId: order.id, checkout: { keyId: this.cfg.keyId, orderId: order.id } };
+    // Saving the card makes this the "authorisation" payment of a card standing instruction (Razorpay recurring payments):
+    // card only, tied to the customer record, with the most a later charge may take.
+    const save = req.saveCard
+      ? { customer_id: req.saveCard.customerId, method: 'card', token: { max_amount: req.saveCard.maxAmountPaise, expire_at: Math.floor(Date.now() / 1000) + MANDATE_YEARS * 365 * 86_400, frequency: 'as_presented' } }
+      : {};
+    const order = await this.call<{ id: string }>('POST', '/orders', { amount: req.amountPaise, currency: req.currency, receipt: req.receipt.slice(0, 40), notes: req.notes, ...save });
+    return { providerOrderId: order.id, checkout: this.checkoutParams(order.id, req.saveCard) };
   }
 
-  checkoutParams(providerOrderId: string) {
-    return { keyId: this.cfg.keyId, orderId: providerOrderId };
+  checkoutParams(providerOrderId: string, saveCard?: SaveCardTerms) {
+    return { keyId: this.cfg.keyId, orderId: providerOrderId, ...(saveCard ? { customerId: saveCard.customerId, recurring: '1' } : {}) };
+  }
+
+  /** fail_existing=0 returns the customer Razorpay already has for this email and phone instead of refusing. */
+  async ensureCustomer(h: CardHolder): Promise<string> {
+    const c = await this.call<{ id: string }>('POST', '/customers', { name: h.name.slice(0, 50), email: h.email, contact: h.contact, fail_existing: '0' });
+    return c.id;
+  }
+
+  async card(customerId: string, tokenId: string): Promise<SavedCardInfo | null> {
+    const r = await this.call<{ items?: RzpToken[] }>('GET', `/customers/${encodeURIComponent(customerId)}/tokens`);
+    const t = (r.items ?? []).find((x) => x.id === tokenId);
+    return t ? toCard(t) : null;
+  }
+
+  async cardForPayment(customerId: string, providerPaymentId: string): Promise<SavedCardInfo | null> {
+    const p = await this.call<RzpPayment>('GET', `/payments/${encodeURIComponent(providerPaymentId)}`);
+    if (!p.token_id) return null;
+    return (await this.card(customerId, p.token_id)) ?? { tokenId: p.token_id, state: 'PENDING', network: null, last4: null, expiryMonth: null, expiryYear: null, failureReason: null };
+  }
+
+  async removeCard(customerId: string, tokenId: string): Promise<void> {
+    await this.call('DELETE', `/customers/${encodeURIComponent(customerId)}/tokens/${encodeURIComponent(tokenId)}`);
+  }
+
+  /**
+   * A later charge on a saved card: Razorpay takes it without the customer, against an order we made. Its outcome
+   * arrives by webhook (or our lookup), so a started charge is "pending". A refusal (4xx) is a failed charge with
+   * Razorpay's reason; an outage throws, and the order is looked up later so nothing is charged twice.
+   */
+  async chargeCard(req: CardChargeRequest): Promise<CardChargeResult> {
+    try {
+      const r = await this.call<{ razorpay_payment_id?: string }>('POST', '/payments/create/recurring', {
+        email: req.email, contact: req.contact, amount: req.amountPaise, currency: req.currency, order_id: req.providerOrderId,
+        customer_id: req.customerId, token: req.tokenId, recurring: '1', description: req.description.slice(0, 255), notes: req.notes,
+      });
+      return { status: 'pending', providerPaymentId: r.razorpay_payment_id ?? null, failureReason: null };
+    } catch (e) {
+      const body = e instanceof HttpException ? (e.getResponse() as { details?: { status?: number; reason?: string } }) : undefined;
+      const status = body?.details?.status;
+      if (status && status >= 400 && status < 500 && status !== 401 && status !== 429) {
+        return { status: 'failed', providerPaymentId: null, failureReason: body?.details?.reason ?? 'The card could not be charged.' };
+      }
+      throw e;
+    }
   }
 
   /** Razorpay signs "<order_id>|<payment_id>" with the key secret. */
@@ -109,7 +187,7 @@ export class RazorpayProvider implements PaymentProvider {
     const expected = createHmac('sha256', this.cfg.webhookSecret).update(rawBody).digest('hex');
     if (!safeEqualHex(expected, sig)) return null;
 
-    let body: { event?: string; payload?: { payment?: { entity?: RzpPayment } } };
+    let body: { event?: string; payload?: { payment?: { entity?: RzpPayment }; token?: { entity?: RzpToken } } };
     try {
       body = JSON.parse(rawBody.toString('utf8'));
     } catch {
@@ -121,6 +199,12 @@ export class RazorpayProvider implements PaymentProvider {
     // payment.captured is the money arriving. order.paid also carries the payment, so either settles it.
     if ((rawType === 'payment.captured' || rawType === 'order.paid') && p?.id) return { ...base, type: 'payment.succeeded' };
     if (rawType === 'payment.failed' && p?.id) return { ...base, type: 'payment.failed' };
+    // A saved card's standing instruction was confirmed, rejected, paused or cancelled.
+    const t = body.payload?.token?.entity;
+    if (rawType.startsWith('token.') && t?.id) {
+      const state: SavedCardInfo['state'] = rawType === 'token.confirmed' ? 'ACTIVE' : rawType === 'token.rejected' ? 'REJECTED' : rawType === 'token.paused' || rawType === 'token.cancelled' ? 'GONE' : toCard(t).state;
+      return { ...base, type: 'token.updated', tokenId: t.id, tokenState: state, failureReason: t.recurring_details?.failure_reason ?? null };
+    }
     return { ...base, type: 'ignored' };
   }
 

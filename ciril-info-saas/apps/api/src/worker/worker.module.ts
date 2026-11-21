@@ -8,6 +8,8 @@ import { AuditService } from '../modules/audit/audit.service.js';
 import { BillingLifecycleService } from '../modules/billing/billing-lifecycle.service.js';
 import { PaymentGateway } from '../modules/billing/payment-gateway.js';
 import { PaymentSettlementService } from '../modules/billing/payment-settlement.service.js';
+import { AutoPayService } from '../modules/billing/autopay.service.js';
+import { SavedCardsService } from '../modules/billing/saved-cards.service.js';
 import { SecretBox } from '../common/security/crypto.js';
 import { AdminRegistrationsService } from '../modules/domains/admin-registrations.service.js';
 import { DomainEventsHandler } from '../modules/domains/domain-events.handler.js';
@@ -59,7 +61,7 @@ import { EVENTS_QUEUE, OutboxRelayService } from './outbox-relay.service.js';
     BullModule.registerQueue({ name: EVENTS_QUEUE }),
     DatabaseModule,
   ],
-  providers: [OutboxRelayService, EventsProcessor, AuditService, MailService, StaffNotifier, PaymentGateway, PaymentSettlementService, BillingLifecycleService, BillingLifecycleRunner, HostingGateway, HostingJobsService, HostingEventsHandler, HostingProvisionerRunner, DomainEventsHandler,
+  providers: [OutboxRelayService, EventsProcessor, AuditService, MailService, StaffNotifier, PaymentGateway, SavedCardsService, PaymentSettlementService, AutoPayService, BillingLifecycleService, BillingLifecycleRunner, HostingGateway, HostingJobsService, HostingEventsHandler, HostingProvisionerRunner, DomainEventsHandler,
     RegistrarGateway, AdminRegistrationsService, RegistrarAutomationService,
     { provide: DOMAIN_SECRET_BOX, inject: [ConfigService], useFactory: (config: ConfigService<Env, true>) => new SecretBox(config.get('DATA_ENCRYPTION_KEY', { infer: true })) },
   ],

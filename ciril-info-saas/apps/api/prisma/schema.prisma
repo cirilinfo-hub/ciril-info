@@ -211,6 +211,16 @@ enum PaymentProvider {
   MOCK
 }
 
+enum SavedCardStatus {
+  /// Saved at the provider, waiting for the card's bank to confirm the standing instruction.
+  PENDING
+  ACTIVE
+  /// The bank refused it.
+  REJECTED
+  /// Removed by the customer, replaced by another card, or cancelled at the provider.
+  REMOVED
+}
+
 enum RefundStatus {
   REQUESTED
   APPROVED
@@ -323,6 +333,7 @@ model Tenant {
   domains             Domain[]
   domainRenewals      DomainRenewal[]
   domainTransferOuts  DomainTransferOut[]
+  savedCards          SavedCard[]
   tdsDeductions       TdsDeduction[]
   dnsRecords          DnsRecord[]
   domainTransfers     DomainTransfer[]
@@ -668,6 +679,8 @@ model CustomerAccount {
   phone         String?  @db.VarChar(32)
   gstin         String?  @db.VarChar(15)
   currency      String   @default("INR") @db.Char(3)
+  /// The payment provider's customer record (Razorpay customer id), made when a card is first saved.
+  paymentCustomerId String? @map("payment_customer_id") @db.VarChar(120)
   /// Free-form notes visible to platform staff only.
   internalNotes String?  @map("internal_notes")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -1102,6 +1115,9 @@ model Invoice {
   taxTotal        Decimal       @default(0) @map("tax_total") @db.Decimal(14, 2)
   total           Decimal       @db.Decimal(14, 2)
   amountPaid      Decimal       @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  /// Automatic charges of this (renewal) invoice to a saved card: how many were tried, and when the last one was.
+  autoChargeAttempts Int        @default(0) @map("auto_charge_attempts")
+  autoChargeLastAt   DateTime?  @map("auto_charge_last_at") @db.Timestamptz(3)
   /// Snapshot of seller/buyer details and tax breakdown at issue time (GSTIN, addresses, CGST/SGST/IGST).
   billingSnapshot Json          @default("{}") @map("billing_snapshot")
   issuedAt        DateTime?     @map("issued_at") @db.Timestamptz(3)
@@ -1170,11 +1186,16 @@ model Payment {
   failureReason     String?         @map("failure_reason") @db.VarChar(255)
   idempotencyKey    String          @map("idempotency_key") @db.VarChar(80)
   verifiedAt        DateTime?       @map("verified_at") @db.Timestamptz(3)
+  /// The customer asked to save the card used for this checkout.
+  savesCard         Boolean         @default(false) @map("saves_card")
+  /// Set on a charge we made automatically to a saved card.
+  savedCardId       String?         @map("saved_card_id") @db.Uuid
   createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   invoice Invoice  @relation(fields: [invoiceId], references: [id])
+  savedCard SavedCard? @relation(fields: [savedCardId], references: [id], onDelete: SetNull)
   refunds Refund[]
 
   @@unique([idempotencyKey])
@@ -1242,6 +1263,38 @@ model Refund {
 }
 
 /// Raw inbound payment webhooks. (provider, event_id) is unique => duplicates are dropped.
+/// A card the customer saved for automatic renewal payments. The card stays with the provider; we hold its token id
+/// and what the customer needs to recognise it (network, last four digits, expiry). Never a card number.
+model SavedCard {
+  id                 String          @id @default(uuid()) @db.Uuid
+  tenantId           String          @map("tenant_id") @db.Uuid
+  provider           PaymentProvider
+  providerCustomerId String          @map("provider_customer_id") @db.VarChar(120)
+  providerTokenId    String          @map("provider_token_id") @db.VarChar(120)
+  status             SavedCardStatus @default(PENDING)
+  network            String?         @db.VarChar(40)
+  last4              String?         @db.VarChar(4)
+  expiryMonth        Int?            @map("expiry_month")
+  expiryYear         Int?            @map("expiry_year")
+  /// The most one automatic charge may take (the limit the standing instruction was set up with).
+  maxAmount          Decimal         @map("max_amount") @db.Decimal(14, 2)
+  /// The customer can keep the card but stop automatic payments.
+  autoPay            Boolean         @default(true) @map("auto_pay")
+  failureReason      String?         @map("failure_reason") @db.VarChar(255)
+  createdBy          String?         @map("created_by") @db.Uuid
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  confirmedAt        DateTime?       @map("confirmed_at") @db.Timestamptz(3)
+  removedAt          DateTime?       @map("removed_at") @db.Timestamptz(3)
+  updatedAt          DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@unique([provider, providerTokenId], map: "saved_cards_provider_token_key")
+  @@index([tenantId])
+  @@map("saved_cards")
+}
+
 model PaymentWebhook {
   id          String          @id @default(uuid()) @db.Uuid
   provider    PaymentProvider

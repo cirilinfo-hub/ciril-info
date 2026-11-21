@@ -16,6 +16,9 @@ export interface CheckoutParams {
   description: string;
   name: string;
   prefillEmail?: string;
+  /** Saving the card: Razorpay's customer record and the recurring flag. The window then offers cards only. */
+  customerId?: string;
+  recurring?: string;
 }
 
 interface RazorpayOptions {
@@ -26,6 +29,8 @@ interface RazorpayOptions {
   name: string;
   description: string;
   prefill?: { email?: string };
+  customer_id?: string;
+  recurring?: string;
   handler: (r: RazorpaySuccess) => void;
   modal?: { ondismiss?: () => void };
 }
@@ -64,6 +69,7 @@ export async function openRazorpayCheckout(p: CheckoutParams): Promise<CheckoutR
     const rzp = new Razorpay({
       key: p.keyId, order_id: p.orderId, amount: p.amountPaise, currency: p.currency, name: p.name, description: p.description,
       prefill: p.prefillEmail ? { email: p.prefillEmail } : undefined,
+      ...(p.customerId ? { customer_id: p.customerId, recurring: p.recurring ?? '1' } : {}),
       handler: (payment) => resolve({ kind: 'paid', payment }),
       modal: { ondismiss: () => resolve({ kind: 'dismissed' }) },
     });

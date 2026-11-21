@@ -14,7 +14,9 @@ export type EmailMessage =
   | { template: 'domain-transferred-out'; to: string; data: { domain: string; link: string } }
   | { template: 'domain-renewed'; to: string; data: { domain: string; expiresOn: string; link: string } }
   | { template: 'domain-expiring'; to: string; data: { domain: string; when: string; link: string } }
-  | { template: 'renewal-invoice'; to: string; data: { number: string; total: string; dueDate: string; link: string } }
+  | { template: 'renewal-invoice'; to: string; data: { number: string; total: string; dueDate: string; link: string; autoPay?: { card: string; date: string } } }
+  | { template: 'autopay-succeeded'; to: string; data: { number: string; total: string; card: string; link: string } }
+  | { template: 'autopay-failed'; to: string; data: { number: string; total: string; card: string; reason: string; retry: boolean; link: string } }
   | { template: 'ticket-reply'; to: string; data: { firstName: string; ref: string; subject: string; link: string } }
   | { template: 'new-sign-in'; to: string; data: { firstName: string; when: string; ip: string; device: string } };
 

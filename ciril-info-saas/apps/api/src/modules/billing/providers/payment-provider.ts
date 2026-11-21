@@ -36,6 +36,52 @@ export interface OrderRequest {
   /** Sent to the provider so a retry returns the same order instead of making a second. */
   idempotencyKey: string;
   notes: Record<string, string>;
+  /** The customer also saves the card for automatic payments. The checkout is then card-only. */
+  saveCard?: SaveCardTerms;
+}
+
+/** Saving a card: the provider's customer record, and the most one automatic charge may take. */
+export interface SaveCardTerms {
+  customerId: string;
+  maxAmountPaise: number;
+}
+
+/** Who the provider's customer record is for. Card standing instructions need a phone number. */
+export interface CardHolder {
+  name: string;
+  email: string;
+  contact: string;
+}
+
+/** A card the provider keeps for us. Only what lets the customer recognise it: never the card number. */
+export interface SavedCardInfo {
+  tokenId: string;
+  /** ACTIVE: the bank confirmed it and it can be charged. PENDING: not confirmed yet. GONE: cancelled, paused or expired. */
+  state: 'ACTIVE' | 'PENDING' | 'REJECTED' | 'GONE';
+  network: string | null;
+  last4: string | null;
+  expiryMonth: number | null;
+  expiryYear: number | null;
+  failureReason: string | null;
+}
+
+export interface CardChargeRequest {
+  customerId: string;
+  tokenId: string;
+  providerOrderId: string;
+  amountPaise: number;
+  currency: string;
+  email: string;
+  contact: string;
+  description: string;
+  notes: Record<string, string>;
+}
+
+/** captured: the money is taken. pending: the provider is still working on it (its webhook or a later lookup decides). */
+export interface CardChargeResult {
+  status: 'captured' | 'pending' | 'failed';
+  providerPaymentId: string | null;
+  failureReason: string | null;
 }
 
 export interface OrderResult {
@@ -66,13 +112,16 @@ export interface WebhookEvent {
   eventId: string;
   /** The provider's own name for it, kept for the audit trail. */
   rawType: string;
-  type: 'payment.succeeded' | 'payment.failed' | 'ignored';
+  type: 'payment.succeeded' | 'payment.failed' | 'token.updated' | 'ignored';
   providerOrderId: string | null;
   providerPaymentId: string | null;
   amountPaise: number | null;
   currency: string | null;
   method: string | null;
   failureReason: string | null;
+  /** token.updated only: the saved card and what happened to it. */
+  tokenId?: string | null;
+  tokenState?: SavedCardInfo['state'];
 }
 
 export interface RefundRequest {
@@ -98,7 +147,7 @@ export interface PaymentProvider {
   /** Hosted providers only. */
   createOrder?(req: OrderRequest): Promise<OrderResult>;
   /** What the browser needs to (re)open checkout for an order that already exists. */
-  checkoutParams?(providerOrderId: string): Record<string, string | number>;
+  checkoutParams?(providerOrderId: string, saveCard?: SaveCardTerms): Record<string, string | number>;
   /** True only when the signature proves the provider (and nobody else) produced this payment. */
   verifyCheckout?(c: CheckoutConfirmation): boolean;
   fetchPayment?(providerPaymentId: string): Promise<ProviderPayment>;
@@ -110,4 +159,15 @@ export interface PaymentProvider {
   parseWebhook?(rawBody: Buffer, headers: Record<string, string | string[] | undefined>): WebhookEvent | null;
 
   refund(req: RefundRequest): Promise<RefundResult>;
+
+  // Saved cards (optional). The card is typed into the provider's own window; we only ever hold the provider's token id.
+  /** The provider's customer record for this organisation, made if it does not exist yet. */
+  ensureCustomer?(holder: CardHolder): Promise<string>;
+  /** The card a (card-saving) payment left behind, or null if it saved none. */
+  cardForPayment?(customerId: string, providerPaymentId: string): Promise<SavedCardInfo | null>;
+  /** The card as the provider sees it now, or null if it no longer exists. */
+  card?(customerId: string, tokenId: string): Promise<SavedCardInfo | null>;
+  removeCard?(customerId: string, tokenId: string): Promise<void>;
+  /** Charges a saved card against an order we created. Never throws for a refusal: that is a failed result. */
+  chargeCard?(req: CardChargeRequest): Promise<CardChargeResult>;
 }

@@ -98,10 +98,17 @@ import { openRazorpayCheckout } from './razorpay-checkout';
         @if (payable(i)) {
           @if (i.testMode) { <div class="cf-alert cf-alert-info no-print" style="margin-top:var(--space-4)"><ci-icon name="info" /><span><strong>Test mode.</strong> No real payment gateway is connected yet, so no money is taken.</span></div> }
           @else { <p class="ts-body-sm no-print" style="margin-top:var(--space-4)">You pay in Razorpay's secure window with UPI, card or net banking. Ciril Info never sees your card or bank details.</p> }
+          @if (i.cards?.autoPay; as ap) {
+            <div class="cf-alert cf-alert-info no-print" style="margin-top:var(--space-4)" data-testid="auto-pay"><ci-icon name="card" /><span>This invoice will be charged to your {{ ap.card }} on {{ ap.on | date: 'd MMM y' }}. You do not need to do anything, or you can pay it now.</span></div>
+          }
           @if (auth.can('billing:pay')) {
             <div class="pay no-print">
               <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy()" (click)="pay()">{{ busy() ? 'Processing…' : (i.testMode ? 'Pay ' + fmt(due(i), i.currency) + ' (test)' : 'Pay ' + fmt(due(i), i.currency)) }}</button>
+              @if (i.cards?.available && !i.cards?.saved) {
+                <label class="cf-check"><input type="checkbox" [checked]="saveCard()" (change)="saveCard.set($any($event.target).checked)" /><span>Save this card and pay renewals automatically</span></label>
+              }
             </div>
+            @if (saveCard()) { <p class="cf-help no-print">You will pay by card. We charge it only for renewal invoices, a day before they are due, and email you the amount and date first. You can switch this off or remove the card under Invoices.</p> }
           } @else {
             <p class="ts-body-sm">Your role cannot pay invoices. Ask an organisation owner.</p>
           }
@@ -164,6 +171,7 @@ export class InvoiceDetailPage implements OnInit {
   protected readonly error = signal<string | null>(null);
   protected readonly notice = signal<string | null>(null);
   protected readonly busy = signal(false);
+  protected readonly saveCard = signal(false);
   /** One key per page visit: a double click or retry can never charge twice. */
   private readonly key = `web-${crypto.randomUUID()}`;
   protected fmt = money;
@@ -185,7 +193,7 @@ export class InvoiceDetailPage implements OnInit {
   }
 
   private finish(r: PayResult) {
-    if (r.status === 'SUCCEEDED') this.notice.set('Payment received. Your service is being set up.');
+    if (r.status === 'SUCCEEDED') this.notice.set(this.saveCard() ? 'Payment received, and your card is saved for automatic renewals.' : 'Payment received. Your service is being set up.');
     else this.error.set(r.failureReason ?? 'The payment did not go through. Please try again.');
   }
 
@@ -230,7 +238,8 @@ export class InvoiceDetailPage implements OnInit {
     this.busy.set(true);
     this.error.set(null);
     try {
-      let r = await this.api.pay(i.id, { idempotencyKey: this.key });
+      // Saving the card is a different checkout (card only), so it gets its own key.
+      let r = await this.api.pay(i.id, { idempotencyKey: this.saveCard() ? `${this.key}-card` : this.key, ...(this.saveCard() ? { saveCard: true } : {}) });
       if (r.action === 'CHECKOUT' && r.checkout) {
         const result = await openRazorpayCheckout(r.checkout);
         if (result.kind === 'dismissed') {

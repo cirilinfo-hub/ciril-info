@@ -6,10 +6,11 @@ import { AuthService } from '../../core/auth/auth.service';
 import { Icon } from '../../design-system/icon/icon';
 import { PageHead } from '../../shared/components/page-head';
 import { BillingApi, INVOICE_BADGE, type InvoiceRow, money } from './billing.api';
+import { SavedCardCard } from './saved-card-card';
 
 @Component({
   selector: 'ci-invoices',
-  imports: [DatePipe, RouterLink, Icon, PageHead],
+  imports: [DatePipe, RouterLink, Icon, PageHead, SavedCardCard],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .pager { display: flex; gap: var(--space-3); align-items: center; justify-content: flex-end; margin-top: var(--space-4); }
@@ -18,6 +19,7 @@ import { BillingApi, INVOICE_BADGE, type InvoiceRow, money } from './billing.api
   template: `
     <ci-page-head title="Invoices" sub="Your invoices and their payment status." />
     @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+    <ci-saved-card />
     <div class="cf-table-wrap">
       <table class="cf-table">
         <thead><tr><th scope="col">Invoice</th><th scope="col">Issued</th><th scope="col">Due</th><th scope="col">Status</th><th scope="col" class="amt">Total</th><th scope="col"><span class="cx-sr">Actions</span></th></tr></thead>

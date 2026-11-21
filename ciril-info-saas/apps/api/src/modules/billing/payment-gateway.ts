@@ -3,7 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env.js';
 import { MockProvider } from './providers/mock.provider.js';
 import type {
-  ChargeRequest, ChargeResult, CheckoutConfirmation, OrderRequest, OrderResult, PaymentProvider, ProviderId, ProviderPayment, RefundRequest, RefundResult, WebhookEvent,
+  CardChargeRequest, CardChargeResult, CardHolder, ChargeRequest, ChargeResult, CheckoutConfirmation, OrderRequest, OrderResult, PaymentProvider, ProviderId, ProviderPayment,
+  RefundRequest, RefundResult, SaveCardTerms, SavedCardInfo, WebhookEvent,
 } from './providers/payment-provider.js';
 import { RazorpayProvider } from './providers/razorpay.provider.js';
 
@@ -18,9 +19,15 @@ const notAvailable = () => new ServiceUnavailableException({ code: 'PAYMENTS_NOT
 @Injectable()
 export class PaymentGateway {
   readonly provider: PaymentProvider;
+  /** Saved cards are offered: always in test mode, and with Razorpay once its recurring payments are switched on. */
+  readonly savesCards: boolean;
+  /** The most one automatic charge may take, in paise. */
+  readonly autopayMaxPaise: number;
 
   constructor(config: ConfigService<Env, true>) {
     const which = config.get('PAYMENT_PROVIDER', { infer: true });
+    this.savesCards = which === 'mock' || (which === 'razorpay' && config.get('RAZORPAY_SAVED_CARDS', { infer: true }));
+    this.autopayMaxPaise = config.get('CARD_AUTOPAY_MAX_AMOUNT', { infer: true }) * 100;
     if (which === 'razorpay') {
       this.provider = new RazorpayProvider({
         keyId: config.get('RAZORPAY_KEY_ID', { infer: true }),
@@ -52,13 +59,39 @@ export class PaymentGateway {
     return this.provider.charge(req);
   }
 
+  /** An order for an automatic card charge (test mode has one too, unlike its instant checkout). */
+  async createChargeOrder(req: OrderRequest): Promise<OrderResult> {
+    return this.cards().createOrder(req);
+  }
+
   async createOrder(req: OrderRequest): Promise<OrderResult> {
     if (!this.provider.createOrder) throw notAvailable();
     return this.provider.createOrder(req);
   }
 
-  checkoutParams(orderId: string): Record<string, string | number> {
-    return this.provider.checkoutParams?.(orderId) ?? {};
+  checkoutParams(orderId: string, saveCard?: SaveCardTerms): Record<string, string | number> {
+    return this.provider.checkoutParams?.(orderId, saveCard) ?? {};
+  }
+
+  private cards() {
+    const p = this.provider;
+    if (!this.savesCards || !p.ensureCustomer || !p.cardForPayment || !p.card || !p.removeCard || !p.chargeCard || !p.createOrder) throw notAvailable();
+    return p as Required<Pick<PaymentProvider, 'ensureCustomer' | 'cardForPayment' | 'card' | 'removeCard' | 'chargeCard' | 'createOrder'>>;
+  }
+  ensureCustomer(h: CardHolder): Promise<string> {
+    return this.cards().ensureCustomer(h);
+  }
+  cardForPayment(customerId: string, paymentId: string): Promise<SavedCardInfo | null> {
+    return this.cards().cardForPayment(customerId, paymentId);
+  }
+  card(customerId: string, tokenId: string): Promise<SavedCardInfo | null> {
+    return this.cards().card(customerId, tokenId);
+  }
+  removeCard(customerId: string, tokenId: string): Promise<void> {
+    return this.cards().removeCard(customerId, tokenId);
+  }
+  chargeCard(req: CardChargeRequest): Promise<CardChargeResult> {
+    return this.cards().chargeCard(req);
   }
 
   verifyCheckout(c: CheckoutConfirmation): boolean {

@@ -44,6 +44,22 @@ export interface InvoiceDetail extends InvoiceRow {
   refunds: { id: string; amount: string; reason: string; createdAt: string; creditNote: { id: string; number: string } | null }[];
   /** TDS the organisation deducted and paid to the government. */
   tdsDeduction: { amount: string; section: string | null; certificateAt: string | null } | null;
+  /** Saved cards: whether one can be saved when paying, whether one is saved, and when this invoice will be charged to it. */
+  cards?: { available: boolean; saved: boolean; autoPay: { card: string; on: string } | null };
+}
+
+export interface SavedCardView {
+  available: boolean;
+  card: {
+    id: string;
+    status: 'PENDING' | 'ACTIVE';
+    network: string | null;
+    last4: string | null;
+    expiryMonth: number | null;
+    expiryYear: number | null;
+    maxAmount: string;
+    autoPay: boolean;
+  } | null;
 }
 
 export interface CreditNoteDetail {
@@ -95,7 +111,7 @@ export interface PayResult {
   invoice: InvoiceRow;
   /** Present when the customer still has to pay in the provider's window. */
   action?: 'CHECKOUT';
-  checkout?: { keyId: string; orderId: string; amountPaise: number; currency: string; description: string; name: string; prefillEmail?: string };
+  checkout?: { keyId: string; orderId: string; amountPaise: number; currency: string; description: string; name: string; prefillEmail?: string; customerId?: string; recurring?: string };
 }
 
 export interface Paged<T> {
@@ -129,11 +145,20 @@ export class BillingApi {
     return firstValueFrom(this.http.get<InvoiceDetail>(`${this.base}/invoices/${id}`));
   }
   /** Test mode answers at once. A real provider answers with CHECKOUT details to open the provider's payment window. */
-  pay(id: string, body: { idempotencyKey: string; simulate?: 'fail' }) {
+  pay(id: string, body: { idempotencyKey: string; simulate?: 'fail'; saveCard?: boolean }) {
     return firstValueFrom(this.http.post<PayResult>(`${this.base}/invoices/${id}/pay`, body));
   }
   confirmPayment(id: string, body: { providerOrderId: string; providerPaymentId: string; signature: string }) {
     return firstValueFrom(this.http.post<PayResult>(`${this.base}/invoices/${id}/confirm-payment`, body));
+  }
+  savedCard() {
+    return firstValueFrom(this.http.get<SavedCardView>(`${this.base}/billing/saved-card`));
+  }
+  setAutoPay(autoPay: boolean) {
+    return firstValueFrom(this.http.patch<SavedCardView>(`${this.base}/billing/saved-card`, { autoPay }));
+  }
+  removeSavedCard() {
+    return firstValueFrom(this.http.delete<SavedCardView>(`${this.base}/billing/saved-card`));
   }
   subscriptions(page = 1) {
     return firstValueFrom(this.http.get<Paged<SubscriptionRow>>(`${this.base}/subscriptions`, { params: { page, pageSize: 20 } }));

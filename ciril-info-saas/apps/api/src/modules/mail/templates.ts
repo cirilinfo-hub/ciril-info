@@ -68,7 +68,13 @@ export function renderEmail(m: EmailMessage): RenderedEmail {
     case 'domain-expiring':
       return build(`${m.data.domain} ${m.data.when}`, `Your domain ${m.data.when}`, [`${m.data.domain} ${m.data.when}.`, 'Renew it to keep your website and email working. If a domain is not renewed in time, you can lose the name.'], { label: 'Renew Domain', url: m.data.link });
     case 'renewal-invoice':
-      return build(`Renewal invoice ${m.data.number}`, 'Your renewal invoice is ready', [`Invoice ${m.data.number} for ${m.data.total} is due on ${m.data.dueDate}.`, 'Pay it before the due date so your service continues without interruption.'], { label: 'View Invoice', url: m.data.link });
+      return m.data.autoPay
+        ? build(`Renewal invoice ${m.data.number}`, 'Your renewal invoice is ready', [`Invoice ${m.data.number} for ${m.data.total} is due on ${m.data.dueDate}.`, `We will charge it to your ${m.data.autoPay.card} on ${m.data.autoPay.date}. You do not need to do anything.`, 'To pay another way, pay it before then. You can switch off automatic payments or remove the card under Invoices in your client area.'], { label: 'View Invoice', url: m.data.link })
+        : build(`Renewal invoice ${m.data.number}`, 'Your renewal invoice is ready', [`Invoice ${m.data.number} for ${m.data.total} is due on ${m.data.dueDate}.`, 'Pay it before the due date so your service continues without interruption.'], { label: 'View Invoice', url: m.data.link });
+    case 'autopay-succeeded':
+      return build(`Payment received for ${m.data.number}`, 'Your renewal is paid', [`We charged ${m.data.total} to your ${m.data.card} for invoice ${m.data.number}. Thank you.`], { label: 'View Invoice', url: m.data.link });
+    case 'autopay-failed':
+      return build(`We could not charge your card for ${m.data.number}`, 'Automatic payment did not go through', [`We tried to charge ${m.data.total} to your ${m.data.card} for invoice ${m.data.number}, but it did not go through: ${m.data.reason}`, m.data.retry ? 'We will try again tomorrow. To avoid any interruption, you can pay it now instead.' : 'Please pay the invoice yourself so your service continues without interruption.'], { label: 'Pay Invoice', url: m.data.link });
     case 'ticket-reply':
       return build(`New reply on ${m.data.ref}`, `We replied to ${m.data.ref}`, [`Hi ${m.data.firstName}, our support team replied to your ticket “${m.data.subject}”.`, 'For your security the reply is shown in your client area, not in this email.'], { label: 'View Reply', url: m.data.link });
     case 'new-sign-in':

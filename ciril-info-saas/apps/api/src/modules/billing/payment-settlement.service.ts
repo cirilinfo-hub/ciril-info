@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { Env } from '../../config/env.js';
 import { PlatformPrisma } from '../../database/prisma-clients.js';
+import { MailService } from '../mail/mail.service.js';
 import { StaffNotifier } from '../notifications/staff-notifier.service.js';
 import { toPaise } from './billing.logic.js';
+import { AUTO_CHARGE_ATTEMPTS, cardLabel } from './saved-cards.logic.js';
+import { SavedCardsService } from './saved-cards.service.js';
 import { settleInvoicePayment } from './settlement.js';
 
 /** What a provider tells us about one payment, whichever channel (browser, webhook, lookup) it came through. */
@@ -25,16 +30,25 @@ export type ApplyOutcome = 'SETTLED' | 'ALREADY_SETTLED' | 'FAILED' | 'PENDING' 
 @Injectable()
 export class PaymentSettlementService {
   private readonly log = new Logger(PaymentSettlementService.name);
+  private readonly portalUrl: string;
 
   constructor(
     private readonly db: PlatformPrisma,
     private readonly staff: StaffNotifier,
-  ) {}
+    private readonly cards: SavedCardsService,
+    private readonly mail: MailService,
+    config: ConfigService<Env, true>,
+  ) {
+    this.portalUrl = config.get('CUSTOMER_PORTAL_URL', { infer: true }).replace(/\/$/, '');
+  }
 
   async apply(paymentId: string, fact: ProviderPaymentFact, via: string, actorUserId: string | null = null): Promise<ApplyOutcome> {
     const payment = await this.db.payment.findUnique({
       where: { id: paymentId },
-      select: { id: true, tenantId: true, invoiceId: true, status: true, amount: true, currency: true, providerOrderId: true, invoice: { select: { number: true } } },
+      select: {
+        id: true, tenantId: true, invoiceId: true, status: true, amount: true, currency: true, providerOrderId: true, savesCard: true, savedCardId: true,
+        invoice: { select: { number: true, autoChargeAttempts: true } }, savedCard: { select: { network: true, last4: true } },
+      },
     });
     if (!payment) return 'UNKNOWN_PAYMENT';
     if (payment.status === 'SUCCEEDED' || payment.status === 'REFUNDED' || payment.status === 'PARTIALLY_REFUNDED') return 'ALREADY_SETTLED';
@@ -69,6 +83,7 @@ export class PaymentSettlementService {
         // The audit entry and the staff alert for this case are written once, by alert() below.
         return 'ORPHANED' as const;
       }).then(async (outcome) => {
+        if (outcome === 'SETTLED') await this.afterSettled(payment, actorUserId);
         if (outcome === 'ORPHANED') {
           await this.alert(payment.tenantId, payment.invoiceId, payment.invoice.number, 'payment.orphaned', 'Money arrived for a closed invoice', `${payment.invoice.number} could not take this payment (it was voided or already paid). Refund it from the invoice.`);
         }
@@ -77,14 +92,34 @@ export class PaymentSettlementService {
     }
 
     if (fact.status === 'failed') {
-      await this.db.payment.updateMany({ where: { id: payment.id, status: { in: ['CREATED', 'PENDING'] } }, data: { status: 'FAILED', failureReason: (fact.failureReason ?? 'The payment did not go through.').slice(0, 255) } });
+      const reason = (fact.failureReason ?? 'The payment did not go through.').slice(0, 255);
+      const changed = await this.db.payment.updateMany({ where: { id: payment.id, status: { in: ['CREATED', 'PENDING'] } }, data: { status: 'FAILED', failureReason: reason } });
       await this.db.auditLog.create({ data: { action: 'payment.failed', actorId: actorUserId, tenantId: payment.tenantId, entityType: 'invoice', entityId: payment.invoiceId, metadata: { paymentId: payment.id, via, reason: fact.failureReason } } });
+      // An automatic charge that failed: the customer hears about it once (a duplicate signal changes no row).
+      if (changed.count && payment.savedCardId) await this.autoPayFailed(payment, reason);
       return 'FAILED';
     }
 
     // Authorised but not captured yet, or still in progress: wait for the next signal.
     await this.db.payment.updateMany({ where: { id: payment.id, status: 'CREATED' }, data: { status: 'PENDING', ...(fact.providerPaymentId ? { providerPaymentId: fact.providerPaymentId } : {}) } });
     return 'PENDING';
+  }
+
+  /** A checkout that saved the card keeps it; an automatic charge that went through is confirmed to the customer. */
+  private async afterSettled(p: { id: string; tenantId: string; invoiceId: string; amount: { toString(): string }; currency: string; savesCard: boolean; savedCardId: string | null; invoice: { number: string }; savedCard: { network: string | null; last4: string | null } | null }, actorUserId: string | null) {
+    if (p.savesCard) await this.cards.adopt(p.id, actorUserId);
+    if (p.savedCardId) {
+      const to = await this.db.customerAccount.findUnique({ where: { tenantId: p.tenantId }, select: { billingEmail: true } });
+      if (to) await this.mail.enqueue({ template: 'autopay-succeeded', to: to.billingEmail, data: { number: p.invoice.number, total: `${p.currency} ${p.amount.toString()}`, card: cardLabel(p.savedCard ?? { network: null, last4: null }), link: `${this.portalUrl}/invoices/${p.invoiceId}` } }, undefined, p.tenantId);
+    }
+  }
+
+  private async autoPayFailed(p: { tenantId: string; invoiceId: string; amount: { toString(): string }; currency: string; invoice: { number: string; autoChargeAttempts: number }; savedCard: { network: string | null; last4: string | null } | null }, reason: string) {
+    const retry = p.invoice.autoChargeAttempts < AUTO_CHARGE_ATTEMPTS;
+    const card = cardLabel(p.savedCard ?? { network: null, last4: null });
+    await this.cards.notifyOwners(p.tenantId, { type: 'autopay.failed', title: `Automatic payment for ${p.invoice.number} did not go through`, body: retry ? `We could not charge your ${card}: ${reason} We will try again tomorrow, or you can pay it now.` : `We could not charge your ${card}: ${reason} Please pay it yourself.`, link: `/invoices/${p.invoiceId}` });
+    const to = await this.db.customerAccount.findUnique({ where: { tenantId: p.tenantId }, select: { billingEmail: true } });
+    if (to) await this.mail.enqueue({ template: 'autopay-failed', to: to.billingEmail, data: { number: p.invoice.number, total: `${p.currency} ${p.amount.toString()}`, card, reason, retry, link: `${this.portalUrl}/invoices/${p.invoiceId}` } }, undefined, p.tenantId);
   }
 
   /** Staff who handle billing hear about anything that needs a human. Only the invoice number and what happened. */

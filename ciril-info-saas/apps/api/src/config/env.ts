@@ -67,6 +67,10 @@ export const envSchema = z
     /** The secret you type in Razorpay's webhook settings. It signs every webhook they send us. */
     RAZORPAY_WEBHOOK_SECRET: z.string().trim().default(''),
     RAZORPAY_API_BASE: z.url().default('https://api.razorpay.com/v1'),
+    /** Saved cards and automatic renewal payments. Razorpay must first switch on Recurring Payments (cards) for your account. */
+    RAZORPAY_SAVED_CARDS: bool,
+    /** The most one automatic charge may take, in rupees. RBI lets card standing instructions charge up to 15,000 without the customer. */
+    CARD_AUTOPAY_MAX_AMOUNT: z.coerce.number().int().min(1).max(1_000_000).default(15_000),
     /** manual: no panel is called; each task goes to staff, who do it by hand and mark it done. */
     HOSTING_PROVIDER: z.enum(['mock', 'manual', 'cpanel', 'plesk']).default('mock'),
     /** Where DNS zones live. mock keeps them in memory (development only); cpanel edits the zones on the WHM server below; none switches customer DNS editing off. */

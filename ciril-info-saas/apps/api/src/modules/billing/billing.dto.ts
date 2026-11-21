@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsIn, IsOptional, IsString, IsUUID, Length, Matches, ValidateIf } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, Length, Matches, ValidateIf } from 'class-validator';
 import { ListQueryDto } from '../../common/http/pagination.js';
 
 export const ORDERABLE_CYCLES = ['MONTHLY', 'QUARTERLY', 'YEARLY', 'BIENNIAL', 'TRIENNIAL', 'ONE_TIME'] as const;
@@ -33,6 +33,13 @@ export class PayInvoiceDto {
 
   @ApiPropertyOptional({ enum: ['fail'], description: 'Mock gateway only (never in production).' })
   @IsOptional() @IsIn(['fail']) simulate?: 'fail';
+
+  @ApiPropertyOptional({ description: 'Save the card used (card only) and charge renewal invoices to it automatically.' })
+  @IsOptional() @IsBoolean() saveCard?: boolean;
+}
+
+export class AutoPayDto {
+  @ApiProperty({ description: 'Charge renewal invoices to the saved card automatically.' }) @IsBoolean() autoPay!: boolean;
 }
 
 /** What the provider's checkout hands the browser when the customer has paid. The signature is what we trust. */
