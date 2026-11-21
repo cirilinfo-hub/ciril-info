@@ -23,6 +23,7 @@ export class DomainEventsHandler {
     if (type === 'domain.transfer_out_requested') return this.transferOut(payload, opts.final);
     if (type === 'domain.transfer_out_cancelled') return this.transferOutCancelled(payload, opts.final);
     if (type === 'domain.nameservers_requested') return this.nameservers(payload, opts.final);
+    if (type === 'domain.contacts_requested') return this.contacts(payload, opts.final);
     if (type !== 'domain.registration_requested') return false;
     const domainId = (payload as { domainId?: string } | null)?.domainId;
     if (!domainId) return false;
@@ -93,6 +94,21 @@ export class DomainEventsHandler {
     await this.staff.notify('domains:write', {
       type: 'domain.task', title: `Change the nameservers of ${c.domain.name}`.slice(0, 190),
       body: why ? `The registrar could not change them: ${why} Fix the cause and try again from Domains, or change them by hand and mark it done.` : `The customer wants: ${c.nameservers.join(', ')}. Change them at the registrar, then mark it done in Domains.`,
+      link: '/domains',
+    });
+    return true;
+  }
+
+  private async contacts(payload: unknown, final: boolean): Promise<boolean> {
+    const changeId = (payload as { changeId?: string } | null)?.changeId;
+    if (!changeId) return false;
+    const c = await this.db.domainContactChange.findUnique({ where: { id: changeId }, select: { status: true, domain: { select: { name: true } } } });
+    if (!c || c.status !== 'REQUESTED') return true;
+    const why = await this.tryRegistrar(() => this.automation.changeContacts(changeId, { final }));
+    if (why === null) return true;
+    await this.staff.notify('domains:write', {
+      type: 'domain.task', title: `Change the contacts of ${c.domain.name}`.slice(0, 190),
+      body: why ? `The registrar could not change them: ${why} Fix the cause and try again from Domains, or change them by hand and mark it done.` : 'The customer asked for new contact details (shown in Domains). Change them at the registrar, then mark it done.',
       link: '/domains',
     });
     return true;

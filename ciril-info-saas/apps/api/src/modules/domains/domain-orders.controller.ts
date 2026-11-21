@@ -3,8 +3,9 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
 import { CurrentTenant, ReqMeta, RequireTenant } from '../auth/decorators.js';
-import { DomainOrderDto, DomainQuoteQuery, NameserversDto, RenewDomainDto, TransferOrderDto, TransferQuoteQuery } from './domain-orders.dto.js';
+import { DomainContactDto, DomainOrderDto, DomainQuoteQuery, NameserversDto, RenewDomainDto, TransferOrderDto, TransferQuoteQuery } from './domain-orders.dto.js';
 import { DomainNameserversService } from './domain-nameservers.service.js';
+import { DomainContactsService } from './domain-contacts.service.js';
 import { DomainOrdersService } from './domain-orders.service.js';
 import { DomainTransferOutsService } from './domain-transfer-outs.service.js';
 
@@ -18,7 +19,21 @@ export class DomainOrdersController {
     private readonly svc: DomainOrdersService,
     private readonly outs: DomainTransferOutsService,
     private readonly ns: DomainNameserversService,
+    private readonly contacts: DomainContactsService,
   ) {}
+
+  /** The domain's contact details on record (or the organisation's), and a change still waiting. */
+  @Get(':id/contacts') @RequireTenant('services:read')
+  domainContacts(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string) { return this.contacts.current(ctx, id); }
+
+  @Post(':id/contacts') @HttpCode(201) @Throttle({ default: { limit: 5, ttl: 60_000 } }) @RequireTenant('services:manage')
+  changeContacts(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @Body() dto: DomainContactDto, @ReqMeta() meta: RequestMeta) {
+    const { acknowledged: _ack, ...contact } = dto;
+    return this.contacts.request(ctx, id, contact, meta);
+  }
+
+  @Post(':id/contacts/cancel') @HttpCode(200) @RequireTenant('services:manage')
+  cancelContacts(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.contacts.cancel(ctx, id, meta); }
 
   /** Our own nameservers, offered as a one-click choice when changing a domain's. */
   @Get('nameservers/defaults') @RequireTenant('services:read')

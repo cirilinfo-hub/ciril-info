@@ -85,8 +85,13 @@ the change at GoDaddy and the customer is emailed. Without automation, or if GoD
 not in your account), staff get a task, change them by hand, and use **Mark changed**, or **Can't change** with a reason
 the customer sees. A change can be withdrawn until it has been made.
 
-## Not built yet
+## Contact details
 
-- Changing a domain's contacts (registrant details) from the portal. A registrant change can trigger the registry's
-  confirmation emails and a 60-day transfer lock, so it is done by staff at the registrar for now.
+A customer can change an active domain's contact details (the registrant, also used as admin, technical and billing
+contact) from their Domains page. The form starts from what is on record, or the organisation's details, and warns
+first: changing the name, organisation or email is a change of owner under ICANN's rules, so the registry may email the
+old and new addresses to confirm it, and the domain may not be transferable for 60 days. The customer must tick that
+they understand. The worker sets the new details at GoDaddy for all four contact roles and the owners are emailed (also
+as a security notice). Without automation, or if GoDaddy refuses, staff see the new details in **Admin > Domains**, set
+them by hand and press **Mark changed**, or **Can't change contacts** with a reason.
 - Tried against a pretend GoDaddy only. Do the OTE run above before going live.

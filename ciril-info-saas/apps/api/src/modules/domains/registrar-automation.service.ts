@@ -134,6 +134,19 @@ export class RegistrarAutomationService {
     }, (reason) => this.db.domainNameserverChange.updateMany({ where: { id: changeId, status: 'REQUESTED' }, data: { failureReason: reason } }));
   }
 
+  /** A contact change the customer asked for is made at the registrar and recorded. */
+  async changeContacts(changeId: string, opts: AutomationOptions): Promise<AutomationOutcome> {
+    const auto = this.gateway.provider.automation;
+    if (!auto) return { result: 'manual', reason: 'No registrar is connected.' };
+    const c = await this.db.domainContactChange.findUnique({ where: { id: changeId }, select: { status: true, contact: true, domain: { select: { id: true, name: true } } } });
+    if (!c || c.status !== 'REQUESTED') return { result: 'skipped' };
+    return this.attempt(opts, async () => {
+      await auto.setContacts(c.domain.name, c.contact as unknown as RegistrantContact);
+      await this.admin.completeContacts(opts.actor ?? null, c.domain.id, opts.meta);
+      return { result: 'done' };
+    }, (reason) => this.db.domainContactChange.updateMany({ where: { id: changeId, status: 'REQUESTED' }, data: { failureReason: reason } }));
+  }
+
   /** A transfer away was withdrawn after the domain was unlocked: it is locked again, unless another request has since started. */
   async relock(transferOutId: string, opts: AutomationOptions): Promise<AutomationOutcome> {
     const auto = this.gateway.provider.automation;
@@ -204,6 +217,7 @@ export class RegistrarAutomationService {
         transfers: { where: { status: { in: ['REQUESTED', 'IN_PROGRESS'] } }, take: 1, select: { id: true, status: true } },
         transferOuts: { where: { status: { in: ['REQUESTED', 'RELEASED'] } }, take: 1, select: { id: true, status: true } },
         nameserverChanges: { where: { status: 'REQUESTED' }, take: 1, select: { id: true } },
+        contactChanges: { where: { status: 'REQUESTED' }, take: 1, select: { id: true } },
       },
     });
     if (!d) throw new NotFoundException({ code: 'DOMAIN_NOT_FOUND', message: 'Domain not found.' });
@@ -230,6 +244,7 @@ export class RegistrarAutomationService {
       }
     } else if (d.renewals[0]) outcome = await this.renew(d.renewals[0].id, opts);
     else if (d.nameserverChanges[0]) outcome = await this.changeNameservers(d.nameserverChanges[0].id, opts);
+    else if (d.contactChanges[0]) outcome = await this.changeContacts(d.contactChanges[0].id, opts);
     else throw new ConflictException({ code: 'NOTHING_WAITING', message: 'Nothing on this domain is waiting for the registrar.' });
     if (outcome.result === 'skipped') throw new ConflictException({ code: 'NOT_PAID', message: 'What is waiting on this domain has not been paid for yet.' });
     return { outcome, domain: await this.admin.one(domainId) };

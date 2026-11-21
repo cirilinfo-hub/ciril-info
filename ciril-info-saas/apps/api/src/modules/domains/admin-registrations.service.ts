@@ -25,6 +25,7 @@ const select = {
   transferOuts: { where: { status: { in: LIVE_TRANSFER_OUT } }, take: 1, select: { id: true, status: true, requestedAt: true, releasedAt: true, failureReason: true } },
   nameservers: true,
   nameserverChanges: { where: { status: 'REQUESTED' as const }, take: 1, select: { id: true, nameservers: true, requestedAt: true, failureReason: true } },
+  contactChanges: { where: { status: 'REQUESTED' as const }, take: 1, select: { id: true, contact: true, requestedAt: true, failureReason: true } },
 } as const;
 
 /**
@@ -48,7 +49,7 @@ export class AdminRegistrationsService {
   async list(q: AdminRegistrationListQuery) {
     const where: Prisma.DomainWhereInput = {
       ...(q.status ? { status: q.status } : {}),
-      ...(q.needsAction ? { OR: [{ status: 'PENDING_REGISTRATION' as const, orderInvoice: { status: 'PAID' as const } }, { renewals: { some: { status: 'PENDING' as const, invoice: { status: 'PAID' as const } } } }, { status: 'PENDING_TRANSFER' as const, transfers: { some: { status: { in: ['REQUESTED' as const, 'IN_PROGRESS' as const] }, invoice: { status: 'PAID' as const } } } }, { transferOuts: { some: { status: 'REQUESTED' as const } } }, { nameserverChanges: { some: { status: 'REQUESTED' as const } } }] } : {}),
+      ...(q.needsAction ? { OR: [{ status: 'PENDING_REGISTRATION' as const, orderInvoice: { status: 'PAID' as const } }, { renewals: { some: { status: 'PENDING' as const, invoice: { status: 'PAID' as const } } } }, { status: 'PENDING_TRANSFER' as const, transfers: { some: { status: { in: ['REQUESTED' as const, 'IN_PROGRESS' as const] }, invoice: { status: 'PAID' as const } } } }, { transferOuts: { some: { status: 'REQUESTED' as const } } }, { nameserverChanges: { some: { status: 'REQUESTED' as const } } }, { contactChanges: { some: { status: 'REQUESTED' as const } } }] } : {}),
       ...(q.search ? { AND: [{ OR: [{ name: { contains: q.search, mode: 'insensitive' } }, { tenant: { name: { contains: q.search, mode: 'insensitive' } } }] }] } : {}),
     };
     const [rows, total] = await Promise.all([
@@ -290,6 +291,40 @@ export class AdminRegistrationsService {
     if (r.count === 0) throw new ConflictException({ code: 'NAMESERVER_CHANGE_NOT_WAITING', message: 'This domain has no nameserver change waiting.' });
     await this.audit.record({ action: 'domain.nameservers_declined', actorId: actor?.id ?? null, tenantId: d.tenant.id, entityType: 'domain', entityId: id, metadata: { name: d.name, reason }, meta });
     await this.tellOwners(d.tenant.id, { type: 'domain.nameservers_declined', title: `We could not change the nameservers of ${d.name}`, body: reason, link: '/domains' });
+    return this.one(id);
+  }
+
+  private async contactChangeWaiting(id: string) {
+    const d = await this.db.domain.findUnique({ where: { id }, select });
+    if (!d) throw new NotFoundException({ code: 'DOMAIN_NOT_FOUND', message: 'Domain not found.' });
+    const c = d.contactChanges[0];
+    if (!c) throw new ConflictException({ code: 'CONTACT_CHANGE_NOT_WAITING', message: 'This domain has no contact change waiting.' });
+    return { d, c };
+  }
+
+  /** The contacts were changed at the registrar: recorded on the domain, and the owners are told (a security notice too). */
+  async completeContacts(actor: { id: string } | null, id: string, meta?: RequestMeta) {
+    const { d, c } = await this.contactChangeWaiting(id);
+    await this.db.$transaction(async (tx) => {
+      const r = await tx.domainContactChange.updateMany({ where: { id: c.id, status: 'REQUESTED' }, data: { status: 'DONE', completedAt: new Date(), failureReason: null } });
+      if (r.count === 0) throw new ConflictException({ code: 'CONTACT_CHANGE_NOT_WAITING', message: 'This domain has no contact change waiting.' });
+      await tx.domain.update({ where: { id }, data: { contact: c.contact as Prisma.InputJsonValue } });
+    });
+    await this.audit.record({ action: 'domain.contacts_changed', actorId: actor?.id ?? null, tenantId: d.tenant.id, entityType: 'domain', entityId: id, metadata: { name: d.name }, meta });
+    const owners = await this.db.tenantMembership.findMany({ where: { tenantId: d.tenant.id, status: 'ACTIVE', role: { key: 'TENANT_OWNER' } }, select: { user: { select: { id: true, email: true } } } });
+    if (owners.length) {
+      await this.db.notification.createMany({ data: owners.map((o) => ({ userId: o.user.id, tenantId: d.tenant.id, type: 'domain.contacts_changed', title: `The contact details of ${d.name} were changed`, body: 'Watch for a confirmation email from the registry and follow it, or the change may be undone.', link: '/domains' })) });
+      for (const o of owners) await this.mail.enqueue({ template: 'domain-contacts-changed', to: o.user.email, data: { domain: d.name, link: `${this.portalUrl}/domains` } }, undefined, d.tenant.id);
+    }
+    return this.one(id);
+  }
+
+  async declineContacts(actor: { id: string } | null, id: string, reason: string, meta?: RequestMeta) {
+    const { d, c } = await this.contactChangeWaiting(id);
+    const r = await this.db.domainContactChange.updateMany({ where: { id: c.id, status: 'REQUESTED' }, data: { status: 'CANCELLED', failureReason: reason.slice(0, 255) } });
+    if (r.count === 0) throw new ConflictException({ code: 'CONTACT_CHANGE_NOT_WAITING', message: 'This domain has no contact change waiting.' });
+    await this.audit.record({ action: 'domain.contacts_declined', actorId: actor?.id ?? null, tenantId: d.tenant.id, entityType: 'domain', entityId: id, metadata: { name: d.name, reason }, meta });
+    await this.tellOwners(d.tenant.id, { type: 'domain.contacts_declined', title: `We could not change the contact details of ${d.name}`, body: reason, link: '/domains' });
     return this.one(id);
   }
 

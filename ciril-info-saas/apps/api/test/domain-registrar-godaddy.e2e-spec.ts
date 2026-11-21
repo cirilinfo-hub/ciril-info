@@ -281,6 +281,20 @@ describe('Domain registrar: GoDaddy (e2e)', () => {
     expect(await tasks(name('dns'))).toHaveLength(0);
   });
 
+  it('changes the contacts at GoDaddy (all four roles), records them, and leaves no task', async () => {
+    const d = await db.domain.create({ data: { tenantId: alice.tenantId, name: name('who'), tld, status: 'ACTIVE', registeredAt: new Date(Date.now() - 100 * 86_400_000), expiresAt: new Date(Date.now() + 100 * 86_400_000) } });
+    gd.owned.set(name('who'), { domainId: 5153, status: 'ACTIVE', expires: d.expiresAt! });
+    const contact = { firstName: 'Ravi', lastName: 'Iyer', email: 'ravi@example.test', phone: '+91 98111 22233', address1: '9 Lake Road', city: 'Chennai', state: 'Tamil Nadu', postalCode: '600001', country: 'IN' };
+    await http().post(api(`domains/${d.id}/contacts`)).set(auth(alice.token)).send({ ...contact, acknowledged: true }).expect(201);
+    const c = await db.domainContactChange.findFirstOrThrow({ where: { domainId: d.id } });
+    await events.handle('domain.contacts_requested', { changeId: c.id }, { final: false });
+    const sent = gd.owned.get(name('who'))!.contacts as Record<string, { nameFirst: string; phone: string; addressMailing: { city: string } }>;
+    for (const role of ['contactRegistrant', 'contactAdmin', 'contactTech', 'contactBilling']) expect(sent[role]).toMatchObject({ nameFirst: 'Ravi', phone: '+91.9811122233', addressMailing: { city: 'Chennai' } });
+    expect((await row(name('who'))).contact).toMatchObject({ firstName: 'Ravi' });
+    expect((await db.domainContactChange.findUniqueOrThrow({ where: { id: c.id } })).status).toBe('DONE');
+    expect(await tasks(name('who'))).toHaveLength(0);
+  });
+
   it('hands a nameserver change to staff when GoDaddy does not hold the domain', async () => {
     const d = await db.domain.create({ data: { tenantId: alice.tenantId, name: name('elsewhere'), tld, status: 'ACTIVE', registeredAt: new Date(Date.now() - 100 * 86_400_000), expiresAt: new Date(Date.now() + 100 * 86_400_000) } });
     await http().post(api(`domains/${d.id}/nameservers`)).set(auth(alice.token)).send({ nameservers: ['ns1.site.io', 'ns2.site.io'] }).expect(201);

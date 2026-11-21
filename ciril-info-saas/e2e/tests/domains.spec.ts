@@ -497,6 +497,63 @@ test.describe('Domains', () => {
     await expect(page.getByRole('dialog', { name: `Nameservers for ${domain}` })).toContainText('Now: ns1.pwhost.com, ns2.pwhost.com');
   });
 
+  test('a customer changes the contact details after the warning, and staff set them at the registrar', async ({ page, browser }, info) => {
+    test.skip(info.project.name !== 'desktop', 'runs once');
+    test.setTimeout(180_000);
+    const tld = `pw${rand()}`;
+    const name = `pwct${rand()}`;
+    const domain = `${name}.${tld}`;
+    fixture('add-tld', tld, '500', '600', '400');
+    const email = await newCustomer('domct');
+    fixture('add-domain', email, name, tld, '300');
+    await page.goto('/portal/login');
+    await page.getByLabel('Email address').fill(email);
+    await page.getByLabel('Password').fill(CUSTOMER_PASSWORD);
+    await page.getByRole('button', { name: 'Sign In' }).click();
+    await page.getByRole('complementary').getByRole('link', { name: 'Domains' }).click();
+    const mine = page.getByRole('row', { name: new RegExp(domain) });
+    await expect(mine).toBeVisible({ timeout: 15_000 });
+    await mine.getByRole('button', { name: `Change the contacts of ${domain}` }).click();
+    const dialog = page.getByRole('dialog', { name: `Contact details for ${domain}` });
+    await expect(dialog.getByTestId('contact-warning')).toContainText('60 days');
+    await expect(dialog.getByLabel('Email')).toHaveValue(email); // the organisation's details to start from
+    await dialog.getByLabel('First name').fill('Leela');
+    await dialog.getByLabel('Last name').fill('Kurian');
+    await dialog.getByLabel('Phone').fill('+91 98470 55555');
+    await dialog.getByLabel('Address', { exact: true }).fill('7 Marine Drive');
+    await dialog.getByLabel('City').fill('Kochi');
+    await dialog.getByLabel('State').fill('Kerala');
+    await dialog.getByLabel('PIN / postal code').fill('682031');
+    await dialog.getByRole('button', { name: 'Change contacts' }).click();
+    await expect(dialog.getByRole('alert')).toContainText('Tick the box');
+    await dialog.getByRole('checkbox').check();
+    await dialog.getByRole('button', { name: 'Change contacts' }).click();
+    await expect(page.getByText(`We are changing the contact details of ${domain}.`)).toBeVisible();
+    await expect(mine.getByTestId('contact-change')).toBeVisible();
+
+    const staffEmail = uniqueEmail('domadmin7');
+    const { secret } = fixture('create-staff-ready', staffEmail, STAFF_PASSWORD, 'SUPER_ADMIN') as { secret: string };
+    const ctx = await browser.newContext();
+    const staff = await ctx.newPage();
+    await staffSignIn(staff, staffEmail, secret);
+    await staff.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Domains', exact: true }).click();
+    await staff.getByRole('button', { name: 'Needs action' }).click();
+    await staff.getByRole('searchbox', { name: 'Search domains' }).fill(name);
+    const row = staff.getByRole('row', { name: new RegExp(domain) });
+    await row.getByRole('button', { name: `See and mark the contact change for ${domain}` }).click();
+    const view = staff.getByRole('dialog', { name: `New contact details for ${domain}` });
+    await expect(view.getByTestId('contact-view')).toContainText('Leela Kurian');
+    await expect(view.getByTestId('contact-view')).toContainText('7 Marine Drive, Kochi, Kerala 682031, IN');
+    await view.getByRole('button', { name: 'Mark changed' }).click();
+    await expect(staff.getByText(`The contacts of ${domain} are marked changed.`)).toBeVisible();
+    await ctx.close();
+
+    await page.reload();
+    await expect(mine.getByTestId('contact-change')).toHaveCount(0);
+    await mine.getByRole('button', { name: `Change the contacts of ${domain}` }).click();
+    await expect(page.getByRole('dialog', { name: `Contact details for ${domain}` }).getByLabel('First name')).toHaveValue('Leela');
+  });
+
   test('an unpaid renewal can be cancelled', async ({ page }, info) => {
     test.skip(info.project.name !== 'desktop', 'runs once');
     test.setTimeout(120_000);

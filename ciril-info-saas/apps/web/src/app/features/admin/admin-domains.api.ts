@@ -45,6 +45,7 @@ export interface AdminRegistration {
   transferOuts?: { id: string; status: 'REQUESTED' | 'RELEASED'; requestedAt: string; releasedAt: string | null; failureReason: string | null }[];
   nameservers?: string[];
   nameserverChanges?: { id: string; nameservers: string[]; requestedAt: string; failureReason: string | null }[];
+  contactChanges?: { id: string; contact: { firstName: string; lastName: string; organisation?: string; email: string; phone: string; address1: string; address2?: string; city: string; state: string; postalCode: string; country: string }; requestedAt: string; failureReason: string | null }[];
   renewals: { id: string; years: number; requestedAt: string; failureReason: string | null; invoice: { id: string; number: string; status: string; total: string } }[];
 }
 
@@ -93,6 +94,12 @@ export class AdminDomainsApi {
   }
   completeTransferOut(id: string) {
     return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/transfer-out/complete`, {}));
+  }
+  completeContacts(id: string) {
+    return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/contacts/complete`, {}));
+  }
+  declineContacts(id: string, reason: string) {
+    return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/contacts/decline`, { reason }));
   }
   completeNameservers(id: string) {
     return firstValueFrom(this.http.post<AdminRegistration>(`${this.registrationsBase}/${id}/nameservers/complete`, {}));

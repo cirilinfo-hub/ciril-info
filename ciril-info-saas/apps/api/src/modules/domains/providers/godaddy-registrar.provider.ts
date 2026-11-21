@@ -80,6 +80,7 @@ export class GoDaddyRegistrarProvider implements RegistrarProvider {
       releaseForTransfer: (d) => this.release(d),
       lock: (d) => this.setLock(d, true),
       setNameservers: (d, ns) => this.setNameservers(d, ns),
+      setContacts: (d, c) => this.setContacts(d, c),
     };
   }
 
@@ -163,6 +164,12 @@ export class GoDaddyRegistrarProvider implements RegistrarProvider {
   private async setNameservers(domain: string, nameServers: string[]): Promise<void> {
     if (!(await this.info(domain))) throw new RegistrarError(`The registrar account does not hold ${domain}, so its nameservers cannot be changed there. Change them where it is registered, then mark it done.`, false, 'NOT_IN_ACCOUNT');
     await this.call('PATCH', `/v1/domains/${encodeURIComponent(domain)}`, { nameServers });
+  }
+
+  private async setContacts(domain: string, c: RegistrantContact): Promise<void> {
+    if (!(await this.info(domain))) throw new RegistrarError(`The registrar account does not hold ${domain}, so its contacts cannot be changed there. Change them where it is registered, then mark it done.`, false, 'NOT_IN_ACCOUNT');
+    const contact = this.contact(c);
+    await this.call('PATCH', `/v1/domains/${encodeURIComponent(domain)}/contacts`, { contactRegistrant: contact, contactAdmin: contact, contactTech: contact, contactBilling: contact });
   }
 
   private async setLock(domain: string, locked: boolean): Promise<void> {

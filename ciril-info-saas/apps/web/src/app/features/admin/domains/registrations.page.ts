@@ -32,6 +32,10 @@ const FILTERS = [
     .row-actions { text-align: right; white-space: nowrap; }
     td small { display: block; color: var(--color-text-secondary); }
     td small.issue { color: var(--color-text-danger); max-width: 40ch; }
+    .contact-view { display: grid; gap: var(--space-2); margin: 0; }
+    .contact-view div { display: grid; grid-template-columns: 120px 1fr; gap: var(--space-3); }
+    .contact-view dt { color: var(--color-text-secondary); }
+    .contact-view dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
     .code { font-family: var(--font-mono, ui-monospace, monospace); font-size: 18px; word-break: break-all; padding: var(--space-3); background: var(--color-surface-subtle, #f5f3ff); border-radius: var(--radius-md, 8px); margin: 0 0 var(--space-3); user-select: all; }
     .pager { display: flex; gap: var(--space-3); align-items: center; justify-content: flex-end; margin-top: var(--space-4); }
   `,
@@ -40,7 +44,7 @@ const FILTERS = [
       @if (canWrite()) { <a class="cf-btn cf-btn-secondary" [routerLink]="auth.link('/domain-prices')">Domain prices</a> }
     </ci-page-head>
     @if (toast(); as t) { <div class="cf-alert cf-alert-success" role="status"><ci-icon name="check-circle" /><span>{{ t }}</span></div> }
-    @if (error() && !doneFor() && !cannotFor() && !codeFor() && !releaseFor() && !declineOutFor() && !goneFor() && !nsDoneFor() && !nsDeclineFor(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ error() }}</span></div> }
+    @if (error() && !doneFor() && !cannotFor() && !codeFor() && !releaseFor() && !declineOutFor() && !goneFor() && !nsDoneFor() && !nsDeclineFor() && !ctDoneFor() && !ctDeclineFor(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ error() }}</span></div> }
 
     <div class="bar">
       <div class="search">
@@ -69,10 +73,11 @@ const FILTERS = [
                 @else if (registrarIssue(d); as why) { <small class="issue" data-testid="registrar-issue">Registrar: {{ why }}</small> }
                 @else if (d.registrarRef) { <small>Ref {{ d.registrarRef }}</small> }
                 @if (d.nameserverChanges?.[0]; as nc) { <small data-testid="ns-change">Nameservers asked for: {{ nc.nameservers.join(', ') }}</small> }
+                @if (d.contactChanges?.length) { <small data-testid="contact-change">Contact details change asked for</small> }
               </td>
               <td>{{ d.expiresAt ? (d.expiresAt | date: 'd MMM y') : '—' }}</td>
               <td class="row-actions">
-                @if (canWrite() && automated() && (waiting(d) || transferWaiting(d) || renewalWaiting(d) || d.transferOuts?.length || d.nameserverChanges?.length)) {
+                @if (canWrite() && automated() && (waiting(d) || transferWaiting(d) || renewalWaiting(d) || d.transferOuts?.length || d.nameserverChanges?.length || d.contactChanges?.length)) {
                   <button type="button" class="cf-btn cf-btn-secondary cf-btn-sm" [disabled]="busy()" (click)="retry(d)" [attr.aria-label]="(d.transfers[0]?.status === 'IN_PROGRESS' ? 'Check the transfer of ' : 'Try ') + d.name + (d.transfers[0]?.status === 'IN_PROGRESS' ? ' now' : ' at the registrar again')">{{ d.transfers[0]?.status === 'IN_PROGRESS' ? 'Check now' : 'Try at registrar' }}</button>
                 }
                 @if (canWrite() && d.transferOuts?.[0]; as out) {
@@ -82,6 +87,10 @@ const FILTERS = [
                   } @else {
                     <button type="button" class="cf-btn cf-btn-primary cf-btn-sm" [disabled]="busy()" (click)="goneFor.set(d)" [attr.aria-label]="'Mark ' + d.name + ' transferred away'">Mark transferred away</button>
                   }
+                }
+                @if (canWrite() && d.contactChanges?.length) {
+                  <button type="button" class="cf-btn cf-btn-primary cf-btn-sm" [disabled]="busy()" (click)="ctDoneFor.set(d)" [attr.aria-label]="'See and mark the contact change for ' + d.name">Contact change</button>
+                  <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="openDeclineCt(d)" [attr.aria-label]="'Cannot change the contacts of ' + d.name">Can't change contacts</button>
                 }
                 @if (canWrite() && d.nameserverChanges?.length) {
                   <button type="button" class="cf-btn cf-btn-primary cf-btn-sm" [disabled]="busy()" (click)="nsDoneFor.set(d)" [attr.aria-label]="'Mark the nameservers of ' + d.name + ' changed'">Mark changed</button>
@@ -163,6 +172,40 @@ const FILTERS = [
         <ng-container actions>
           <button type="button" class="cf-btn cf-btn-secondary" (click)="declineOutFor.set(null)">Cancel</button>
           <button type="submit" form="decline-out-form" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Saving…' : 'Close request' }}</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
+    @if (ctDoneFor(); as d) {
+      <ci-dialog [heading]="'New contact details for ' + d.name" description="Set these at the registrar as the registrant, admin, technical and billing contact, then mark it changed. The customer is told." icon="user" size="md" [dismissable]="false" (closed)="ctDoneFor.set(null)">
+        @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+        @if (d.contactChanges?.[0]?.contact; as c) {
+          <dl class="contact-view" data-testid="contact-view">
+            <div><dt>Name</dt><dd>{{ c.firstName }} {{ c.lastName }}</dd></div>
+            @if (c.organisation) { <div><dt>Organisation</dt><dd>{{ c.organisation }}</dd></div> }
+            <div><dt>Email</dt><dd>{{ c.email }}</dd></div>
+            <div><dt>Phone</dt><dd>{{ c.phone }}</dd></div>
+            <div><dt>Address</dt><dd>{{ c.address1 }}@if (c.address2) {, {{ c.address2 }}}, {{ c.city }}, {{ c.state }} {{ c.postalCode }}, {{ c.country }}</dd></div>
+          </dl>
+        }
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="ctDoneFor.set(null)">Close</button>
+          <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy()" (click)="ctDone(d)">{{ busy() ? 'Saving…' : 'Mark changed' }}</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
+    @if (ctDeclineFor(); as d) {
+      <ci-dialog [heading]="'Cannot change the contacts of ' + d.name" description="The request is closed and the customer is told why. The contact details stay as they are." icon="warning" tone="danger" [dismissable]="false" (closed)="ctDeclineFor.set(null)">
+        <form id="decline-ct-form" [formGroup]="cannotForm" (ngSubmit)="ctDecline(d)" novalidate>
+          @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+          <ci-field label="Reason" for="ct-reason" [control]="cannotForm.controls.reason" [required]="true" errorLabel="why they cannot be changed" hint="The customer reads this.">
+            <input id="ct-reason" class="cf-input" autocomplete="off" formControlName="reason" [attr.aria-describedby]="describedBy('ct-reason', cannotForm.controls.reason, true)" />
+          </ci-field>
+        </form>
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="ctDeclineFor.set(null)">Cancel</button>
+          <button type="submit" form="decline-ct-form" class="cf-btn cf-btn-primary" [disabled]="busy()">{{ busy() ? 'Saving…' : 'Close request' }}</button>
         </ng-container>
       </ci-dialog>
     }
@@ -263,6 +306,8 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
   protected readonly declineOutFor = signal<AdminRegistration | null>(null);
   protected readonly goneFor = signal<AdminRegistration | null>(null);
   protected readonly nsDoneFor = signal<AdminRegistration | null>(null);
+  protected readonly ctDoneFor = signal<AdminRegistration | null>(null);
+  protected readonly ctDeclineFor = signal<AdminRegistration | null>(null);
   protected readonly nsDeclineFor = signal<AdminRegistration | null>(null);
   protected readonly releaseForm = inject(NonNullableFormBuilder).group({ authCode: ['', [Validators.required, Validators.pattern(/^[!-~]{6,128}$/)]] });
   protected readonly codeFor = signal<{ d: AdminRegistration; code: string | null } | null>(null);
@@ -282,7 +327,8 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
     if (this.transferWaiting(d)) return d.transfers[0]!.failureReason;
     if (this.renewalWaiting(d)) return d.renewals[0]!.failureReason;
     if (d.transferOuts?.[0]?.status === 'REQUESTED') return d.transferOuts[0].failureReason;
-    if (d.nameserverChanges?.[0]) return d.nameserverChanges[0].failureReason;
+    if (d.nameserverChanges?.[0]?.failureReason) return d.nameserverChanges[0].failureReason;
+    if (d.contactChanges?.[0]) return d.contactChanges[0].failureReason;
     return null;
   }
 
@@ -318,6 +364,33 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
     if (ok) {
       this.declineOutFor.set(null);
       this.toast.set(`The transfer request for ${d.name} is closed. The customer has been told.`);
+      await this.load();
+    }
+  }
+
+  protected openDeclineCt(d: AdminRegistration) {
+    this.error.set(null);
+    this.cannotForm.reset({ reason: '' });
+    this.ctDeclineFor.set(d);
+  }
+
+  protected async ctDone(d: AdminRegistration) {
+    const ok = await this.run(async () => void (await this.api.completeContacts(d.id)));
+    if (ok) {
+      this.ctDoneFor.set(null);
+      this.toast.set(`The contacts of ${d.name} are marked changed. The customer has been told.`);
+      await this.load();
+    }
+  }
+
+  protected async ctDecline(d: AdminRegistration) {
+    this.cannotForm.markAllAsTouched();
+    if (this.cannotForm.invalid) return;
+    const reason = this.cannotForm.getRawValue().reason.trim();
+    const ok = await this.run(async () => void (await this.api.declineContacts(d.id, reason)));
+    if (ok) {
+      this.ctDeclineFor.set(null);
+      this.toast.set(`The contact request for ${d.name} is closed. The customer has been told.`);
       await this.load();
     }
   }

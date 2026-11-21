@@ -67,6 +67,13 @@ export class AdminRegistrationsController {
   @Post(':id/nameservers/decline') @HttpCode(200) @RequirePlatform('domains:write')
   declineNameservers(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: CannotRegisterDto, @ReqMeta() meta: RequestMeta) { return this.svc.declineNameservers(u, id, dto.reason, meta); }
 
+  /** Staff changed the contacts at the registrar by hand. */
+  @Post(':id/contacts/complete') @HttpCode(200) @RequirePlatform('domains:write')
+  completeContacts(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.svc.completeContacts(u, id, meta); }
+
+  @Post(':id/contacts/decline') @HttpCode(200) @RequirePlatform('domains:write')
+  declineContacts(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: CannotRegisterDto, @ReqMeta() meta: RequestMeta) { return this.svc.declineContacts(u, id, dto.reason, meta); }
+
   @Post(':id/cannot-register') @HttpCode(200) @RequirePlatform('domains:write')
   cannotRegister(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @Body() dto: CannotRegisterDto, @ReqMeta() meta: RequestMeta) { return this.svc.decline(u, id, dto.reason, meta); }
 }

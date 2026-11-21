@@ -2,7 +2,7 @@ import { type IncomingMessage, type Server, type ServerResponse, createServer } 
 import type { AddressInfo } from 'node:net';
 
 export interface GoDaddyCall { method: string; path: string; body: any }
-interface Held { domainId: number; status: string; expires: Date; locked?: boolean; authCode?: string; nameServers?: string[] }
+interface Held { domainId: number; status: string; expires: Date; locked?: boolean; authCode?: string; nameServers?: string[]; contacts?: Record<string, unknown> }
 
 const PHONE = /^\+\d{1,3}\.\d{4,14}$/;
 
@@ -120,7 +120,7 @@ export class FakeGoDaddy {
       return send(200, { orderId: this.nextId++, itemCount: 1, total: 11_990_000 * body.period, currency: 'USD' });
     }
 
-    const m = /^\/v1\/domains\/([^/]+)(\/renew|\/transfer)?$/.exec(p);
+    const m = /^\/v1\/domains\/([^/]+)(\/renew|\/transfer|\/contacts)?$/.exec(p);
     if (!m) return send(404, { code: 'NOT_FOUND', message: 'Not found' });
     const domain = decodeURIComponent(m[1]!);
     const held = this.owned.get(domain);
@@ -140,6 +140,12 @@ export class FakeGoDaddy {
       return send(200, { orderId: this.nextId++, itemCount: 1, total: 8_990_000, currency: 'USD' });
     }
     if (!held) return send(404, { code: 'NOT_FOUND', message: 'Domain not found' });
+    if (m[2] === '/contacts' && req.method === 'PATCH') {
+      const problem = contactProblem(body);
+      if (problem) return send(422, { code: 'INVALID_BODY', message: 'Request body is not valid', fields: [problem] });
+      held.contacts = body as Record<string, unknown>;
+      return send(204);
+    }
     if (req.method === 'PATCH') {
       if (typeof body?.locked === 'boolean') held.locked = body.locked;
       if (Array.isArray(body?.nameServers)) held.nameServers = body.nameServers as string[];

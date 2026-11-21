@@ -67,6 +67,8 @@ export interface RegistrarAutomation {
   lock(domain: string): Promise<void>;
   /** Points the domain at these nameservers (already checked and lower-case). */
   setNameservers(domain: string, nameservers: string[]): Promise<void>;
+  /** Replaces the domain's contacts (registrant, admin, technical and billing) with this one. */
+  setContacts(domain: string, contact: RegistrantContact): Promise<void>;
 }
 
 /**

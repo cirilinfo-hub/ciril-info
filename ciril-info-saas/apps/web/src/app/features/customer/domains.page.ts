@@ -9,7 +9,7 @@ import { Icon } from '../../design-system/icon/icon';
 import { PageHead } from '../../shared/components/page-head';
 import type { DomainResult, DomainSearchResponse } from '../public/shared/public-api';
 import { money } from './billing.api';
-import { type CustomerDomain, DOMAIN_STAGE, type DomainQuote, DomainsApi, type RenewalQuote, type TransferQuote } from './domains.api';
+import { type CustomerDomain, type DomainContact, DOMAIN_STAGE, type DomainQuote, DomainsApi, type RenewalQuote, type TransferQuote } from './domains.api';
 
 const YEARS = [1, 2, 3, 4, 5];
 
@@ -35,6 +35,10 @@ const YEARS = [1, 2, 3, 4, 5];
     .price small { color: var(--color-text-secondary); }
     td small { display: block; color: var(--color-text-secondary); }
     .row-actions { text-align: right; white-space: nowrap; }
+    .contact-form { display: grid; gap: var(--space-3); }
+    .contact-form label:not(.cf-check) { display: grid; gap: var(--space-1); font-size: 14px; }
+    .contact-form .two { display: grid; gap: var(--space-3); grid-template-columns: 1fr; }
+    @media (min-width: 520px) { .contact-form .two { grid-template-columns: 1fr 1fr; } }
     .code { margin: 0; padding: var(--space-3); border: 1px solid var(--color-border-subtle); border-radius: 8px; font-size: 16px; overflow-wrap: anywhere; user-select: all; }
     .sum { display: grid; gap: var(--space-2); margin: var(--space-4) 0 0; }
     .sum div { display: flex; justify-content: space-between; gap: var(--space-4); }
@@ -120,6 +124,9 @@ const YEARS = [1, 2, 3, 4, 5];
                 <td>
                   <span class="cf-badge" [class]="'cf-badge ' + stage(d).cls">{{ stage(d).label }}</span>
                   <small>{{ d.stage === 'FAILED' && d.failureReason ? d.failureReason + ' We will refund your payment.' : stage(d).hint }}</small>
+                  @if (d.contactChanges?.length) {
+                    <small data-testid="contact-change">Contact details change asked for. We will email you when it is done.</small>
+                  }
                   @if (d.nameserverChanges?.[0]; as nc) {
                     <small data-testid="nameserver-change">Changing nameservers to {{ nc.nameservers.join(', ') }}. We will email you when it is done.</small>
                   }
@@ -140,6 +147,11 @@ const YEARS = [1, 2, 3, 4, 5];
                     <button type="button" class="cf-btn cf-btn-secondary cf-btn-sm" [disabled]="busy()" (click)="openRenew(d)" [attr.aria-label]="'Renew ' + d.name">Renew</button>
                   }
                   @if (d.stage === 'ACTIVE' && auth.can('services:manage')) {
+                    @if (d.contactChanges?.length) {
+                      <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="withdrawContacts(d)" [attr.aria-label]="'Withdraw the contact change for ' + d.name">Withdraw contact change</button>
+                    } @else {
+                      <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="openContacts(d)" [attr.aria-label]="'Change the contacts of ' + d.name">Contacts</button>
+                    }
                     @if (d.nameserverChanges?.length) {
                       <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="withdrawNameservers(d)" [attr.aria-label]="'Withdraw the nameserver change for ' + d.name">Withdraw change</button>
                     } @else {
@@ -265,6 +277,41 @@ const YEARS = [1, 2, 3, 4, 5];
       </ci-dialog>
     }
 
+    @if (contactFor(); as d) {
+      <ci-dialog [heading]="'Contact details for ' + d.name" description="The registrant is the legal owner of the domain. These details are also used for its admin, technical and billing contacts." icon="user" size="md" [dismissable]="false" (closed)="contactFor.set(null)">
+        @if (contact(); as c) {
+          <form id="contact-form" class="contact-form" (ngSubmit)="saveContacts(d)" novalidate>
+            @if (contactError(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+            <div class="cf-alert cf-alert-warning" data-testid="contact-warning"><ci-icon name="warning" /><span>Changing the name, organisation or email is a change of owner under the registry's rules. The registry may email the old and new addresses to confirm it, and the domain may not be transferable to another registrar for 60 days.</span></div>
+            <div class="two">
+              <label>First name<input class="cf-input" name="firstName" autocomplete="given-name" [ngModel]="c.firstName" (ngModelChange)="setContact('firstName', $event)" /></label>
+              <label>Last name<input class="cf-input" name="lastName" autocomplete="family-name" [ngModel]="c.lastName" (ngModelChange)="setContact('lastName', $event)" /></label>
+            </div>
+            <label>Organisation (optional)<input class="cf-input" name="organisation" autocomplete="organization" [ngModel]="c.organisation ?? ''" (ngModelChange)="setContact('organisation', $event)" /></label>
+            <div class="two">
+              <label>Email<input class="cf-input" name="email" type="email" autocomplete="email" [ngModel]="c.email" (ngModelChange)="setContact('email', $event)" /></label>
+              <label>Phone<input class="cf-input" name="phone" type="tel" autocomplete="tel" [ngModel]="c.phone" (ngModelChange)="setContact('phone', $event)" /></label>
+            </div>
+            <label>Address<input class="cf-input" name="address1" autocomplete="address-line1" [ngModel]="c.address1" (ngModelChange)="setContact('address1', $event)" /></label>
+            <label>Address line 2 (optional)<input class="cf-input" name="address2" autocomplete="address-line2" [ngModel]="c.address2 ?? ''" (ngModelChange)="setContact('address2', $event)" /></label>
+            <div class="two">
+              <label>City<input class="cf-input" name="city" autocomplete="address-level2" [ngModel]="c.city" (ngModelChange)="setContact('city', $event)" /></label>
+              <label>State<input class="cf-input" name="state" autocomplete="address-level1" [ngModel]="c.state" (ngModelChange)="setContact('state', $event)" /></label>
+            </div>
+            <div class="two">
+              <label>PIN / postal code<input class="cf-input" name="postalCode" autocomplete="postal-code" [ngModel]="c.postalCode" (ngModelChange)="setContact('postalCode', $event)" /></label>
+              <label>Country code<input class="cf-input" name="country" maxlength="2" autocomplete="country" [ngModel]="c.country" (ngModelChange)="setContact('country', $event)" /></label>
+            </div>
+            <label class="cf-check"><input type="checkbox" name="ack" [checked]="contactAck()" (change)="contactAck.set($any($event.target).checked)" /><span>I understand the registry may ask me to confirm this, and the domain may be locked against transfer for 60 days.</span></label>
+          </form>
+        } @else { <span class="ci-skeleton" style="height:240px"></span> }
+        <ng-container actions>
+          <button type="button" class="cf-btn cf-btn-secondary" (click)="contactFor.set(null)">Cancel</button>
+          <button type="submit" form="contact-form" class="cf-btn cf-btn-primary" [disabled]="busy() || !contact()">{{ busy() ? 'Saving…' : 'Change contacts' }}</button>
+        </ng-container>
+      </ci-dialog>
+    }
+
     @if (nsFor(); as d) {
       <ci-dialog [heading]="'Nameservers for ' + d.name" description="Nameservers decide where the domain's DNS records live, and so where your website and email point. Change them only if your new host or website builder asks you to." icon="globe" size="md" [dismissable]="false" (closed)="nsFor.set(null)">
         <form id="ns-form" (ngSubmit)="saveNameservers(d)" novalidate>
@@ -319,6 +366,10 @@ export class DomainsPage implements OnInit {
   protected readonly error = signal<string | null>(null);
   protected readonly notice = signal<string | null>(null);
   protected readonly nsFor = signal<CustomerDomain | null>(null);
+  protected readonly contactFor = signal<CustomerDomain | null>(null);
+  protected readonly contact = signal<DomainContact | null>(null);
+  protected readonly contactAck = signal(false);
+  protected readonly contactError = signal<string | null>(null);
   protected readonly nsText = signal('');
   protected readonly nsError = signal<string | null>(null);
   protected readonly nsDefaults = signal<string[]>([]);
@@ -588,6 +639,63 @@ export class DomainsPage implements OnInit {
       this.copied.set(true);
     } catch {
       // Copying is a convenience; the code can be selected on screen.
+    }
+  }
+
+  protected async openContacts(d: CustomerDomain) {
+    this.contactError.set(null);
+    this.contactAck.set(false);
+    this.contact.set(null);
+    this.contactFor.set(d);
+    try {
+      this.contact.set({ ...(await this.api.contacts(d.id)).contact });
+    } catch (e) {
+      this.contactError.set(toApiError(e).message);
+    }
+  }
+
+  protected setContact(field: keyof DomainContact, value: string) {
+    const c = this.contact();
+    if (c) this.contact.set({ ...c, [field]: value });
+  }
+
+  protected async saveContacts(d: CustomerDomain) {
+    const c = this.contact();
+    if (!c) return;
+    const missing = (['firstName', 'lastName', 'email', 'phone', 'address1', 'city', 'state', 'postalCode', 'country'] as const).find((f) => !String(c[f] ?? '').trim());
+    if (missing) {
+      this.contactError.set('Fill in every field that is not marked optional.');
+      return;
+    }
+    if (!this.contactAck()) {
+      this.contactError.set('Tick the box to confirm you have read the warning.');
+      return;
+    }
+    this.busy.set(true);
+    this.contactError.set(null);
+    try {
+      await this.api.changeContacts(d.id, c);
+      this.contactFor.set(null);
+      this.notice.set(`We are changing the contact details of ${d.name}. We will email you when it is done.`);
+      await this.load();
+    } catch (e) {
+      this.contactError.set(toApiError(e).message);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async withdrawContacts(d: CustomerDomain) {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.cancelContacts(d.id);
+      this.notice.set(`The contact change for ${d.name} was withdrawn.`);
+    } catch (e) {
+      this.error.set(toApiError(e).message);
+    } finally {
+      this.busy.set(false);
+      await this.load();
     }
   }
 

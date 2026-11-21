@@ -28,6 +28,7 @@ export interface CustomerDomain {
   /** The nameservers we last recorded (empty: not recorded), and a change still waiting to be made. */
   nameservers?: string[];
   nameserverChanges?: { id: string; nameservers: string[]; requestedAt: string }[];
+  contactChanges?: { id: string; requestedAt: string }[];
 }
 
 export type DnsType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SRV' | 'CAA';
@@ -153,6 +154,15 @@ export class DomainsApi {
   transferOutCode(id: string) {
     return firstValueFrom(this.http.get<{ authCode: string }>(`${this.base}/${id}/transfer-out/code`));
   }
+  contacts(id: string) {
+    return firstValueFrom(this.http.get<{ contact: DomainContact; recorded: boolean; pending: { id: string; contact: DomainContact; requestedAt: string } | null }>(`${this.base}/${id}/contacts`));
+  }
+  changeContacts(id: string, contact: DomainContact) {
+    return firstValueFrom(this.http.post<{ id: string; status: string }>(`${this.base}/${id}/contacts`, { ...contact, acknowledged: true }));
+  }
+  cancelContacts(id: string) {
+    return firstValueFrom(this.http.post<{ id: string; status: string }>(`${this.base}/${id}/contacts/cancel`, {}));
+  }
   nameserverDefaults() {
     return firstValueFrom(this.http.get<{ nameservers: string[] }>(`${this.base}/nameservers/defaults`));
   }
@@ -168,4 +178,19 @@ export class DomainsApi {
   cancel(id: string) {
     return firstValueFrom(this.http.post<{ id: string; stage: DomainStage }>(`${this.base}/${id}/cancel`, {}));
   }
+}
+
+/** A domain's contact details (the registrant, also used as admin, technical and billing contact). */
+export interface DomainContact {
+  firstName: string;
+  lastName: string;
+  organisation?: string;
+  email: string;
+  phone: string;
+  address1: string;
+  address2?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
 }

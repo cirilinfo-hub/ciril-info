@@ -34,6 +34,7 @@ const domainSelect = {
   // The nameservers we last recorded, and a change still waiting to be made.
   nameservers: true,
   nameserverChanges: { where: { status: 'REQUESTED' as const }, take: 1, select: { id: true, nameservers: true, requestedAt: true } },
+  contactChanges: { where: { status: 'REQUESTED' as const }, take: 1, select: { id: true, requestedAt: true } },
 } as const;
 
 type DomainRow = { renewals: { id: string; years: number; requestedAt: Date; invoice: { id: string; number: string; status: InvoiceStatus; total: unknown; currency: string } }[] };
