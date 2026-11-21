@@ -9,10 +9,10 @@ import type { CouponDto, CouponPatchDto } from './admin-coupons.dto.js';
 
 const select = {
   id: true, code: true, description: true, discountType: true, discountValue: true, currency: true, planIds: true, maxRedemptions: true,
-  redemptions: true, firstTermOnly: true, startsAt: true, endsAt: true, isActive: true, createdAt: true,
+  redemptions: true, firstTermOnly: true, durationPeriods: true, startsAt: true, endsAt: true, isActive: true, createdAt: true,
 } as const;
 
-/** Admin-managed discount codes. A coupon discounts the first term of a plan and is counted when an order is placed. */
+/** Admin-managed discount codes. A coupon discounts the first term, the first few billing periods, or every period; it is counted when an order is placed. */
 @Injectable()
 export class AdminCouponsService {
   constructor(
@@ -43,6 +43,8 @@ export class AdminCouponsService {
     if (dto.discountType === 'PERCENT' && dto.discountValue > 100) throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'A percentage discount cannot be more than 100.' });
     this.checkWindow(dto.startsAt, dto.endsAt);
     await this.checkPlans(dto.planIds);
+    const duration = dto.duration ?? 'ONCE';
+    if (duration === 'REPEATING' && !dto.durationPeriods) throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Enter how many billing periods the discount lasts (2 or more).' });
     if (await this.db.coupon.findUnique({ where: { code: dto.code }, select: { id: true } })) {
       throw new ConflictException({ code: 'COUPON_EXISTS', message: 'A coupon with this code already exists.' });
     }
@@ -50,11 +52,11 @@ export class AdminCouponsService {
       data: {
         code: dto.code, description: dto.description || null, discountType: dto.discountType, discountValue: dto.discountValue.toFixed(2),
         currency: dto.discountType === 'FIXED' ? 'INR' : null, planIds: [...new Set(dto.planIds ?? [])], maxRedemptions: dto.maxRedemptions ?? null,
-        startsAt: dto.startsAt ?? null, endsAt: dto.endsAt ?? null, firstTermOnly: true,
+        startsAt: dto.startsAt ?? null, endsAt: dto.endsAt ?? null, firstTermOnly: duration === 'ONCE', durationPeriods: duration === 'REPEATING' ? dto.durationPeriods! : null,
       },
       select,
     });
-    await this.audit.record({ action: 'coupon.create', actorId: user.id, entityType: 'coupon', entityId: c.id, metadata: { code: c.code, type: c.discountType, value: c.discountValue.toString() }, meta });
+    await this.audit.record({ action: 'coupon.create', actorId: user.id, entityType: 'coupon', entityId: c.id, metadata: { code: c.code, type: c.discountType, value: c.discountValue.toString(), duration, periods: c.durationPeriods }, meta });
     return c;
   }
 

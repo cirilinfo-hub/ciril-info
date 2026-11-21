@@ -7,7 +7,7 @@ import type { BillingCycle, InvoiceStatus, Prisma, SubscriptionStatus } from '..
 import { orderBy, page, skipTake } from '../../common/http/pagination.js';
 import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
 import { type PricedLine, addCycle, computeTotals, couponDiscountPaise, toPaise } from './billing.logic.js';
-import { couponProblem } from './coupons.js';
+import { couponDuration, couponProblem, renewalsCovered } from './coupons.js';
 import type { BillingListQuery, PayInvoiceDto, QuoteDto } from './billing.dto.js';
 import { PaymentGateway } from './payment-gateway.js';
 import { PaymentSettlementService } from './payment-settlement.service.js';
@@ -70,12 +70,13 @@ export class BillingService {
 
     // The coupon (if any) discounts the plan's first-term price, never the setup fee.
     const pricePaise = toPaise(version.price);
-    let coupon: { id: string; code: string; discountPaise: number } | null = null;
+    let coupon: { id: string; code: string; discountPaise: number; renewals: number | null } | null = null;
     if (dto.couponCode) {
       const row = await this.platform.coupon.findUnique({ where: { code: dto.couponCode } });
       const problem = row ? couponProblem({ ...row, discountType: row.discountType }, { planId: plan.id, currency: version.currency, now }) : 'This code is not valid.';
       if (problem || !row) throw new ConflictException({ code: 'COUPON_INVALID', message: problem ?? 'This code is not valid.' });
-      coupon = { id: row.id, code: row.code, discountPaise: couponDiscountPaise(row.discountType, row.discountValue, pricePaise) };
+      // renewals: how many renewals after the first term it also discounts (0: none, null: every one).
+      coupon = { id: row.id, code: row.code, discountPaise: couponDiscountPaise(row.discountType, row.discountValue, pricePaise), renewals: renewalsCovered(couponDuration(row)) };
     }
     const lines: PricedLine[] = [{ description: `${plan.product.name} - ${plan.name} (${dto.billingCycle.toLowerCase().replace('_', ' ')})`, unitPaise: pricePaise, quantity: 1, discountPaise: coupon?.discountPaise ?? 0 }];
     if (toPaise(version.setupFee) > 0) lines.push({ description: `${plan.name} setup fee`, unitPaise: toPaise(version.setupFee), quantity: 1 });
@@ -85,7 +86,12 @@ export class BillingService {
   quote(ctx: TenantContext, dto: QuoteDto) {
     return this.db.run(ctx, async (tx) => {
       const p = await this.price(tx, dto);
-      return { planId: p.plan.id, planName: p.plan.name, billingCycle: dto.billingCycle, currency: p.currency, taxName: p.tax?.name ?? null, couponCode: p.coupon?.code ?? null, ...p.totals };
+      return {
+        planId: p.plan.id, planName: p.plan.name, billingCycle: dto.billingCycle, currency: p.currency, taxName: p.tax?.name ?? null, couponCode: p.coupon?.code ?? null,
+        /** How many renewals the coupon also discounts: 0 for the first term only, a number, or null for every renewal. */
+        couponRenewals: p.coupon ? p.coupon.renewals : 0,
+        ...p.totals,
+      };
     });
   }
 
@@ -126,6 +132,8 @@ export class BillingService {
       const subscription = await tx.subscription.create({
         data: {
           tenantId: ctx.tenantId, status: 'PENDING', billingCycle: dto.billingCycle, currency: p.currency,
+          // A recurring coupon is remembered so each renewal it covers is discounted too.
+          ...(p.coupon && p.coupon.renewals !== 0 ? { couponId: p.coupon.id, couponPeriodsLeft: p.coupon.renewals } : {}),
           items: { create: { tenantId: ctx.tenantId, planId: p.plan.id, pricingVersionId: p.version.id, description: p.totals.lines[0]!.description, unitPrice: p.version.price, renewalPrice: p.version.renewalPrice } },
           history: { create: { tenantId: ctx.tenantId, event: 'CREATED', toStatus: 'PENDING', actorUserId: ctx.userId } },
         },
@@ -144,7 +152,7 @@ export class BillingService {
               address: { line1: address.line1, line2: address.line2, city: address.city, state: address.state, stateCode: address.stateCode, postalCode: address.postalCode, country: address.country },
             },
             tax: p.tax ? { name: p.tax.name, code: p.tax.code, rate: p.tax.rate.toString() } : null,
-            coupon: p.coupon ? { code: p.coupon.code, discount: p.totals.discountTotal } : null,
+            coupon: p.coupon ? { code: p.coupon.code, discount: p.totals.discountTotal, renewals: p.coupon.renewals } : null,
           },
           items: {
             create: p.totals.lines.map((l) => ({
@@ -352,7 +360,11 @@ export class BillingService {
       const [rows, total] = await Promise.all([
         tx.subscription.findMany({
           where, orderBy: { createdAt: 'desc' }, ...skipTake(q),
-          select: { id: true, status: true, billingCycle: true, currency: true, currentPeriodStart: true, currentPeriodEnd: true, autoRenew: true, cancelAtPeriodEnd: true, createdAt: true, scheduledAt: true, scheduledPlan: { select: { id: true, name: true } }, items: { select: { description: true, unitPrice: true, renewalPrice: true } } },
+          select: {
+            id: true, status: true, billingCycle: true, currency: true, currentPeriodStart: true, currentPeriodEnd: true, autoRenew: true, cancelAtPeriodEnd: true, createdAt: true, scheduledAt: true,
+            scheduledPlan: { select: { id: true, name: true } }, items: { select: { description: true, unitPrice: true, renewalPrice: true } },
+            couponPeriodsLeft: true, coupon: { select: { code: true, discountType: true, discountValue: true } },
+          },
         }),
         tx.subscription.count({ where }),
       ]);

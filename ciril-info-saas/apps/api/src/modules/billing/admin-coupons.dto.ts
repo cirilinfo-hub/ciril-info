@@ -11,6 +11,10 @@ export class CouponDto {
   @ApiPropertyOptional() @IsOptional() @Transform(trim) @IsString() @MaxLength(255) description?: string;
   @ApiProperty({ enum: ['PERCENT', 'FIXED'] }) @IsIn(['PERCENT', 'FIXED']) discountType!: 'PERCENT' | 'FIXED';
   @ApiProperty({ description: 'Percent (1 to 100) or a fixed amount in rupees.' }) @Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) @Max(1_000_000) discountValue!: number;
+  @ApiPropertyOptional({ enum: ['ONCE', 'REPEATING', 'FOREVER'], description: 'ONCE: the first term only (default). REPEATING: the first durationPeriods billing periods. FOREVER: every renewal too.' })
+  @IsOptional() @IsIn(['ONCE', 'REPEATING', 'FOREVER']) duration?: 'ONCE' | 'REPEATING' | 'FOREVER';
+  @ApiPropertyOptional({ description: 'REPEATING only: billing periods discounted, counting the first (2 to 60).' })
+  @IsOptional() @Transform(blankToNull) @Type(() => Number) @IsInt() @Min(2) @Max(60) durationPeriods?: number | null;
   @ApiPropertyOptional({ description: 'Plans this code works on. Empty means every plan.' }) @IsOptional() @IsArray() @ArrayMaxSize(100) @IsUUID('4', { each: true }) planIds?: string[];
   @ApiPropertyOptional() @IsOptional() @Transform(blankToNull) @Type(() => Number) @IsInt() @Min(1) @Max(1_000_000) maxRedemptions?: number | null;
   @ApiPropertyOptional() @IsOptional() @Transform(blankToNull) @Type(() => Date) @IsDate({ message: 'Enter a valid start date.' }) startsAt?: Date | null;

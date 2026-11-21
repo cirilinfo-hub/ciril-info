@@ -10,7 +10,8 @@ import { PaymentSettlementService } from './payment-settlement.service.js';
 import { AutoPayService } from './autopay.service.js';
 import { SavedCardsService } from './saved-cards.service.js';
 import { autoChargeDate, cardLabel } from './saved-cards.logic.js';
-import { computeTotals, toPaise } from './billing.logic.js';
+import { computeTotals, couponDiscountPaise, toPaise } from './billing.logic.js';
+import { couponFits } from './coupons.js';
 import { nextInvoiceNumber } from './numbering.js';
 import { readSeller } from './seller.js';
 
@@ -110,7 +111,11 @@ export class BillingLifecycleService {
       if (!locked.length) return null;
       const sub = await tx.subscription.findUnique({
         where: { id: subscriptionId },
-        select: { id: true, tenantId: true, status: true, currency: true, billingCycle: true, scheduledPlanId: true, currentPeriodEnd: true, autoRenew: true, cancelAtPeriodEnd: true, items: { select: { description: true, renewalPrice: true, quantity: true } } },
+        select: {
+          id: true, tenantId: true, status: true, currency: true, billingCycle: true, scheduledPlanId: true, currentPeriodEnd: true, autoRenew: true, cancelAtPeriodEnd: true,
+          couponPeriodsLeft: true, coupon: { select: { id: true, code: true, discountType: true, discountValue: true, currency: true, planIds: true } },
+          items: { select: { planId: true, description: true, renewalPrice: true, quantity: true }, orderBy: { createdAt: 'asc' } },
+        },
       });
       if (!sub || sub.status !== 'ACTIVE' || !sub.autoRenew || sub.cancelAtPeriodEnd || !sub.currentPeriodEnd || !sub.items.length) return null;
 
@@ -125,19 +130,23 @@ export class BillingLifecycleService {
       const tax = await tx.taxRate.findFirst({ where: { isActive: true, isDefault: true, country: 'IN' }, orderBy: { createdAt: 'desc' } });
       // A plan change the customer scheduled is priced here. If that plan is no longer sold, the renewal stays on the current plan.
       const change = sub.scheduledPlanId ? await this.scheduledChange(tx, sub.id, sub.scheduledPlanId, sub.billingCycle, now) : null;
-      const totals = computeTotals(
-        change
-          ? [{ description: `${change.description} (renewal)`, unitPaise: toPaise(change.renewalPrice), quantity: 1 }]
-          : sub.items.map((i) => ({ description: `${i.description} (renewal)`, unitPaise: toPaise(i.renewalPrice), quantity: i.quantity })),
-        tax ? Number(tax.rate.toString()) : 0,
-      );
+      const lines = change
+        ? [{ description: `${change.description} (renewal)`, unitPaise: toPaise(change.renewalPrice), quantity: 1, discountPaise: 0 }]
+        : sub.items.map((i) => ({ description: `${i.description} (renewal)`, unitPaise: toPaise(i.renewalPrice), quantity: i.quantity, discountPaise: 0 }));
+      // A recurring coupon still covering renewals takes money off the plan line, if it applies to the plan being renewed.
+      const c = sub.coupon;
+      const covered = c && (sub.couponPeriodsLeft === null || sub.couponPeriodsLeft > 0) && !couponFits(c, { planId: change?.planId ?? sub.items[0]!.planId, currency: sub.currency });
+      if (covered) lines[0]!.discountPaise = couponDiscountPaise(c.discountType, c.discountValue, lines[0]!.unitPaise * lines[0]!.quantity);
+      const totals = computeTotals(lines, tax ? Number(tax.rate.toString()) : 0);
+      const coupon = covered && c ? { code: c.code, discount: totals.discountTotal } : null;
+      if (covered && sub.couponPeriodsLeft !== null) await tx.subscription.update({ where: { id: sub.id }, data: { couponPeriodsLeft: { decrement: 1 } } });
       const number = await nextInvoiceNumber(tx, now);
       const invoice = await tx.invoice.create({
         data: {
           tenantId: sub.tenantId, subscriptionId, number, status: 'ISSUED', currency: sub.currency,
-          subtotal: totals.subtotal, taxTotal: totals.taxTotal, total: totals.total, issuedAt: now, dueAt: sub.currentPeriodEnd,
+          subtotal: totals.subtotal, discountTotal: totals.discountTotal, taxTotal: totals.taxTotal, total: totals.total, issuedAt: now, dueAt: sub.currentPeriodEnd,
           billingSnapshot: {
-            renewalFor: marker, seller, ...(change ? { planChange: change } : {}),
+            renewalFor: marker, seller, ...(change ? { planChange: change } : {}), ...(coupon ? { coupon } : {}),
             buyer: {
               accountNo: account.accountNo, name: account.companyName, email: account.billingEmail, gstin: account.gstin,
               address: address ? { line1: address.line1, line2: address.line2, city: address.city, state: address.state, stateCode: address.stateCode, postalCode: address.postalCode, country: address.country } : null,
@@ -145,7 +154,7 @@ export class BillingLifecycleService {
             tax: tax ? { name: tax.name, code: tax.code, rate: tax.rate.toString() } : null,
           },
           items: {
-            create: totals.lines.map((l) => ({ tenantId: sub.tenantId, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, taxRate: l.taxRate, taxAmount: l.taxAmount, lineTotal: l.lineTotal })),
+            create: totals.lines.map((l) => ({ tenantId: sub.tenantId, description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, discount: l.discount, taxRate: l.taxRate, taxAmount: l.taxAmount, lineTotal: l.lineTotal })),
           },
         },
         select: { id: true, number: true, total: true, dueAt: true },

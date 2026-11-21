@@ -54,11 +54,15 @@ test.describe('Coupons', () => {
     await dialog.getByLabel('Description').fill('PW test coupon');
     await dialog.getByLabel('Percentage').fill('10');
     await dialog.getByLabel('Maximum uses').fill('5');
+    // A recurring discount: the first year and two renewals.
+    await dialog.getByLabel('Lasts').selectOption({ label: 'A number of billing periods' });
+    await dialog.getByLabel('Billing periods').fill('3');
     await dialog.getByRole('button', { name: 'Create coupon' }).click();
     await expect(page.getByText('Coupon created.')).toBeVisible();
     const row = page.getByRole('row', { name: /PW-SAVE10/ });
     await expect(row.getByText('10% off')).toBeVisible();
     await expect(row.getByText('0 / 5')).toBeVisible();
+    await expect(row.getByText(/First 3 billing periods/)).toBeVisible();
 
     // --- Customer tries a wrong code, then the right one
     const ctx = await browser.newContext();
@@ -81,6 +85,7 @@ test.describe('Coupons', () => {
     await cust.getByRole('button', { name: 'Apply' }).click();
     await expect(cust.getByText('Discount (PW-SAVE10)')).toBeVisible();
     await expect(cust.getByText('−₹192.00')).toBeVisible();
+    await expect(cust.getByTestId('coupon-renewals')).toHaveText('The discount is also taken off the next 2 renewals.');
     await cust.getByRole('button', { name: 'Place order' }).click();
 
     // --- The invoice shows the discount; the admin list shows one use

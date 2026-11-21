@@ -620,11 +620,15 @@ model Coupon {
   maxRedemptions Int?         @map("max_redemptions")
   redemptions    Int          @default(0)
   firstTermOnly  Boolean      @default(true) @map("first_term_only")
+  /// Recurring coupons only: how many billing periods it discounts, counting the first. Null with firstTermOnly=false: every period.
+  durationPeriods Int?        @map("duration_periods")
   startsAt       DateTime?    @map("starts_at") @db.Timestamptz(3)
   endsAt         DateTime?    @map("ends_at") @db.Timestamptz(3)
   isActive       Boolean      @default(true) @map("is_active")
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  subscriptions Subscription[]
 
   @@unique([code])
   @@map("coupons")
@@ -1038,11 +1042,15 @@ model Subscription {
   /// A plan change the customer asked for. It takes effect when the next renewal is paid; until then the current plan stays.
   scheduledPlanId    String?            @map("scheduled_plan_id") @db.Uuid
   scheduledAt        DateTime?          @map("scheduled_at") @db.Timestamptz(3)
+  /// A recurring coupon the subscription was ordered with, and how many more renewals it discounts (null: every renewal).
+  couponId           String?            @map("coupon_id") @db.Uuid
+  couponPeriodsLeft  Int?               @map("coupon_periods_left")
   createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   scheduledPlan   Plan?                 @relation("ScheduledPlan", fields: [scheduledPlanId], references: [id], onDelete: SetNull)
+  coupon          Coupon?               @relation(fields: [couponId], references: [id], onDelete: SetNull)
   items           SubscriptionItem[]
   history         SubscriptionHistory[]
   invoices        Invoice[]
@@ -1052,6 +1060,7 @@ model Subscription {
   @@index([tenantId, status])
   @@index([status, currentPeriodEnd])
   @@index([scheduledPlanId])
+  @@index([couponId])
   @@map("subscriptions")
 }
 

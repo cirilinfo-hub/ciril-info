@@ -63,7 +63,7 @@ describe('File storage in S3 (e2e)', () => {
     expect(stored?.contentType).toBe('image/png');
     expect(Buffer.compare(stored!.body, PNG)).toBe(0);
 
-    const served = await http().get(`/api/v1/uploads/images/${file}`).buffer(true).parse(binary).expect(200);
+    const served = await http().get(`/api/v1/uploads/images/${file}`).buffer(true).parse((res, cb) => binary(res as unknown as NodeJS.ReadableStream, cb)).expect(200);
     expect(Buffer.compare(served.body as Buffer, PNG)).toBe(0);
     expect(served.headers).toMatchObject({ 'content-type': 'image/png', 'x-content-type-options': 'nosniff' });
     await http().get('/api/v1/uploads/images/00000000-0000-4000-8000-000000000000.png').expect(404);
@@ -81,7 +81,7 @@ describe('File storage in S3 (e2e)', () => {
     const keys = [...fake.objects.keys()].filter((k) => k.startsWith(`cirilinfo/tickets/${alice.tenantId}/`));
     expect(keys).toHaveLength(1);
 
-    const dl = await http().get(`/api/v1/tickets/${t.body.id}/attachments/${fileId}`).set(auth(alice.token)).buffer(true).parse(binary).expect(200);
+    const dl = await http().get(`/api/v1/tickets/${t.body.id}/attachments/${fileId}`).set(auth(alice.token)).buffer(true).parse((res, cb) => binary(res as unknown as NodeJS.ReadableStream, cb)).expect(200);
     expect(Buffer.compare(dl.body as Buffer, PNG)).toBe(0);
     await http().get(`/api/v1/tickets/${t.body.id}/attachments/${fileId}`).set(auth(bob.token)).expect(404);
   });

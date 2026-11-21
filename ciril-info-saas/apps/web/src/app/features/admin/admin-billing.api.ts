@@ -74,6 +74,8 @@ export interface AdminCoupon {
   planIds: string[];
   maxRedemptions: number | null;
   redemptions: number;
+  firstTermOnly: boolean;
+  durationPeriods: number | null;
   startsAt: string | null;
   endsAt: string | null;
   isActive: boolean;
@@ -88,6 +90,8 @@ export interface CouponInput {
   maxRedemptions: number | null;
   startsAt: string | null;
   endsAt: string | null;
+  duration: 'ONCE' | 'REPEATING' | 'FOREVER';
+  durationPeriods: number | null;
 }
 
 /** Admin-portal billing: invoices, subscriptions and headline figures. */

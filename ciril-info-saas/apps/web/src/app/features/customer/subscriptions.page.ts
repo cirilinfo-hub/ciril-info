@@ -36,7 +36,8 @@ import { BillingApi, type PlanOption, SUBSCRIPTION_BADGE, type SubscriptionRow, 
             <tr>
               <td>{{ s.items[0]?.description }}</td>
               <td><span class="cf-badge" [class]="'cf-badge ' + badge(s).cls">{{ badge(s).label }}</span>@if (s.cancelAtPeriodEnd) { <small> · ends at period end</small> }
-                @if (s.scheduledPlan; as sp) { <small class="sched">Changing to {{ sp.name }} at renewal</small> }</td>
+                @if (s.scheduledPlan; as sp) { <small class="sched">Changing to {{ sp.name }} at renewal</small> }
+                @if (s.coupon && s.couponPeriodsLeft !== 0) { <small class="sched" data-testid="renewal-discount">{{ s.coupon.code }}: {{ s.coupon.discountType === 'PERCENT' ? (+s.coupon.discountValue) + '%' : fmt(s.coupon.discountValue, s.currency) }} off {{ s.couponPeriodsLeft === null ? 'every renewal' : s.couponPeriodsLeft === 1 ? 'the next renewal' : 'the next ' + s.couponPeriodsLeft + ' renewals' }}</small> }</td>
               <td>{{ s.billingCycle.charAt(0) + s.billingCycle.slice(1).toLowerCase() }}</td>
               <td>{{ s.currentPeriodEnd ? (s.currentPeriodEnd | date: 'd MMM y') : '—' }}</td>
               <td class="amt">{{ s.items[0] ? fmt(s.items[0].renewalPrice, s.currency) : '—' }}</td>

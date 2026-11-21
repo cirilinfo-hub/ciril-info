@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import type { PlatformPrisma } from '../src/database/prisma-clients.js';
+import { BillingLifecycleService } from '../src/modules/billing/billing-lifecycle.service.js';
 import { cleanupUsers, createStaff, createTestApp, customer, platformDb, staffToken } from './utils.js';
 
 /** Coupons: admin management, validation rules, discounted invoices and the last-redemption race. */
@@ -145,6 +146,86 @@ describe('Coupons (e2e)', () => {
       // The limit cannot be set below what has been used.
       const c = await db.coupon.findUniqueOrThrow({ where: { code: code('LAST') } });
       await http().patch(api(`admin/coupons/${c.id}`)).set(auth(admin)).send({ maxRedemptions: 1 }).expect(200);
+    });
+  });
+
+  describe('recurring discounts', () => {
+    const DAY = 86_400_000;
+    const newCoupon = (n: string, extra: object) => http().post(api('admin/coupons')).set(auth(admin)).send({ code: code(n), discountType: 'PERCENT', discountValue: 10, ...extra });
+    /** Orders and pays (test mode), so the service is active. */
+    async function activeWith(couponCode: string) {
+      const o = await http().post(api('orders')).set(auth(bob.token)).send({ planId, billingCycle: 'YEARLY', couponCode }).expect(201);
+      await http().post(api(`invoices/${o.body.invoice.id}/pay`)).set(auth(bob.token)).send({}).expect(200);
+      return o.body.subscriptionId as string;
+    }
+    /** Brings the period end close, runs the renewal job, and returns the renewal invoice it issued. */
+    async function renewalOf(subscriptionId: string) {
+      const now = new Date();
+      await db.subscription.update({ where: { id: subscriptionId }, data: { currentPeriodEnd: new Date(now.getTime() + 3 * DAY) } });
+      await app.get(BillingLifecycleService).run(now);
+      return db.invoice.findFirstOrThrow({ where: { subscriptionId, billingSnapshot: { path: ['renewalFor'], not: 'null' } }, orderBy: { createdAt: 'desc' }, include: { items: true } });
+    }
+    const pay = (invoiceId: string) => http().post(api(`invoices/${invoiceId}/pay`)).set(auth(bob.token)).send({}).expect(200);
+
+    it('an admin chooses how long a coupon lasts', async () => {
+      await newCoupon('REPNO', { duration: 'REPEATING' }).expect(400);
+      await newCoupon('REPONE', { duration: 'REPEATING', durationPeriods: 1 }).expect(400);
+      expect((await newCoupon('REP2', { duration: 'REPEATING', durationPeriods: 2 }).expect(201)).body).toMatchObject({ firstTermOnly: false, durationPeriods: 2 });
+      expect((await newCoupon('EVER', { duration: 'FOREVER' }).expect(201)).body).toMatchObject({ firstTermOnly: false, durationPeriods: null });
+      expect((await newCoupon('ONCE', {}).expect(201)).body).toMatchObject({ firstTermOnly: true, durationPeriods: null });
+    });
+
+    it('the order review says how many renewals the discount also covers', async () => {
+      const q = (c: string) => http().post(api('orders/quote')).set(auth(bob.token)).send({ planId, billingCycle: 'YEARLY', couponCode: c }).expect(200);
+      expect((await q(code('REP2'))).body.couponRenewals).toBe(1);
+      expect((await q(code('EVER'))).body.couponRenewals).toBeNull();
+      expect((await q(code('ONCE'))).body.couponRenewals).toBe(0);
+    });
+
+    it('a coupon for two billing periods discounts the first renewal, then stops', async () => {
+      const sub = await activeWith(code('REP2'));
+      expect(await db.subscription.findUniqueOrThrow({ where: { id: sub } })).toMatchObject({ couponPeriodsLeft: 1 });
+      const list = await http().get(api('subscriptions')).set(auth(bob.token)).expect(200);
+      expect(list.body.data.find((x: { id: string }) => x.id === sub)).toMatchObject({ couponPeriodsLeft: 1, coupon: { code: code('REP2') } });
+
+      const first = await renewalOf(sub);
+      expect(first.discountTotal.toString()).toBe('100');
+      expect(first.items[0]!.discount.toString()).toBe('100');
+      expect((first.billingSnapshot as { coupon?: { code: string } }).coupon?.code).toBe(code('REP2'));
+      expect((await db.subscription.findUniqueOrThrow({ where: { id: sub } })).couponPeriodsLeft).toBe(0);
+
+      await pay(first.id);
+      const second = await renewalOf(sub);
+      expect(second.id).not.toBe(first.id);
+      expect(second.discountTotal.toString()).toBe('0');
+      expect((second.billingSnapshot as { coupon?: unknown }).coupon).toBeUndefined();
+    });
+
+    it('a coupon for every renewal keeps discounting, even after it is turned off', async () => {
+      const sub = await activeWith(code('EVER'));
+      const c = await db.coupon.findUniqueOrThrow({ where: { code: code('EVER') } });
+      await http().patch(api(`admin/coupons/${c.id}`)).set(auth(admin)).send({ isActive: false }).expect(200);
+      const r1 = await renewalOf(sub);
+      expect(r1.discountTotal.toString()).toBe('100');
+      await pay(r1.id);
+      const r2 = await renewalOf(sub);
+      expect(r2.discountTotal.toString()).toBe('100');
+      expect((await db.subscription.findUniqueOrThrow({ where: { id: sub } })).couponPeriodsLeft).toBeNull();
+    });
+
+    it('a first-term coupon is not remembered, and renewals are full price', async () => {
+      const sub = await activeWith(code('ONCE'));
+      expect(await db.subscription.findUniqueOrThrow({ where: { id: sub } })).toMatchObject({ couponId: null, couponPeriodsLeft: null });
+      expect((await renewalOf(sub)).discountTotal.toString()).toBe('0');
+    });
+
+    it('a renewal on a plan the coupon does not cover is full price', async () => {
+      await newCoupon('MAINONLY', { duration: 'FOREVER', planIds: [planId] }).expect(201);
+      const sub = await activeWith(code('MAINONLY'));
+      await http().post(api(`subscriptions/${sub}/plan-change`)).set(auth(bob.token)).send({ planId: otherPlanId }).expect(200);
+      const r = await renewalOf(sub);
+      expect(r.items[0]!.description).toContain('Plan other');
+      expect(r.discountTotal.toString()).toBe('0');
     });
   });
 });

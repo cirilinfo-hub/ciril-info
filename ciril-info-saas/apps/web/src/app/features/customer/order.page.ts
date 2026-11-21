@@ -50,6 +50,9 @@ import { OrganisationApi } from './organisation.api';
             <tr class="total"><td>Total</td><td>{{ fmt(q.total, q.currency) }}</td></tr>
           </tbody>
         </table>
+        @if (q.couponCode && q.couponRenewals !== 0 && q.couponRenewals !== undefined) {
+          <p class="cf-help" data-testid="coupon-renewals">{{ q.couponRenewals === null ? 'The discount is also taken off every renewal.' : 'The discount is also taken off the next ' + (q.couponRenewals === 1 ? 'renewal.' : q.couponRenewals + ' renewals.') }}</p>
+        }
         <form class="coupon" (submit)="applyCoupon($event)" novalidate>
           <label for="coupon" class="ts-body-sm">Have a coupon code?</label>
           <div class="coupon-row">

@@ -13,6 +13,8 @@ export interface Quote {
   currency: string;
   taxName: string | null;
   couponCode: string | null;
+  /** How many renewals the coupon also discounts: 0 for the first term only, a number, or null for every renewal. */
+  couponRenewals?: number | null;
   lines: { description: string; quantity: number; unitPrice: string; discount: string; taxRate: string; taxAmount: string; lineTotal: string }[];
   subtotal: string;
   discountTotal: string;
@@ -92,6 +94,9 @@ export interface SubscriptionRow {
   createdAt: string;
   scheduledAt: string | null;
   scheduledPlan: { id: string; name: string } | null;
+  /** A recurring discount, and how many more renewals it covers (null: every renewal). */
+  coupon?: { code: string; discountType: 'PERCENT' | 'FIXED'; discountValue: string } | null;
+  couponPeriodsLeft?: number | null;
   items: { description: string; unitPrice: string; renewalPrice: string }[];
 }
 

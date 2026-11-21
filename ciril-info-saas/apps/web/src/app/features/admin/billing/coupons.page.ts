@@ -28,7 +28,7 @@ import { AdminPage } from '../shared/admin-page';
     .pager { display: flex; gap: var(--space-3); align-items: center; justify-content: flex-end; margin-top: var(--space-4); }
   `,
   template: `
-    <ci-page-head title="Coupons" sub="Discount codes customers can enter when they order. A coupon takes money off the first term only.">
+    <ci-page-head title="Coupons" sub="Discount codes customers can enter when they order. A coupon takes money off the first term, the first few billing periods, or every renewal.">
       @if (canWrite()) { <button type="button" class="cf-btn cf-btn-primary" (click)="openNew()"><ci-icon name="plus" [size]="16" />New coupon</button> }
     </ci-page-head>
     @if (toast(); as t) { <div class="cf-alert cf-alert-success" role="status"><ci-icon name="check-circle" /><span>{{ t }}</span></div> }
@@ -48,7 +48,7 @@ import { AdminPage } from '../shared/admin-page';
           @for (c of rows(); track c.id) {
             <tr>
               <td>{{ c.code }}<small>{{ c.description }}</small></td>
-              <td>{{ discount(c) }}<small>{{ c.planIds.length ? c.planIds.length + (c.planIds.length === 1 ? ' plan' : ' plans') : 'All plans' }}</small></td>
+              <td>{{ discount(c) }}<small>{{ lasts(c) }} · {{ c.planIds.length ? c.planIds.length + (c.planIds.length === 1 ? ' plan' : ' plans') : 'All plans' }}</small></td>
               <td>{{ c.redemptions }}{{ c.maxRedemptions !== null ? ' / ' + c.maxRedemptions : '' }}</td>
               <td>@if (c.startsAt || c.endsAt) { {{ c.startsAt ? (c.startsAt | date: 'd MMM y') : 'Any time' }} to {{ c.endsAt ? (c.endsAt | date: 'd MMM y') : 'no end' }} } @else { Always }</td>
               <td><span class="cf-badge" [class]="'cf-badge ' + (c.isActive ? 'cf-badge-success' : 'cf-badge-neutral')">{{ c.isActive ? 'Active' : 'Off' }}</span></td>
@@ -90,6 +90,20 @@ import { AdminPage } from '../shared/admin-page';
             <ci-field [label]="form.controls.discountType.value === 'PERCENT' ? 'Percentage' : 'Amount (₹)'" for="cp-value" [control]="form.controls.discountValue" [required]="true" errorLabel="an amount greater than zero">
               <input id="cp-value" class="cf-input" inputmode="decimal" formControlName="discountValue" [attr.aria-describedby]="describedBy('cp-value', form.controls.discountValue)" />
             </ci-field>
+          </div>
+          <div class="two">
+            <ci-field label="Lasts" for="cp-dur" [control]="form.controls.duration" [required]="true" hint="Renewals stay discounted for customers who ordered with it, even if you turn it off later.">
+              <select id="cp-dur" class="cf-input" formControlName="duration" [attr.aria-describedby]="describedBy('cp-dur', form.controls.duration, true)">
+                <option value="ONCE">First term only</option>
+                <option value="REPEATING">A number of billing periods</option>
+                <option value="FOREVER">Every renewal</option>
+              </select>
+            </ci-field>
+            @if (form.controls.duration.value === 'REPEATING') {
+              <ci-field label="Billing periods" for="cp-periods" [control]="form.controls.durationPeriods" [required]="true" errorLabel="a number from 2 to 60" hint="Counting the first. 3 on a yearly plan: the first year and two renewals.">
+                <input id="cp-periods" class="cf-input" inputmode="numeric" formControlName="durationPeriods" [attr.aria-describedby]="describedBy('cp-periods', form.controls.durationPeriods, true)" />
+              </ci-field>
+            }
           </div>
           <ci-field label="Maximum uses" for="cp-max" [control]="form.controls.maxRedemptions" [optional]="true" hint="Leave empty for no limit.">
             <input id="cp-max" class="cf-input" inputmode="numeric" formControlName="maxRedemptions" [attr.aria-describedby]="describedBy('cp-max', form.controls.maxRedemptions, true)" />
@@ -140,6 +154,8 @@ export class AdminCouponsPage extends AdminPage implements OnInit {
     discountType: ['PERCENT' as 'PERCENT' | 'FIXED', [Validators.required]],
     discountValue: ['', [Validators.required, Validators.pattern(/^\d+(\.\d{1,2})?$/), Validators.min(0.01)]],
     maxRedemptions: ['', [Validators.pattern(/^[1-9]\d{0,6}$/)]],
+    duration: ['ONCE' as 'ONCE' | 'REPEATING' | 'FOREVER', [Validators.required]],
+    durationPeriods: ['', [Validators.pattern(/^([2-9]|[1-5]\d|60)$/)]],
     startsAt: [''],
     endsAt: [''],
   });
@@ -174,6 +190,11 @@ export class AdminCouponsPage extends AdminPage implements OnInit {
     return c.discountType === 'PERCENT' ? `${Number(c.discountValue)}% off` : `${money(c.discountValue)} off`;
   }
 
+  protected lasts(c: AdminCoupon) {
+    if (c.firstTermOnly) return 'First term only';
+    return c.durationPeriods ? `First ${c.durationPeriods} billing periods` : 'Every renewal';
+  }
+
   protected onSearch(v: string) {
     this.search.set(v.trim());
     this.page.set(1);
@@ -187,7 +208,7 @@ export class AdminCouponsPage extends AdminPage implements OnInit {
 
   protected openNew() {
     this.error.set(null);
-    this.form.reset({ code: '', description: '', discountType: 'PERCENT', discountValue: '', maxRedemptions: '', startsAt: '', endsAt: '' });
+    this.form.reset({ code: '', description: '', discountType: 'PERCENT', discountValue: '', maxRedemptions: '', duration: 'ONCE', durationPeriods: '', startsAt: '', endsAt: '' });
     this.picked.set(new Set());
     this.formOpen.set(true);
   }
@@ -207,10 +228,15 @@ export class AdminCouponsPage extends AdminPage implements OnInit {
       this.error.set('A percentage discount cannot be more than 100.');
       return;
     }
+    if (v.duration === 'REPEATING' && !v.durationPeriods) {
+      this.form.controls.durationPeriods.setErrors({ required: true });
+      return;
+    }
     const ok = await this.run(async () => {
       await this.api.createCoupon({
         code: v.code.trim().toUpperCase(), description: v.description.trim() || undefined, discountType: v.discountType, discountValue: Number(v.discountValue),
         planIds: [...this.picked()], maxRedemptions: v.maxRedemptions ? Number(v.maxRedemptions) : null,
+        duration: v.duration, durationPeriods: v.duration === 'REPEATING' ? Number(v.durationPeriods) : null,
         startsAt: v.startsAt ? new Date(`${v.startsAt}T00:00:00+05:30`).toISOString() : null,
         // An end date means the end of that day, Indian time.
         endsAt: v.endsAt ? new Date(`${v.endsAt}T23:59:59+05:30`).toISOString() : null,

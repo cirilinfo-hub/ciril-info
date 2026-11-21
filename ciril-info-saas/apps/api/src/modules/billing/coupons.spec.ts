@@ -1,4 +1,4 @@
-import { type CouponRow, couponProblem } from './coupons.js';
+import { type CouponRow, couponDuration, couponProblem, renewalsCovered } from './coupons.js';
 
 const base: CouponRow = {
   id: 'c1', code: 'SAVE', discountType: 'PERCENT', discountValue: '10', currency: null, planIds: [], maxRedemptions: null, redemptions: 0,
@@ -8,9 +8,18 @@ const ctx = { planId: 'p1', currency: 'INR', now: new Date('2026-06-01T00:00:00Z
 
 describe('coupon rules', () => {
   it('accepts a plain active coupon', () => expect(couponProblem(base, ctx)).toBeNull());
-  it('refuses inactive and recurring coupons', () => {
+  it('refuses an inactive coupon, and accepts a recurring one', () => {
     expect(couponProblem({ ...base, isActive: false }, ctx)).toBe('This code is not valid.');
-    expect(couponProblem({ ...base, firstTermOnly: false }, ctx)).toBe('This code is not valid.');
+    expect(couponProblem({ ...base, firstTermOnly: false }, ctx)).toBeNull();
+    expect(couponProblem({ ...base, firstTermOnly: false, durationPeriods: 3 }, ctx)).toBeNull();
+  });
+  it('knows how long a coupon lasts, and how many renewals that leaves after the first term', () => {
+    expect(couponDuration(base)).toEqual({ kind: 'ONCE' });
+    expect(couponDuration({ ...base, firstTermOnly: false, durationPeriods: 3 })).toEqual({ kind: 'REPEATING', periods: 3 });
+    expect(couponDuration({ ...base, firstTermOnly: false, durationPeriods: null })).toEqual({ kind: 'FOREVER' });
+    expect(renewalsCovered({ kind: 'ONCE' })).toBe(0);
+    expect(renewalsCovered({ kind: 'REPEATING', periods: 3 })).toBe(2);
+    expect(renewalsCovered({ kind: 'FOREVER' })).toBeNull();
   });
   it('checks the date window', () => {
     expect(couponProblem({ ...base, startsAt: new Date('2026-07-01') }, ctx)).toContain('not active yet');
