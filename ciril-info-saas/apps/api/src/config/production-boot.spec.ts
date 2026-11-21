@@ -50,7 +50,17 @@ describe('a production configuration that passes validation also starts', () => 
   });
 
   it('turns a registrar that is not built into a clear startup error, not a silent fallback', () => {
-    expect(() => boot({ REGISTRAR_PROVIDER: 'resellerclub' })).toThrow(/not available yet/);
+    expect(() => boot({ REGISTRAR_PROVIDER: 'resellerclub' })).toThrow(/is not available/);
+  });
+
+  it('with GoDaddy placing orders, but never its test environment or a pretend server', () => {
+    const gd = { REGISTRAR_PROVIDER: 'godaddy', GODADDY_ENV: 'production', GODADDY_API_KEY: 'k', GODADDY_API_SECRET: 's' };
+    const p = boot(gd);
+    expect(p.registrar.id).toBe('GODADDY');
+    expect(p.registrar.automation).toBeDefined();
+    expect(() => validateEnv({ ...base, ...gd, GODADDY_ENV: 'ote' })).toThrow(/GODADDY_ENV/);
+    expect(() => validateEnv({ ...base, ...gd, GODADDY_API_BASE: 'http://127.0.0.1:1' })).toThrow(/GODADDY_API_BASE/);
+    expect(() => validateEnv({ ...base, ...gd, GODADDY_API_SECRET: '' })).toThrow(/GODADDY_API_SECRET/);
   });
 
   it('still starts in development with every mock', () => {

@@ -14,6 +14,7 @@ import { DomainOrdersController } from './domain-orders.controller.js';
 import { DomainOrdersService } from './domain-orders.service.js';
 import { DomainsController } from './domains.controller.js';
 import { DomainsService } from './domains.service.js';
+import { RegistrarAutomationService } from './registrar-automation.service.js';
 import { RegistrarGateway } from './registrar-gateway.js';
 import { DOMAIN_SECRET_BOX } from './secret-box.js';
 
@@ -21,7 +22,7 @@ import { DOMAIN_SECRET_BOX } from './secret-box.js';
   imports: [NotificationsModule],
   // AdminTldsController comes before AdminRegistrationsController so /admin/domains/tlds is matched first.
   controllers: [DomainsController, DomainOrdersController, DnsController, AdminTldsController, AdminRegistrationsController],
-  providers: [DomainsService, DomainOrdersService, AdminTldsService, AdminRegistrationsService, DomainEventsHandler, RegistrarGateway, DnsGateway, DnsService,
+  providers: [DomainsService, DomainOrdersService, AdminTldsService, AdminRegistrationsService, DomainEventsHandler, RegistrarGateway, RegistrarAutomationService, DnsGateway, DnsService,
     { provide: DOMAIN_SECRET_BOX, inject: [ConfigService], useFactory: (config: ConfigService<Env, true>) => new SecretBox(config.get('DATA_ENCRYPTION_KEY', { infer: true })) },
   ],
   exports: [DomainEventsHandler],

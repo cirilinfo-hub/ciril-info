@@ -8,7 +8,12 @@ import { AuditService } from '../modules/audit/audit.service.js';
 import { BillingLifecycleService } from '../modules/billing/billing-lifecycle.service.js';
 import { PaymentGateway } from '../modules/billing/payment-gateway.js';
 import { PaymentSettlementService } from '../modules/billing/payment-settlement.service.js';
+import { SecretBox } from '../common/security/crypto.js';
+import { AdminRegistrationsService } from '../modules/domains/admin-registrations.service.js';
 import { DomainEventsHandler } from '../modules/domains/domain-events.handler.js';
+import { RegistrarAutomationService } from '../modules/domains/registrar-automation.service.js';
+import { RegistrarGateway } from '../modules/domains/registrar-gateway.js';
+import { DOMAIN_SECRET_BOX } from '../modules/domains/secret-box.js';
 import { HostingEventsHandler } from '../modules/hosting/hosting-events.handler.js';
 import { HostingGateway } from '../modules/hosting/hosting-gateway.js';
 import { HostingJobsService } from '../modules/hosting/hosting-jobs.service.js';
@@ -54,6 +59,9 @@ import { EVENTS_QUEUE, OutboxRelayService } from './outbox-relay.service.js';
     BullModule.registerQueue({ name: EVENTS_QUEUE }),
     DatabaseModule,
   ],
-  providers: [OutboxRelayService, EventsProcessor, AuditService, MailService, StaffNotifier, PaymentGateway, PaymentSettlementService, BillingLifecycleService, BillingLifecycleRunner, HostingGateway, HostingJobsService, HostingEventsHandler, HostingProvisionerRunner, DomainEventsHandler],
+  providers: [OutboxRelayService, EventsProcessor, AuditService, MailService, StaffNotifier, PaymentGateway, PaymentSettlementService, BillingLifecycleService, BillingLifecycleRunner, HostingGateway, HostingJobsService, HostingEventsHandler, HostingProvisionerRunner, DomainEventsHandler,
+    RegistrarGateway, AdminRegistrationsService, RegistrarAutomationService,
+    { provide: DOMAIN_SECRET_BOX, inject: [ConfigService], useFactory: (config: ConfigService<Env, true>) => new SecretBox(config.get('DATA_ENCRYPTION_KEY', { infer: true })) },
+  ],
 })
 export class WorkerModule {}

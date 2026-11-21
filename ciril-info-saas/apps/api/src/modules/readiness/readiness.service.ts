@@ -51,7 +51,7 @@ export class ReadinessService {
       },
       hosting: { provider: this.env('HOSTING_PROVIDER') },
       dns: { provider: this.env('DNS_PROVIDER') },
-      registrar: { provider: this.env('REGISTRAR_PROVIDER') },
+      registrar: { provider: this.env('REGISTRAR_PROVIDER'), godaddy: { env: this.env('GODADDY_ENV'), keySet: !!this.env('GODADDY_API_KEY') && !!this.env('GODADDY_API_SECRET'), nameserversSet: !!this.env('GODADDY_NAMESERVERS') } },
       cpanel: { hostSet: !!this.env('CPANEL_HOST'), userSet: !!this.env('CPANEL_USER'), tokenSet: !!this.env('CPANEL_API_TOKEN'), tls: this.env('CPANEL_TLS') },
       email: { provider: this.env('EMAIL_PROVIDER') },
       storage: { driver: this.env('STORAGE_DRIVER') },

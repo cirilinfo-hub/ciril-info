@@ -52,7 +52,8 @@ export class EventsProcessor extends WorkerHost {
       return;
     }
     if (job.name.startsWith('domain.')) {
-      await this.domains.handle(job.name, job.data.payload);
+      // On the last try a temporary registrar failure goes to staff instead of failing silently.
+      await this.domains.handle(job.name, job.data.payload, { final: job.attemptsMade + 1 >= (job.opts.attempts ?? 1) });
       return;
     }
     if (job.name !== EMAIL_SEND_EVENT) return;

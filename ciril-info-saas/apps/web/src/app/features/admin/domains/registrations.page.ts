@@ -31,6 +31,7 @@ const FILTERS = [
     .filters { display: flex; flex-wrap: wrap; gap: var(--space-2); }
     .row-actions { text-align: right; white-space: nowrap; }
     td small { display: block; color: var(--color-text-secondary); }
+    td small.issue { color: var(--color-text-danger); max-width: 40ch; }
     .code { font-family: var(--font-mono, ui-monospace, monospace); font-size: 18px; word-break: break-all; padding: var(--space-3); background: var(--color-surface-subtle, #f5f3ff); border-radius: var(--radius-md, 8px); margin: 0 0 var(--space-3); user-select: all; }
     .pager { display: flex; gap: var(--space-3); align-items: center; justify-content: flex-end; margin-top: var(--space-4); }
   `,
@@ -65,10 +66,14 @@ const FILTERS = [
               <td>
                 <span class="cf-badge" [class]="'cf-badge ' + label(d).cls">{{ label(d).text }}</span>
                 @if (d.status === 'FAILED' && d.failureReason) { <small>{{ d.failureReason }}</small> }
+                @else if (registrarIssue(d); as why) { <small class="issue" data-testid="registrar-issue">Registrar: {{ why }}</small> }
                 @else if (d.registrarRef) { <small>Ref {{ d.registrarRef }}</small> }
               </td>
               <td>{{ d.expiresAt ? (d.expiresAt | date: 'd MMM y') : '—' }}</td>
               <td class="row-actions">
+                @if (canWrite() && automated() && (waiting(d) || transferWaiting(d) || renewalWaiting(d))) {
+                  <button type="button" class="cf-btn cf-btn-secondary cf-btn-sm" [disabled]="busy()" (click)="retry(d)" [attr.aria-label]="(d.transfers[0]?.status === 'IN_PROGRESS' ? 'Check the transfer of ' : 'Try ') + d.name + (d.transfers[0]?.status === 'IN_PROGRESS' ? ' now' : ' at the registrar again')">{{ d.transfers[0]?.status === 'IN_PROGRESS' ? 'Check now' : 'Try at registrar' }}</button>
+                }
                 @if (canWrite() && waiting(d)) {
                   <button type="button" class="cf-btn cf-btn-primary cf-btn-sm" [disabled]="busy()" (click)="openDone(d, false)" [attr.aria-label]="'Mark ' + d.name + ' registered'">Mark registered</button>
                   <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="openCannot(d, false)" [attr.aria-label]="'Cannot register ' + d.name">Can't register</button>
@@ -174,6 +179,8 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
   protected readonly cannotRenewMode = signal(false);
   protected readonly doneTransfer = signal(false);
   protected readonly cannotTransfer = signal(false);
+  /** A registrar places paid orders by itself; staff only step in when it refuses. */
+  protected readonly automated = signal(false);
   protected readonly codeFor = signal<{ d: AdminRegistration; code: string | null } | null>(null);
   protected readonly copied = signal(false);
   protected readonly doneForm = inject(NonNullableFormBuilder).group({ expiresAt: ['', [Validators.required]], registrarRef: ['', [Validators.maxLength(120)]] });
@@ -181,7 +188,27 @@ export class AdminRegistrationsPage extends AdminPage implements OnInit {
   private timer: ReturnType<typeof setTimeout> | undefined;
 
   ngOnInit() {
+    void this.api.registrar().then((r) => this.automated.set(r.automated), () => undefined);
     return this.load();
+  }
+
+  /** Why the registrar did not do what is waiting, if it said. */
+  protected registrarIssue(d: AdminRegistration) {
+    if (this.waiting(d)) return d.failureReason;
+    if (this.transferWaiting(d)) return d.transfers[0]!.failureReason;
+    if (this.renewalWaiting(d)) return d.renewals[0]!.failureReason;
+    return null;
+  }
+
+  protected async retry(d: AdminRegistration) {
+    this.toast.set(null);
+    let outcome: { result: string; reason?: string } | null = null;
+    const ok = await this.run(async () => { outcome = (await this.api.retryRegistrar(d.id)).outcome; });
+    if (!ok || !outcome) return;
+    const o = outcome as { result: string; reason?: string };
+    if (o.result === 'manual') this.error.set(`The registrar could not do it: ${o.reason}`);
+    else this.toast.set(o.result === 'done' ? `${d.name} is done at the registrar. The customer has been told.` : `The transfer of ${d.name} is under way at the registrar.`);
+    await this.load();
   }
 
   private async load() {

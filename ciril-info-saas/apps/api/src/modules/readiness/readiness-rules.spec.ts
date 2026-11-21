@@ -68,6 +68,9 @@ describe('registrar, email, storage, errors', () => {
   it('does not call a missing registrar a problem, but says what it means', () => {
     expect(get(run({ registrar: { provider: 'mock' } }), 'registrar')).toMatchObject({ status: 'info', detail: expect.stringContaining('by hand') });
     expect(get(run({ registrar: { provider: 'rdap' } }), 'registrar')).toMatchObject({ status: 'info', detail: expect.stringContaining('public registry') });
+    expect(get(run({ registrar: { provider: 'godaddy', godaddy: { env: 'ote', keySet: true, nameserversSet: false } } }), 'registrar')).toMatchObject({ status: 'todo', detail: expect.stringContaining('no real domain is bought') });
+    expect(get(run({ registrar: { provider: 'godaddy', godaddy: { env: 'production', keySet: true, nameserversSet: false } } }), 'registrar')).toMatchObject({ status: 'ok', detail: expect.stringContaining('GODADDY_NAMESERVERS') });
+    expect(get(run({ registrar: { provider: 'godaddy', godaddy: { env: 'production', keySet: true, nameserversSet: true } } }), 'registrar').detail).not.toContain('GODADDY_NAMESERVERS');
   });
   it('flags the local test inbox', () => expect(get(run({ email: { provider: 'mailpit' } }), 'email')).toMatchObject({ status: 'todo', detail: expect.stringContaining('will not receive') }));
   it('flags an email provider that does not exist yet', () => expect(get(run({ email: { provider: 'ses' } }), 'email').status).toBe('todo'));

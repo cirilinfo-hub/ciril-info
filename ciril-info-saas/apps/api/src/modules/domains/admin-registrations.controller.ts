@@ -4,6 +4,8 @@ import type { AuthUser, RequestMeta } from '../auth/auth.types.js';
 import { CurrentUser, ReqMeta, RequirePlatform } from '../auth/decorators.js';
 import { AdminRegistrationListQuery, CannotRegisterDto, CompleteRegistrationDto } from './admin-registrations.dto.js';
 import { AdminRegistrationsService } from './admin-registrations.service.js';
+import { RegistrarAutomationService } from './registrar-automation.service.js';
+import { RegistrarGateway } from './registrar-gateway.js';
 
 const uuid = new ParseUUIDPipe({ version: '4' });
 
@@ -11,7 +13,18 @@ const uuid = new ParseUUIDPipe({ version: '4' });
 @ApiTags('admin · domains')
 @Controller('admin/domains')
 export class AdminRegistrationsController {
-  constructor(private readonly svc: AdminRegistrationsService) {}
+  constructor(
+    private readonly svc: AdminRegistrationsService,
+    private readonly automation: RegistrarAutomationService,
+    private readonly gateway: RegistrarGateway,
+  ) {}
+
+  /** Which registrar is connected, and whether paid orders are placed with it automatically. */
+  @Get('registrar') @RequirePlatform('domains:read')
+  registrar() { return { provider: this.gateway.provider.id, automated: this.automation.automated }; }
+
+  @Post(':id/registrar-retry') @HttpCode(200) @RequirePlatform('domains:write')
+  retry(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.automation.retry(id, u, meta); }
 
   @Get() @RequirePlatform('domains:read')
   list(@Query() q: AdminRegistrationListQuery) { return this.svc.list(q); }

@@ -22,7 +22,7 @@ export interface ReadinessFacts {
   payment: { provider: string; keyIdSet: boolean; keySecretSet: boolean; webhookSecretSet: boolean; liveKey: boolean };
   hosting: { provider: string };
   dns: { provider: string };
-  registrar: { provider: string };
+  registrar: { provider: string; godaddy?: { env: string; keySet: boolean; nameserversSet: boolean } };
   cpanel: { hostSet: boolean; userSet: boolean; tokenSet: boolean; tls: string };
   email: { provider: string };
   storage: { driver: string };
@@ -75,7 +75,11 @@ export function evaluateReadiness(f: ReadinessFacts): Check[] {
       ? { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'info', detail: 'Test mode: name searches give pretend answers, and your team does each registration, renewal and transfer by hand at your registrar.' }
       : f.registrar.provider === 'rdap'
         ? { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'info', detail: 'Names are checked against the public registry, so searches are real. No registrar is connected, so your team does each registration, renewal and transfer by hand at your registrar.' }
-        : { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'ok', detail: `Connected: ${f.registrar.provider}.` },
+        : f.registrar.provider === 'godaddy'
+          ? f.registrar.godaddy?.env === 'production'
+            ? { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'ok', detail: `GoDaddy is connected. Paid registrations, renewals and transfers are placed automatically and charged to your GoDaddy account, so keep its payment method funded.${f.registrar.godaddy.nameserversSet ? '' : ' New domains use GoDaddy\'s nameservers; set GODADDY_NAMESERVERS to point them at your hosting server.'}` }
+            : { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'todo', detail: 'GoDaddy\'s test environment (OTE) is connected: orders go through, but no real domain is bought. Set GODADDY_ENV=production with your production API key to go live.' }
+          : { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'ok', detail: `Connected: ${f.registrar.provider}.` },
   );
   add(
     f.email.provider === 'mailpit'
