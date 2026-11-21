@@ -164,6 +164,24 @@ Each run saves the database and the uploaded files to `/opt/cirilinfo/backups`, 
 
 Also keep a separate copy of `.env`, above all `DATA_ENCRYPTION_KEY`. It is not in the backups.
 
+### Uploaded files in S3 (optional)
+
+By default, website images and ticket attachments are kept on the server's disk (a Docker volume) and included in the
+backups above. To keep them in a bucket instead, so they survive the server:
+
+1. Create a **private** bucket (Amazon S3 in `ap-south-1`, or an S3-compatible store such as Cloudflare R2). Do not
+   make it public: every file is served through the API, which checks who may see it.
+2. Create an access key that can only read, write and delete objects in that bucket.
+3. Turn on versioning (or the store's own backups) for the bucket. The nightly backup script then only covers the database.
+4. Set in the server's `.env`: `STORAGE_DRIVER=s3`, `S3_BUCKET`, `S3_REGION` (R2: `auto`), `S3_ACCESS_KEY_ID`,
+   `S3_SECRET_ACCESS_KEY`, and for an S3-compatible store `S3_ENDPOINT` (its `https://` address). `S3_PREFIX` puts
+   everything in a folder.
+5. **Copy the files you already have before switching**, or old images and attachments will go missing. With the AWS
+   CLI: `aws s3 sync /var/lib/docker/volumes/cirilinfo_storage/_data s3://<bucket>/<prefix>/` (the `images/` and
+   `tickets/` folders keep their names). Then restart the API.
+
+The S3 driver has been tested against a pretend S3 server only. Upload an image and a ticket attachment once after switching.
+
 **Once a month, prove a backup restores:**
 
 ```bash

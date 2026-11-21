@@ -91,7 +91,7 @@ export function evaluateReadiness(f: ReadinessFacts): Check[] {
   add(
     f.storage.driver === 'local'
       ? { key: 'storage', group: 'Connections', label: 'File storage', status: 'info', detail: 'Uploaded files are kept on the server’s disk. Make sure that disk is backed up.' }
-      : { key: 'storage', group: 'Connections', label: 'File storage', status: 'ok', detail: 'Uploaded files go to cloud storage.' },
+      : { key: 'storage', group: 'Connections', label: 'File storage', status: 'ok', detail: 'Uploaded files go to your S3 bucket. Keep it private and turn on versioning or backups there.' },
   );
   add(
     f.errorTrackingSet

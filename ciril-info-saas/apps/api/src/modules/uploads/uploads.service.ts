@@ -1,9 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-import { Injectable, PayloadTooLargeException, UnsupportedMediaTypeException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { Env } from '../../config/env.js';
+import { Inject, Injectable, PayloadTooLargeException, UnsupportedMediaTypeException } from '@nestjs/common';
+import { OBJECT_STORAGE, type ObjectStorage } from '../../common/storage/object-storage.js';
 
 export const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 /** Stored as "/uploads/images/<uuid>.<ext>" and turned into a full address when served to the website. */
@@ -20,14 +17,10 @@ export function sniffImage(buf: Buffer): 'png' | 'jpg' | 'webp' | null {
   return null;
 }
 
-/** Image uploads on local disk (STORAGE_DRIVER=local). Files get a random name; the original name is never used. */
+/** Image uploads, on the server's disk or in S3 (STORAGE_DRIVER). Files get a random name; the original name is never used. */
 @Injectable()
 export class UploadsService {
-  readonly dir: string;
-
-  constructor(config: ConfigService<Env, true>) {
-    this.dir = resolve(process.cwd(), config.get('STORAGE_LOCAL_DIR', { infer: true }), 'images');
-  }
+  constructor(@Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage) {}
 
   async saveImage(buf: Buffer | undefined): Promise<{ path: string; bytes: number }> {
     if (!buf?.length) throw new UnsupportedMediaTypeException({ code: 'NO_FILE', message: 'Choose an image to upload.' });
@@ -38,15 +31,20 @@ export class UploadsService {
     if (!ext) {
       throw new UnsupportedMediaTypeException({ code: 'UNSUPPORTED_IMAGE', message: 'Upload a PNG, JPEG or WebP image.' });
     }
-    await mkdir(this.dir, { recursive: true });
     const name = `${randomUUID()}.${ext}`;
-    await writeFile(join(this.dir, name), buf, { flag: 'wx' });
+    await this.storage.put(`images/${name}`, buf, IMAGE_MIME[ext]!);
     return { path: `/uploads/images/${name}`, bytes: buf.length };
   }
 
   /** Deletes an uploaded file. Anything that is not exactly one of our upload paths is ignored. */
   async remove(ref: string | null | undefined): Promise<void> {
     if (!ref || !UPLOAD_PATH.test(ref)) return;
-    await rm(join(this.dir, ref.split('/').pop()!), { force: true });
+    await this.storage.delete(`images/${ref.split('/').pop()!}`);
+  }
+
+  /** An uploaded image for serving, or null. Only names this service generates are accepted. */
+  async open(file: string) {
+    if (!UPLOAD_FILE.test(file)) return null;
+    return this.storage.get(`images/${file}`);
   }
 }

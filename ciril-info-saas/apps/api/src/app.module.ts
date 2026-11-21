@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { StorageModule } from './common/storage/storage.module.js';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
@@ -74,6 +75,7 @@ import { UsersModule } from './modules/users/users.module.js';
       }),
     }),
     DatabaseModule,
+    StorageModule,
     AuditModule,
     MailModule,
     AuthModule,

@@ -99,6 +99,18 @@ export const envSchema = z
 
     STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
     STORAGE_LOCAL_DIR: z.string().default('./storage'),
+    /** STORAGE_DRIVER=s3: a private bucket on Amazon S3 or an S3-compatible store. Keys go in the server's .env only. */
+    S3_BUCKET: z.string().trim().default(''),
+    /** The bucket's region, e.g. ap-south-1 (Mumbai). Cloudflare R2 uses "auto". */
+    S3_REGION: z.string().trim().default('ap-south-1'),
+    S3_ACCESS_KEY_ID: z.string().trim().default(''),
+    S3_SECRET_ACCESS_KEY: z.string().trim().default(''),
+    /** Only for S3-compatible stores, e.g. https://<account>.r2.cloudflarestorage.com. Empty for Amazon S3. */
+    S3_ENDPOINT: z.string().trim().default(''),
+    /** true for stores that need the bucket in the path (MinIO, some others). */
+    S3_FORCE_PATH_STYLE: bool,
+    /** Optional folder inside the bucket, e.g. "cirilinfo". */
+    S3_PREFIX: z.string().trim().default(''),
 
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
     SENTRY_DSN: z.string().optional().default(''),
@@ -136,6 +148,15 @@ export const envSchema = z
       }
       if (env.NODE_ENV === 'production' && env.GODADDY_API_BASE) {
         ctx.addIssue({ code: 'custom', path: ['GODADDY_API_BASE'], message: 'is for tests only; leave it empty in production' });
+      }
+    }
+    if (env.STORAGE_DRIVER === 's3') {
+      for (const key of ['S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'] as const) {
+        if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: 'required when STORAGE_DRIVER=s3' });
+      }
+      if (env.S3_ENDPOINT && !/^https?:\/\//.test(env.S3_ENDPOINT)) ctx.addIssue({ code: 'custom', path: ['S3_ENDPOINT'], message: 'must be a full address starting with https://' });
+      if (env.NODE_ENV === 'production' && env.S3_ENDPOINT.startsWith('http://')) {
+        ctx.addIssue({ code: 'custom', path: ['S3_ENDPOINT'], message: 'production must reach the bucket over HTTPS' });
       }
     }
     if (env.PAYMENT_PROVIDER === 'stripe') {

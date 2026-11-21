@@ -34,8 +34,10 @@ export class UploadsController {
   /** Public: uploaded images are shown on the website. Only files this service wrote can be requested. */
   @Public()
   @Get('images/:file')
-  serve(@Param('file') file: string, @Res() res: Response) {
+  async serve(@Param('file') file: string, @Res() res: Response) {
     if (!UPLOAD_FILE.test(file)) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Image not found.' });
+    const stream = await this.uploads.open(file);
+    if (!stream) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Image not found.' });
     const ext = file.split('.').pop()!;
     res.set({
       'Content-Type': IMAGE_MIME[ext]!,
@@ -44,8 +46,10 @@ export class UploadsController {
       // The website (another origin) displays these images.
       'Cross-Origin-Resource-Policy': 'cross-origin',
     });
-    res.sendFile(file, { root: this.uploads.dir, dotfiles: 'deny' }, (err) => {
-      if (err && !res.headersSent) res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Image not found.' } });
+    stream.on('error', () => {
+      if (!res.headersSent) res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Image not found.' } });
+      else res.destroy();
     });
+    stream.pipe(res);
   }
 }

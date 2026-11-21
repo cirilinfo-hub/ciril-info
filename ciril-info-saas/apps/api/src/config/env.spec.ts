@@ -118,3 +118,20 @@ describe('validateEnv: payment provider', () => {
     expect(() => validateEnv({ ...dev, PAYMENT_PROVIDER: 'stripe' })).toThrow(/Stripe is not supported yet/);
   });
 });
+
+describe('validateEnv: S3 storage', () => {
+  const s3 = { STORAGE_DRIVER: 's3', S3_BUCKET: 'ci-files', S3_ACCESS_KEY_ID: 'AKIA', S3_SECRET_ACCESS_KEY: 'secret' };
+
+  it('needs a bucket and a key pair', () => {
+    expect(() => validateEnv({ ...base, ...s3 })).not.toThrow();
+    for (const key of ['S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'] as const) {
+      expect(() => validateEnv({ ...base, ...s3, [key]: '' })).toThrow(new RegExp(key));
+    }
+  });
+
+  it('wants a full https address for an S3-compatible store, and refuses plain http in production', () => {
+    expect(() => validateEnv({ ...base, ...s3, S3_ENDPOINT: 'r2.example.com' })).toThrow(/S3_ENDPOINT/);
+    expect(() => validateEnv({ ...prodReal, ...s3, S3_ENDPOINT: 'http://minio.internal:9000' })).toThrow(/HTTPS/);
+    expect(() => validateEnv({ ...prodReal, ...s3, S3_ENDPOINT: 'https://acc.r2.cloudflarestorage.com', S3_REGION: 'auto' })).not.toThrow();
+  });
+});
