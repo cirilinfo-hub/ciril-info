@@ -115,7 +115,7 @@ describe('validateEnv: payment provider', () => {
   });
 
   it('refuses Stripe until it is built', () => {
-    expect(() => validateEnv({ ...dev, PAYMENT_PROVIDER: 'stripe' })).toThrow(/Stripe is not supported yet/);
+    expect(() => validateEnv({ ...dev, PAYMENT_PROVIDER: 'stripe' })).toThrow(/Stripe runs alongside/);
   });
 });
 
@@ -152,5 +152,15 @@ describe('validateEnv: Plesk', () => {
     expect(() => validateEnv({ ...base, ...plesk })).not.toThrow();
     for (const key of ['PLESK_HOST', 'PLESK_API_KEY', 'PLESK_IP'] as const) expect(() => validateEnv({ ...base, ...plesk, [key]: '' })).toThrow(new RegExp(key));
     expect(() => validateEnv({ ...prodReal, ...plesk, PLESK_TLS: 'off' })).toThrow(/HTTPS/);
+  });
+});
+
+describe('validateEnv: Stripe alongside', () => {
+  it('needs the webhook secret, a live key in production and a test key elsewhere', () => {
+    expect(() => validateEnv({ ...base, STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_x' })).not.toThrow();
+    expect(() => validateEnv({ ...base, STRIPE_SECRET_KEY: 'sk_test_x' })).toThrow(/STRIPE_WEBHOOK_SECRET/);
+    expect(() => validateEnv({ ...base, STRIPE_SECRET_KEY: 'sk_live_x', STRIPE_WEBHOOK_SECRET: 'whsec_x' })).toThrow(/live key must not be used/);
+    expect(() => validateEnv({ ...prodReal, STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_x' })).toThrow(/production needs a live key/);
+    expect(() => validateEnv({ ...prodReal, STRIPE_SECRET_KEY: 'sk_live_x', STRIPE_WEBHOOK_SECRET: 'whsec_x' })).not.toThrow();
   });
 });

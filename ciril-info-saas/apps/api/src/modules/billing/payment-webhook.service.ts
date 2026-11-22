@@ -25,13 +25,14 @@ export class PaymentWebhookService {
   ) {}
 
   async handle(providerParam: string, raw: Buffer | undefined, headers: Record<string, string | string[] | undefined>) {
-    // Only the configured provider has a webhook; the others answer as if the address did not exist.
-    if (providerParam.toUpperCase() !== this.gateway.id) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found.' });
+    // Only connected providers have a webhook; the others answer as if the address did not exist.
+    const provider = this.gateway.providerById(providerParam);
+    if (!provider?.parseWebhook) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Not found.' });
     if (!raw?.length) throw new BadRequestException({ code: 'INVALID_WEBHOOK', message: 'Empty body.' });
 
-    const event = this.gateway.parseWebhook(raw, headers);
+    const event = provider.parseWebhook(raw, headers);
     if (!event) {
-      this.log.warn(`webhook with an invalid signature rejected (${this.gateway.id})`);
+      this.log.warn(`webhook with an invalid signature rejected (${provider.id})`);
       throw new BadRequestException({ code: 'INVALID_SIGNATURE', message: 'Invalid signature.' });
     }
 
@@ -45,16 +46,16 @@ export class PaymentWebhookService {
     // Store first. A unique violation means we have seen this delivery before.
     let rowId: string;
     try {
-      rowId = (await this.db.paymentWebhook.create({ data: { provider: this.gateway.id, eventId: event.eventId, eventType: event.rawType, signatureOk: true, payload }, select: { id: true } })).id;
+      rowId = (await this.db.paymentWebhook.create({ data: { provider: provider.id, eventId: event.eventId, eventType: event.rawType, signatureOk: true, payload }, select: { id: true } })).id;
     } catch (e) {
       if ((e as { code?: string }).code !== 'P2002') throw e;
-      const prior = await this.db.paymentWebhook.findUniqueOrThrow({ where: { provider_eventId: { provider: this.gateway.id, eventId: event.eventId } }, select: { id: true, processedAt: true } });
+      const prior = await this.db.paymentWebhook.findUniqueOrThrow({ where: { provider_eventId: { provider: provider.id, eventId: event.eventId } }, select: { id: true, processedAt: true } });
       if (prior.processedAt) return { received: true, duplicate: true };
       rowId = prior.id; // an earlier attempt did not finish: process it now
     }
 
     try {
-      const error = await this.process(event);
+      const error = await this.process(event, provider.id);
       await this.db.paymentWebhook.update({ where: { id: rowId }, data: { processedAt: new Date(), error } });
       return { received: true };
     } catch (e) {
@@ -64,12 +65,12 @@ export class PaymentWebhookService {
   }
 
   /** Returns a note to store when the event needed attention but is not worth retrying, otherwise null. */
-  private async process(event: NonNullable<ReturnType<PaymentGateway['parseWebhook']>>): Promise<string | null> {
+  private async process(event: NonNullable<ReturnType<PaymentGateway['parseWebhook']>>, providerId: 'MOCK' | 'RAZORPAY' | 'STRIPE'): Promise<string | null> {
     if (event.type === 'ignored') return null;
-    if (event.type === 'dispute.updated') return event.dispute ? this.disputes.apply(event.dispute) : 'no dispute';
+    if (event.type === 'dispute.updated') return event.dispute ? this.disputes.apply(event.dispute, providerId) : 'no dispute';
     if (event.type === 'token.updated') return event.tokenId && event.tokenState ? this.cards.applyState(event.tokenId, event.tokenState, event.failureReason) : 'no token';
     if (!event.providerOrderId) return 'no order reference';
-    const payment = await this.db.payment.findFirst({ where: { provider: this.gateway.id, providerOrderId: event.providerOrderId }, select: { id: true } });
+    const payment = await this.db.payment.findFirst({ where: { provider: providerId, providerOrderId: event.providerOrderId }, select: { id: true } });
     // An order we never created (the provider account may serve other things): nothing to do, and nothing to retry.
     if (!payment) return 'no payment for this order';
 

@@ -38,6 +38,10 @@ export interface OrderRequest {
   notes: Record<string, string>;
   /** The customer also saves the card for automatic payments. The checkout is then card-only. */
   saveCard?: SaveCardTerms;
+  /** Redirect checkouts (Stripe): where the customer comes back to, what the line says, and the email to prefill. */
+  returnUrl?: string;
+  description?: string;
+  customerEmail?: string;
 }
 
 /** Saving a card: the provider's customer record, and the most one automatic charge may take. */
@@ -141,6 +145,8 @@ export interface ProviderDispute {
 }
 
 export interface RefundRequest {
+  /** Which provider took the payment, when more than one is connected. */
+  provider?: ProviderId | 'MANUAL';
   providerPaymentId: string | null;
   amountPaise: number;
   currency: string;

@@ -208,17 +208,18 @@ export class BillingLifecycleService {
    * that nobody ever completed is closed after three days so it does not wait forever.
    */
   private async reconcilePayments(now: Date) {
-    if (this.gateway.mode !== 'hosted') return { reconciled: 0, checkoutsClosed: 0 };
+    const hosted = this.gateway.hostedProviders().map((p) => p.id);
+    if (!hosted.length) return { reconciled: 0, checkoutsClosed: 0 };
     const waiting = await this.db.payment.findMany({
-      where: { provider: this.gateway.id, status: { in: ['CREATED', 'PENDING'] }, providerOrderId: { not: null }, createdAt: { lt: new Date(now.getTime() - 10 * 60_000), gt: new Date(now.getTime() - 3 * DAY) } },
-      select: { id: true, providerOrderId: true },
+      where: { provider: { in: hosted }, status: { in: ['CREATED', 'PENDING'] }, providerOrderId: { not: null }, createdAt: { lt: new Date(now.getTime() - 10 * 60_000), gt: new Date(now.getTime() - 3 * DAY) } },
+      select: { id: true, provider: true, providerOrderId: true },
       take: 100,
       orderBy: { createdAt: 'asc' },
     });
     let reconciled = 0;
     for (const p of waiting) {
       try {
-        const found = await this.gateway.listOrderPayments(p.providerOrderId!);
+        const found = await this.gateway.listOrderPaymentsFor(p.provider, p.providerOrderId!);
         const captured = found.find((x) => x.status === 'captured');
         const authorized = found.find((x) => x.status === 'authorized');
         const target = captured ?? authorized ?? (found.length && found.every((x) => x.status === 'failed') ? found[0] : undefined);
@@ -235,7 +236,7 @@ export class BillingLifecycleService {
         this.log.error(`payment reconciliation failed for payment ${p.id}: ${(e as Error).message}`);
       }
     }
-    const old = { provider: this.gateway.id, status: { in: ['CREATED' as const, 'PENDING' as const] }, createdAt: { lt: new Date(now.getTime() - 3 * DAY) } };
+    const old = { provider: { in: hosted }, status: { in: ['CREATED' as const, 'PENDING' as const] }, createdAt: { lt: new Date(now.getTime() - 3 * DAY) } };
     const closed = await this.db.payment.updateMany({ where: { ...old, savedCardId: null }, data: { status: 'FAILED', failureReason: 'Checkout was not completed.' } });
     const autoClosed = await this.db.payment.updateMany({ where: { ...old, savedCardId: { not: null } }, data: { status: 'FAILED', failureReason: 'The automatic payment was never confirmed by the bank.' } });
     return { reconciled, checkoutsClosed: closed.count + autoClosed.count };

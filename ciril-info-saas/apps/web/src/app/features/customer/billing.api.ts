@@ -48,6 +48,8 @@ export interface InvoiceDetail extends InvoiceRow {
   tdsDeduction: { amount: string; section: string | null; certificateAt: string | null } | null;
   /** Saved cards: whether one can be saved when paying, whether one is saved, and when this invoice will be charged to it. */
   cards?: { available: boolean; saved: boolean; autoPay: { card: string; on: string } | null };
+  /** Stripe is connected too, for international cards. */
+  stripe?: boolean;
 }
 
 export interface SavedCardView {
@@ -114,8 +116,9 @@ export interface PayResult {
   status: string;
   failureReason: string | null;
   invoice: InvoiceRow;
-  /** Present when the customer still has to pay in the provider's window. */
-  action?: 'CHECKOUT';
+  /** CHECKOUT: pay in the provider's window on this page. REDIRECT: go to the provider's page (Stripe). */
+  action?: 'CHECKOUT' | 'REDIRECT';
+  redirectUrl?: string;
   checkout?: { keyId: string; orderId: string; amountPaise: number; currency: string; description: string; name: string; prefillEmail?: string; customerId?: string; recurring?: string };
 }
 
@@ -150,8 +153,11 @@ export class BillingApi {
     return firstValueFrom(this.http.get<InvoiceDetail>(`${this.base}/invoices/${id}`));
   }
   /** Test mode answers at once. A real provider answers with CHECKOUT details to open the provider's payment window. */
-  pay(id: string, body: { idempotencyKey: string; simulate?: 'fail'; saveCard?: boolean }) {
+  pay(id: string, body: { idempotencyKey: string; simulate?: 'fail'; saveCard?: boolean; gateway?: 'STRIPE' }) {
     return firstValueFrom(this.http.post<PayResult>(`${this.base}/invoices/${id}/pay`, body));
+  }
+  confirmStripe(id: string, sessionId: string) {
+    return firstValueFrom(this.http.post<PayResult>(`${this.base}/invoices/${id}/confirm-stripe`, { sessionId }));
   }
   confirmPayment(id: string, body: { providerOrderId: string; providerPaymentId: string; signature: string }) {
     return firstValueFrom(this.http.post<PayResult>(`${this.base}/invoices/${id}/confirm-payment`, body));

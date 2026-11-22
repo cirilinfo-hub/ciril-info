@@ -29,6 +29,7 @@ const invoiceSelect = {
 @Injectable()
 export class BillingService {
   private readonly production: boolean;
+  private readonly portalUrl: string;
 
   constructor(
     private readonly db: TenantPrisma,
@@ -40,6 +41,7 @@ export class BillingService {
     config: ConfigService<Env, true>,
   ) {
     this.production = config.get('NODE_ENV', { infer: true }) === 'production';
+    this.portalUrl = config.get('CUSTOMER_PORTAL_URL', { infer: true }).replace(/\/$/, '');
   }
 
   /** Plan + current price + configured tax, or a precise client error. */
@@ -208,6 +210,8 @@ export class BillingService {
       const live = this.cards.available ? await tx.savedCard.findFirst({ where: { status: { in: ['PENDING', 'ACTIVE'] } }, select: { id: true } }) : null;
       return {
         ...rest, testMode: this.gateway.isMock,
+        /** Stripe is connected too: the customer may pay with an international card. */
+        stripe: Boolean(this.gateway.stripe),
         /** Whether a card can be saved when paying, whether one is already saved, and when this invoice will be charged to it. */
         cards: { available: this.cards.available, saved: Boolean(live), autoPay: planned ? { card: planned.card, on: planned.on.toISOString() } : null },
       };
@@ -230,16 +234,19 @@ export class BillingService {
   async pay(ctx: TenantContext, id: string, dto: PayInvoiceDto, meta: RequestMeta) {
     if (dto.simulate && this.production) throw new BadRequestException({ code: 'TEST_ONLY', message: 'Simulation is not available.' });
     const saveCard = dto.saveCard === true;
+    const useStripe = dto.gateway === 'STRIPE';
+    if (useStripe && !this.gateway.stripe) throw new ConflictException({ code: 'STRIPE_NOT_AVAILABLE', message: 'Paying with an international card is not available right now.' });
+    if (useStripe && saveCard) throw new ConflictException({ code: 'CARDS_NOT_AVAILABLE', message: 'A card paid with Stripe cannot be saved for automatic payments. Pay without saving it.' });
     if (saveCard && !this.cards.available) throw new ConflictException({ code: 'CARDS_NOT_AVAILABLE', message: 'Cards cannot be saved at the moment. Pay without saving it.' });
     // The provider's customer record is made before the invoice is locked, so no provider call happens under that lock.
     const customerId = saveCard ? await this.cards.customerId(ctx.tenantId) : null;
-    const r = await this.charge(ctx, id, dto, meta, customerId);
+    const r = await this.charge(ctx, id, dto, meta, customerId, useStripe);
     // Test mode settles at once: keep the card now. A real provider's checkout keeps it when its payment is settled.
     if (saveCard && r.status === 'SUCCEEDED' && this.gateway.mode === 'instant') await this.cards.adopt(r.paymentId, ctx.userId);
     return r;
   }
 
-  private charge(ctx: TenantContext, id: string, dto: PayInvoiceDto, meta: RequestMeta, customerId: string | null) {
+  private charge(ctx: TenantContext, id: string, dto: PayInvoiceDto, meta: RequestMeta, customerId: string | null, useStripe = false) {
     const key = dto.idempotencyKey ?? `pay:${id}:${randomUUID()}`;
     return this.db.run(ctx, async (tx) => {
       const prior = await tx.payment.findUnique({ where: { idempotencyKey: key }, select: { id: true, invoiceId: true, status: true, failureReason: true } });
@@ -257,6 +264,7 @@ export class BillingService {
       }
 
       const outstanding = toPaise(invoice.total.toString()) - toPaise(invoice.amountPaid.toString());
+      if (useStripe) return this.startStripeCheckout(tx, ctx, invoice, outstanding);
       if (this.gateway.mode === 'hosted') return this.startCheckout(tx, ctx, invoice, outstanding, customerId);
       const result = await this.gateway.charge({ amountPaise: outstanding, currency: invoice.currency, invoiceNumber: invoice.number, idempotencyKey: key, simulate: dto.simulate });
 
@@ -314,6 +322,53 @@ export class BillingService {
       checkout: { ...base, amountPaise: outstanding, currency: invoice.currency, description: `Invoice ${invoice.number}`, name: 'Ciril Info', ...(account?.billingEmail ? { prefillEmail: account.billingEmail } : {}) },
       invoice: await tx.invoice.findUniqueOrThrow({ where: { id: invoice.id }, select: invoiceSelect }),
     };
+  }
+
+  /**
+   * Stripe: a Checkout Session for the exact amount, and the address of Stripe's page to send the customer to. A new
+   * session each time (Stripe sessions cannot be reopened); an abandoned one expires at Stripe and is closed here later.
+   */
+  private async startStripeCheckout(tx: Tx, ctx: TenantContext, invoice: { id: string; number: string; currency: string }, outstanding: number) {
+    const amount = (outstanding / 100).toFixed(2);
+    const account = await tx.customerAccount.findUnique({ where: { tenantId: ctx.tenantId }, select: { billingEmail: true } });
+    const key = `stripe:${invoice.id}:${randomUUID()}`;
+    const session = await this.gateway.stripe!.createOrder({
+      amountPaise: outstanding, currency: invoice.currency, receipt: invoice.number, idempotencyKey: key, description: `Invoice ${invoice.number}`,
+      returnUrl: `${this.portalUrl}/invoices/${invoice.id}`, customerEmail: account?.billingEmail, notes: { invoiceId: invoice.id, invoiceNumber: invoice.number, tenantId: ctx.tenantId },
+    });
+    const created = await tx.payment.create({
+      data: { tenantId: ctx.tenantId, invoiceId: invoice.id, provider: 'STRIPE', status: 'CREATED', amount, currency: invoice.currency, providerOrderId: session.providerOrderId, idempotencyKey: key, method: 'card' },
+      select: { id: true },
+    });
+    return {
+      action: 'REDIRECT' as const, paymentId: created.id, provider: 'STRIPE' as const, status: 'CREATED', failureReason: null,
+      redirectUrl: String(session.checkout['redirectUrl'] ?? ''),
+      invoice: await tx.invoice.findUniqueOrThrow({ where: { id: invoice.id }, select: invoiceSelect }),
+    };
+  }
+
+  /**
+   * The customer is back from Stripe. We ask Stripe about the session ourselves (the browser's word counts for nothing)
+   * and settle it if it is paid. Still processing: "pending", and the webhook or the lookup job finishes it.
+   */
+  async confirmStripe(ctx: TenantContext, id: string, sessionId: string) {
+    const payment = await this.db.run(ctx, (tx) => tx.payment.findFirst({ where: { invoiceId: id, provider: 'STRIPE', providerOrderId: sessionId }, select: { id: true } }));
+    if (!payment || !this.gateway.stripe) throw new NotFoundException({ code: 'PAYMENT_NOT_FOUND', message: 'We could not find this payment.' });
+    const fact = await this.gateway.fetchPaymentFor('STRIPE', sessionId);
+    const outcome = await this.settlement.apply(
+      payment.id,
+      { status: fact.status === 'captured' ? 'captured' : fact.status === 'failed' ? 'failed' : 'created', providerPaymentId: fact.providerPaymentId, providerOrderId: fact.providerOrderId, amountPaise: fact.amountPaise, currency: fact.currency, method: fact.method, failureReason: fact.failureReason },
+      'checkout',
+      ctx.userId,
+    );
+    if (outcome === 'MISMATCH' || outcome === 'ORPHANED') {
+      throw new ConflictException({ code: 'PAYMENT_NEEDS_REVIEW', message: 'We received your payment but could not match it to this invoice automatically. Our team has been told and will sort it out.' });
+    }
+    const status = outcome === 'SETTLED' || outcome === 'ALREADY_SETTLED' ? 'SUCCEEDED' : outcome === 'FAILED' ? 'FAILED' : 'PENDING';
+    return this.db.run(ctx, async (tx) => ({
+      paymentId: payment.id, status, failureReason: status === 'FAILED' ? fact.failureReason : null,
+      invoice: await tx.invoice.findUniqueOrThrow({ where: { id }, select: invoiceSelect }),
+    }));
   }
 
   /**

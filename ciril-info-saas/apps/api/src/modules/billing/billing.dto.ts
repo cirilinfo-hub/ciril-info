@@ -36,6 +36,14 @@ export class PayInvoiceDto {
 
   @ApiPropertyOptional({ description: 'Save the card used (card only) and charge renewal invoices to it automatically.' })
   @IsOptional() @IsBoolean() saveCard?: boolean;
+
+  @ApiPropertyOptional({ enum: ['STRIPE'], description: 'Pay with Stripe (international cards) instead of the main provider.' })
+  @IsOptional() @IsIn(['STRIPE']) gateway?: 'STRIPE';
+}
+
+/** Stripe sends the customer back with the Checkout Session id. */
+export class ConfirmStripeDto {
+  @ApiProperty() @IsString() @Matches(/^cs_[A-Za-z0-9_]{6,200}$/, { message: 'Not a Stripe checkout session id.' }) sessionId!: string;
 }
 
 export class AutoPayDto {

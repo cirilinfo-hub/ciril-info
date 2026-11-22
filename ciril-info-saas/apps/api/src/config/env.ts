@@ -77,6 +77,11 @@ export const envSchema = z
     /** The secret you type in Razorpay's webhook settings. It signs every webhook they send us. */
     RAZORPAY_WEBHOOK_SECRET: z.string().trim().default(''),
     RAZORPAY_API_BASE: z.url().default('https://api.razorpay.com/v1'),
+    /** Stripe, alongside the main provider, for international cards. Set the secret key to switch it on. In the server's .env only. */
+    STRIPE_SECRET_KEY: z.string().trim().default(''),
+    /** The signing secret of the Stripe webhook endpoint (whsec_...). */
+    STRIPE_WEBHOOK_SECRET: z.string().trim().default(''),
+    STRIPE_API_BASE: z.url().default('https://api.stripe.com'),
     /** Saved cards and automatic renewal payments. Razorpay must first switch on Recurring Payments (cards) for your account. */
     RAZORPAY_SAVED_CARDS: bool,
     /** The most one automatic charge may take, in rupees. RBI lets card standing instructions charge up to 15,000 without the customer. */
@@ -194,7 +199,16 @@ export const envSchema = z
       }
     }
     if (env.PAYMENT_PROVIDER === 'stripe') {
-      ctx.addIssue({ code: 'custom', path: ['PAYMENT_PROVIDER'], message: 'Stripe is not supported yet; use razorpay or mock' });
+      ctx.addIssue({ code: 'custom', path: ['PAYMENT_PROVIDER'], message: 'Stripe runs alongside the main provider: keep razorpay (or mock) here and set STRIPE_SECRET_KEY' });
+    }
+    if (env.STRIPE_SECRET_KEY) {
+      if (!env.STRIPE_WEBHOOK_SECRET) ctx.addIssue({ code: 'custom', path: ['STRIPE_WEBHOOK_SECRET'], message: 'required when STRIPE_SECRET_KEY is set' });
+      if (env.NODE_ENV === 'production' && !env.STRIPE_SECRET_KEY.startsWith('sk_live_') && !env.STRIPE_SECRET_KEY.startsWith('rk_live_')) {
+        ctx.addIssue({ code: 'custom', path: ['STRIPE_SECRET_KEY'], message: 'production needs a live key (sk_live_...)' });
+      }
+      if (env.NODE_ENV !== 'production' && /^(sk|rk)_live_/.test(env.STRIPE_SECRET_KEY)) {
+        ctx.addIssue({ code: 'custom', path: ['STRIPE_SECRET_KEY'], message: 'a live key must not be used outside production; use sk_test_...' });
+      }
     }
     if (env.NODE_ENV !== 'production') return;
     // Rule 7/8 of the brief: never fake payments or provisioning in production.

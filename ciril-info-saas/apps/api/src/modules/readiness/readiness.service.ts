@@ -48,6 +48,7 @@ export class ReadinessService {
       production: this.env('NODE_ENV') === 'production',
       payment: {
         provider: this.env('PAYMENT_PROVIDER'), keyIdSet: !!keyId, keySecretSet: !!this.env('RAZORPAY_KEY_SECRET'), webhookSecretSet: !!this.env('RAZORPAY_WEBHOOK_SECRET'), liveKey: keyId.startsWith('rzp_live_'),
+        stripe: { keySet: !!this.env('STRIPE_SECRET_KEY'), webhookSecretSet: !!this.env('STRIPE_WEBHOOK_SECRET') },
       },
       hosting: { provider: this.env('HOSTING_PROVIDER'), plesk: { hostSet: !!this.env('PLESK_HOST'), keySet: !!this.env('PLESK_API_KEY'), ipSet: !!this.env('PLESK_IP'), tls: this.env('PLESK_TLS') } },
       dns: { provider: this.env('DNS_PROVIDER') },

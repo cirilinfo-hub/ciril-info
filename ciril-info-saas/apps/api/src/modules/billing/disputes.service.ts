@@ -29,14 +29,14 @@ export class DisputesService {
   ) {}
 
   /** Returns a note to store on the webhook when nothing could be recorded, otherwise null. */
-  async apply(d: ProviderDispute): Promise<string | null> {
+  async apply(d: ProviderDispute, providerId: 'MOCK' | 'RAZORPAY' | 'STRIPE' = this.gateway.id): Promise<string | null> {
     const payment = await this.db.payment.findUnique({
-      where: { provider_providerPaymentId: { provider: this.gateway.id, providerPaymentId: d.providerPaymentId } },
+      where: { provider_providerPaymentId: { provider: providerId, providerPaymentId: d.providerPaymentId } },
       select: { id: true, tenantId: true, invoiceId: true, invoice: { select: { number: true } }, tenant: { select: { name: true } } },
     });
     if (!payment) return 'no payment for this dispute';
 
-    const existing = await this.db.paymentDispute.findUnique({ where: { provider_providerDisputeId: { provider: this.gateway.id, providerDisputeId: d.id } } });
+    const existing = await this.db.paymentDispute.findUnique({ where: { provider_providerDisputeId: { provider: providerId, providerDisputeId: d.id } } });
     // Deliveries can arrive out of order: a decided dispute only reopens when the provider moves it to a new phase
     // (for example pre-arbitration), never because an older "open" event turned up late.
     if (existing && DECIDED.includes(existing.status) && !DECIDED.includes(d.status) && (d.phase ?? null) === existing.phase) return null;
@@ -51,7 +51,7 @@ export class DisputesService {
     try {
       row = existing
         ? await this.db.paymentDispute.update({ where: { id: existing.id }, data, select: { id: true } })
-        : await this.db.paymentDispute.create({ data: { ...data, tenantId: payment.tenantId, paymentId: payment.id, invoiceId: payment.invoiceId, provider: this.gateway.id, providerDisputeId: d.id }, select: { id: true } });
+        : await this.db.paymentDispute.create({ data: { ...data, tenantId: payment.tenantId, paymentId: payment.id, invoiceId: payment.invoiceId, provider: providerId, providerDisputeId: d.id }, select: { id: true } });
     } catch (e) {
       if ((e as { code?: string }).code === 'P2002') return null; // the same event, delivered twice at once
       throw e;

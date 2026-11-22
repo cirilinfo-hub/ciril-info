@@ -6,7 +6,7 @@ Written for whoever runs the Razorpay account and the server. Nothing here needs
 
 - **Test mode (default).** `PAYMENT_PROVIDER=mock` pays instantly and moves no money. The invoice page says "Test mode". The app **refuses to start in production** with this setting.
 - **Razorpay.** `PAYMENT_PROVIDER=razorpay`. The customer pays in Razorpay's own window (UPI, card, net banking), so card and bank details never reach our site or server.
-- **Stripe.** Not built yet. `PAYMENT_PROVIDER=stripe` is refused with a clear message. The code is organised so Stripe can be added as one more provider without touching billing.
+- **Stripe, alongside Razorpay.** Set `STRIPE_SECRET_KEY` and unpaid invoices get a second button, **Pay with an international card**, which takes the customer to Stripe's own checkout page and back. Razorpay stays the main provider (UPI, cards, net banking, saved cards).
 
 ## How a Razorpay payment flows
 
@@ -54,6 +54,32 @@ Things that need a person are flagged to staff with billing access (bell in the 
 - The app enforces the split for you: a live key is refused outside production, and a test key is refused in production.
 - Before taking real money, fill in the **Company profile** (legal name, GSTIN, address with its GST state) so invoices and credit notes carry the seller's details, and have your accountant confirm the invoice and credit note format.
 - Do one small real payment and one refund of it yourself first.
+
+## Stripe for international cards
+
+1. Check that Stripe accepts your business. Stripe's onboarding of Indian businesses has been limited at times, and
+   Indian accounts have extra rules for international payments (for example the customer's name and address). Confirm
+   with Stripe before you rely on it.
+2. In the Stripe dashboard (test mode first): **Developers > API keys**, copy the **Secret key** (`sk_test_...`).
+3. **Developers > Webhooks > Add endpoint**: URL `https://<your API address>/api/v1/webhooks/stripe`, events
+   **checkout.session.completed**, **checkout.session.async_payment_succeeded**, **checkout.session.async_payment_failed**,
+   **checkout.session.expired**, **charge.dispute.created**, **charge.dispute.updated**, **charge.dispute.closed**,
+   **charge.dispute.funds_withdrawn**. Copy its **Signing secret** (`whsec_...`).
+4. Put both in the server's `.env` only, keep `PAYMENT_PROVIDER=razorpay`, and restart the API and the worker:
+
+   ```
+   STRIPE_SECRET_KEY=sk_test_...
+   STRIPE_WEBHOOK_SECRET=whsec_...
+   ```
+5. Pay a test invoice with Stripe's test card 4242 4242 4242 4242. Live keys (`sk_live_...`) are required in production
+   and refused elsewhere, like Razorpay's.
+
+How it behaves: each click makes a new Stripe Checkout Session for the exact amount still due. The payment counts only
+when Stripe says the session is paid, either when the customer comes back (we ask Stripe ourselves) or through the
+signed webhook; the amount and currency must match. A session nobody paid is looked up after ten minutes, and closed
+when Stripe expires it. Refunds of a Stripe payment go back through Stripe, and Stripe chargebacks appear under
+**Admin > Chargebacks** like Razorpay's. A card paid with Stripe is not saved for automatic renewals (those stay with
+Razorpay). Tested against a pretend Stripe only.
 
 ## Saved cards and automatic renewal payments
 
@@ -112,6 +138,6 @@ Staff with refund permission refund from the invoice. With Razorpay this calls R
 
 ## Not built yet
 
-- Stripe.
+- Saved cards and automatic renewals through Stripe (they work through Razorpay).
 - Saving a card without paying an invoice (a card is saved while paying one).
 - Sending chargeback evidence from our admin portal (it is done in Razorpay's dashboard).

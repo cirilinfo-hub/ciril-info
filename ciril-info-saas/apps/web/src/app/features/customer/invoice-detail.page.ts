@@ -97,13 +97,16 @@ import { openRazorpayCheckout } from './razorpay-checkout';
 
         @if (payable(i)) {
           @if (i.testMode) { <div class="cf-alert cf-alert-info no-print" style="margin-top:var(--space-4)"><ci-icon name="info" /><span><strong>Test mode.</strong> No real payment gateway is connected yet, so no money is taken.</span></div> }
-          @else { <p class="ts-body-sm no-print" style="margin-top:var(--space-4)">You pay in Razorpay's secure window with UPI, card or net banking. Ciril Info never sees your card or bank details.</p> }
+          @else { <p class="ts-body-sm no-print" style="margin-top:var(--space-4)">You pay in Razorpay's secure window with UPI, card or net banking@if (i.stripe) {, or with an international card on Stripe's secure page}. Ciril Info never sees your card or bank details.</p> }
           @if (i.cards?.autoPay; as ap) {
             <div class="cf-alert cf-alert-info no-print" style="margin-top:var(--space-4)" data-testid="auto-pay"><ci-icon name="card" /><span>This invoice will be charged to your {{ ap.card }} on {{ ap.on | date: 'd MMM y' }}. You do not need to do anything, or you can pay it now.</span></div>
           }
           @if (auth.can('billing:pay')) {
             <div class="pay no-print">
               <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy()" (click)="pay()">{{ busy() ? 'Processing…' : (i.testMode ? 'Pay ' + fmt(due(i), i.currency) + ' (test)' : 'Pay ' + fmt(due(i), i.currency)) }}</button>
+              @if (i.stripe) {
+                <button type="button" class="cf-btn cf-btn-secondary" [disabled]="busy()" (click)="payWithStripe()">Pay with an international card</button>
+              }
               @if (i.cards?.available && !i.cards?.saved) {
                 <label class="cf-check"><input type="checkbox" [checked]="saveCard()" (change)="saveCard.set($any($event.target).checked)" /><span>Save this card and pay renewals automatically</span></label>
               }
@@ -177,7 +180,57 @@ export class InvoiceDetailPage implements OnInit {
   protected fmt = money;
 
   ngOnInit() {
-    void this.load();
+    void this.load().then(() => this.backFromStripe());
+  }
+
+  /** Stripe sends the customer back here with ?stripe=success&session=... or ?stripe=cancelled. */
+  private async backFromStripe() {
+    const q = this.route.snapshot.queryParamMap;
+    const outcome = q.get('stripe');
+    if (!outcome) return;
+    const id = this.route.snapshot.paramMap.get('id')!;
+    // Leave the address clean so a reload does not confirm again.
+    history.replaceState(null, '', location.pathname);
+    if (outcome !== 'success') {
+      this.notice.set('The card payment was cancelled. Nothing was charged; you can try again.');
+      return;
+    }
+    const session = q.get('session');
+    if (!session) return;
+    this.busy.set(true);
+    try {
+      const r = await this.api.confirmStripe(id, session);
+      if (r.status === 'PENDING') {
+        this.notice.set('Payment received. We are waiting for the card company to confirm it. This page updates by itself.');
+        await this.waitForPayment(id);
+        return;
+      }
+      this.finish(r);
+      await this.load();
+    } catch (e) {
+      this.error.set(toApiError(e).message);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async payWithStripe() {
+    const i = this.inv();
+    if (!i) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      const r = await this.api.pay(i.id, { idempotencyKey: `${this.key}-stripe-${Date.now()}`, gateway: 'STRIPE' });
+      if (r.action === 'REDIRECT' && r.redirectUrl) {
+        window.location.assign(r.redirectUrl);
+        return;
+      }
+      this.finish(r);
+      await this.load();
+    } catch (e) {
+      this.error.set(toApiError(e).message);
+      this.busy.set(false);
+    }
   }
 
   protected badge(i: InvoiceDetail) {
@@ -224,7 +277,7 @@ export class InvoiceDetailPage implements OnInit {
     return i.status === 'ISSUED' || i.status === 'OVERDUE' || i.status === 'PARTIALLY_PAID';
   }
 
-  private async load() {
+  private async load(): Promise<void> {
     try {
       this.inv.set(await this.api.invoice(this.route.snapshot.paramMap.get('id')!));
     } catch (e) {

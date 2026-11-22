@@ -9,7 +9,7 @@ import { AdminCouponsService } from './admin-coupons.service.js';
 import { AdminBillingService } from './admin-billing.service.js';
 import { AdminInvoiceListQuery, AdminSubscriptionListQuery, DisputeListQuery, EndDiscountDto, RecordPaymentDto, RefundDto, TdsCertificateDto, TdsListQuery, VoidInvoiceDto } from './admin-billing.dto.js';
 import { DisputesService } from './disputes.service.js';
-import { AutoPayDto, BillingListQuery, CancelSubscriptionDto, ChangePlanDto, ConfirmPaymentDto, OrderDto, PayInvoiceDto, QuoteDto } from './billing.dto.js';
+import { AutoPayDto, BillingListQuery, CancelSubscriptionDto, ChangePlanDto, ConfirmPaymentDto, ConfirmStripeDto, OrderDto, PayInvoiceDto, QuoteDto } from './billing.dto.js';
 import { SavedCardsService } from './saved-cards.service.js';
 import { PlanChangeService } from './plan-change.service.js';
 import { BillingService } from './billing.service.js';
@@ -110,6 +110,15 @@ export class BillingController {
   @RequireTenant('billing:pay')
   confirm(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @Body() dto: ConfirmPaymentDto, @ReqMeta() meta: RequestMeta) {
     return this.billing.confirmPayment(ctx, id, dto, meta);
+  }
+
+  /** The customer is back from Stripe's checkout page; we look the session up and settle it if it is paid. */
+  @Post('invoices/:id/confirm-stripe')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @RequireTenant('billing:pay')
+  confirmStripe(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @Body() dto: ConfirmStripeDto) {
+    return this.billing.confirmStripe(ctx, id, dto.sessionId);
   }
 
   @Get('credit-notes/:id')

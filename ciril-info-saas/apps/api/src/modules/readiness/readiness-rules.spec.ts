@@ -4,7 +4,7 @@ import { type ReadinessFacts, evaluateReadiness, summarise } from './readiness-r
 /** A business that is fully ready: everything real, filled in, and published. */
 const ready = (): ReadinessFacts => ({
   production: true,
-  payment: { provider: 'razorpay', keyIdSet: true, keySecretSet: true, webhookSecretSet: true, liveKey: true },
+  payment: { provider: 'razorpay', keyIdSet: true, keySecretSet: true, webhookSecretSet: true, liveKey: true, stripe: { keySet: true, webhookSecretSet: true } },
   hosting: { provider: 'cpanel' },
   dns: { provider: 'cpanel' },
   registrar: { provider: 'resellerclub' },
@@ -79,6 +79,7 @@ describe('registrar, email, storage, errors', () => {
     expect(get(run({ hosting: { provider: 'plesk', plesk: { hostSet: true, keySet: true, ipSet: true, tls: 'verify' } } }), 'hosting')).toMatchObject({ status: 'ok', detail: expect.stringContaining('Plesk') });
     expect(get(run({ hosting: { provider: 'plesk', plesk: { hostSet: true, keySet: false, ipSet: false, tls: 'verify' } } }), 'hosting')).toMatchObject({ status: 'todo', detail: expect.stringContaining('the API key and the IP address') });
   });
+  it('mentions Stripe as optional when it is not connected', () => expect(get(run({ payment: { ...ready().payment, stripe: { keySet: false, webhookSecretSet: false } } }), 'stripe')).toMatchObject({ status: 'info' }));
   it('accepts Amazon SES for email', () => expect(get(run({ email: { provider: 'ses' } }), 'email')).toMatchObject({ status: 'ok', detail: expect.stringContaining('sandbox') }));
   it('asks for virus scanning until ClamAV is switched on', () => expect(get(run({ virusScan: { mode: 'off' } }), 'virus-scan')).toMatchObject({ status: 'todo', detail: expect.stringContaining('VIRUS_SCAN=clamav') }));
   it('reminds about backups for local storage', () => expect(get(run({ storage: { driver: 'local' } }), 'storage')).toMatchObject({ status: 'info', detail: expect.stringContaining('backed up') }));

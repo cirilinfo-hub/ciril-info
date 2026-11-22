@@ -239,7 +239,7 @@ export class AdminBillingService {
       // refund is recorded here and you return the money yourself (bank transfer, UPI, cheque).
       result = started.payment.provider === 'MANUAL'
         ? { ok: true, providerRefundId: null, failureReason: null }
-        : await this.gateway.refund({ providerPaymentId: started.payment.providerPaymentId, amountPaise: started.wanted, currency: started.inv.currency, idempotencyKey: started.refundId });
+        : await this.gateway.refund({ provider: started.payment.provider, providerPaymentId: started.payment.providerPaymentId, amountPaise: started.wanted, currency: started.inv.currency, idempotencyKey: started.refundId });
     } catch (e) {
       await this.db.refund.update({ where: { id: started.refundId }, data: { status: 'FAILED' } });
       throw e;

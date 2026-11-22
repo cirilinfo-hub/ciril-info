@@ -19,7 +19,7 @@ export interface Check {
 
 export interface ReadinessFacts {
   production: boolean;
-  payment: { provider: string; keyIdSet: boolean; keySecretSet: boolean; webhookSecretSet: boolean; liveKey: boolean };
+  payment: { provider: string; keyIdSet: boolean; keySecretSet: boolean; webhookSecretSet: boolean; liveKey: boolean; stripe?: { keySet: boolean; webhookSecretSet: boolean } };
   hosting: { provider: string; plesk?: { hostSet: boolean; keySet: boolean; ipSet: boolean; tls: string } };
   dns: { provider: string };
   registrar: { provider: string; godaddy?: { env: string; keySet: boolean; nameserversSet: boolean } };
@@ -77,6 +77,11 @@ export function evaluateReadiness(f: ReadinessFacts): Check[] {
     else if (d === 'cpanel') add({ key: 'dns', group: 'Connections', label: 'DNS records', status: cpanelMissing.length ? 'todo' : 'ok', detail: cpanelMissing.length ? `DNS uses cPanel but ${list(cpanelMissing)} ${cpanelMissing.length === 1 ? 'is' : 'are'} not set.` : 'Customers edit the DNS zones on your WHM server.' });
     else add({ key: 'dns', group: 'Connections', label: 'DNS records', status: 'todo', detail: `The DNS provider "${d}" is not available.` });
   }
+  add(
+    f.payment.stripe?.keySet
+      ? { key: 'stripe', group: 'Connections', label: 'International cards (Stripe)', status: 'ok', detail: 'Stripe is connected alongside Razorpay. Customers can pay with an international card on Stripe’s page.' }
+      : { key: 'stripe', group: 'Connections', label: 'International cards (Stripe)', status: 'info', detail: 'Not connected. Customers pay with Razorpay only. Set STRIPE_SECRET_KEY to add Stripe (see PAYMENTS.md).' },
+  );
   add(
     f.registrar.provider === 'mock'
       ? { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'info', detail: 'Test mode: name searches give pretend answers, and your team does each registration, renewal and transfer by hand at your registrar.' }
