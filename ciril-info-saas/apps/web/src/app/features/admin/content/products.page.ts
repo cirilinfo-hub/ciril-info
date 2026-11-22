@@ -149,6 +149,16 @@ type Dlg = null | 'product' | 'plan' | 'editPlan' | 'features' | 'price';
           }
           <ci-field label="Short description" for="pl-desc" [optional]="true"><textarea id="pl-desc" class="cf-input" rows="2" formControlName="description"></textarea></ci-field>
           <label class="cf-check"><input type="checkbox" formControlName="isFeatured" /><span>Highlight as the most popular plan</span></label>
+          @if (isHosting(target()?.type)) {
+            <ci-field label="Panel package" for="pl-pkg" [control]="planForm.controls.panelPackage" [optional]="true" hint="The exact package name in WHM, or service plan name in Plesk. Hosting accounts on this plan are created with it.">
+              <input id="pl-pkg" class="cf-input" autocomplete="off" formControlName="panelPackage" [attr.aria-describedby]="describedBy('pl-pkg', planForm.controls.panelPackage, true)" />
+            </ci-field>
+            <ci-field label="Server type" for="pl-panel" [control]="planForm.controls.hostingPanel" hint="With several hosting servers: only this kind of server takes the plan, because its package exists only there.">
+              <select id="pl-panel" class="cf-input" formControlName="hostingPanel" [attr.aria-describedby]="describedBy('pl-panel', planForm.controls.hostingPanel, true)">
+                <option value="">Any server</option><option value="CPANEL">cPanel servers only</option><option value="PLESK">Plesk servers only</option>
+              </select>
+            </ci-field>
+          }
           @if (dlg() === 'editPlan') {
             <ci-field label="Status" for="pl-status" hint="Publishing needs a current price. Only published plans appear on the website.">
               <select id="pl-status" class="cf-input" formControlName="status" aria-describedby="pl-status-hint">
@@ -258,6 +268,8 @@ export class ProductsPage extends AdminPage implements OnInit {
     description: [''],
     isFeatured: [false],
     status: ['DRAFT' as 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'],
+    panelPackage: ['', [Validators.maxLength(120)]],
+    hostingPanel: ['' as '' | 'CPANEL' | 'PLESK'],
   });
   protected readonly featForm = this.fb.group({ text: [''] });
   protected readonly priceForm = this.fb.group({
@@ -342,7 +354,7 @@ export class ProductsPage extends AdminPage implements OnInit {
   protected openPlan(p: AdminProduct) {
     this.error.set(null);
     this.target.set(p);
-    this.planForm.reset({ name: '', slug: '', description: '', isFeatured: false, status: 'DRAFT' });
+    this.planForm.reset({ name: '', slug: '', description: '', isFeatured: false, status: 'DRAFT', panelPackage: '', hostingPanel: '' });
     this.planForm.controls.slug.enable();
     this.dlg.set('plan');
   }
@@ -351,9 +363,14 @@ export class ProductsPage extends AdminPage implements OnInit {
     this.error.set(null);
     this.target.set(p);
     this.plan.set(pl);
-    this.planForm.reset({ name: pl.name, slug: pl.slug, description: pl.description ?? '', isFeatured: pl.isFeatured, status: pl.status });
+    this.planForm.reset({ name: pl.name, slug: pl.slug, description: pl.description ?? '', isFeatured: pl.isFeatured, status: pl.status, panelPackage: pl.panelPackage ?? '', hostingPanel: pl.hostingPanel ?? '' });
     this.planForm.controls.slug.disable();
     this.dlg.set('editPlan');
+  }
+
+  /** Hosting products get a panel package (the same list as the API's HOSTING_PRODUCT_TYPES). */
+  protected isHosting(type: string | undefined) {
+    return ['WEB_HOSTING', 'WORDPRESS_HOSTING', 'CLOUD_HOSTING', 'VPS_HOSTING'].includes(type ?? '');
   }
 
   protected async savePlan() {
@@ -363,7 +380,7 @@ export class ProductsPage extends AdminPage implements OnInit {
     const prod = this.target();
     const cur = this.plan();
     const ok = await this.run(async () => {
-      const common = { name: v.name, description: v.description, isFeatured: v.isFeatured };
+      const common = { name: v.name, description: v.description, isFeatured: v.isFeatured, panelPackage: v.panelPackage.trim() || null, hostingPanel: v.hostingPanel || null };
       if (this.dlg() === 'editPlan' && cur) await this.api.updatePlan(cur.id, { ...common, status: v.status });
       else if (prod) await this.api.createPlan(prod.id, { ...common, slug: v.slug });
     });

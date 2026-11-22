@@ -6,11 +6,12 @@ import { HostingGateway } from './hosting-gateway.js';
 import { HostingJobsService } from './hosting-jobs.service.js';
 import { AdminHostingController, HostingController } from './hosting.controller.js';
 import { HostingService } from './hosting.service.js';
+import { AdminServersController, AdminServersService } from './admin-servers.service.js';
 
 @Module({
   imports: [NotificationsModule],
-  controllers: [HostingController, AdminHostingController],
-  providers: [HostingService, AdminHostingService, HostingJobsService, HostingEventsHandler, HostingGateway],
+  controllers: [HostingController, AdminHostingController, AdminServersController],
+  providers: [HostingService, AdminHostingService, AdminServersService, HostingJobsService, HostingEventsHandler, HostingGateway],
   exports: [HostingJobsService, HostingEventsHandler],
 })
 export class HostingModule {}

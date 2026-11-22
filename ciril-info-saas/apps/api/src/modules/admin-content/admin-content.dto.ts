@@ -103,6 +103,10 @@ export class PlanPatchDto {
   @IsOptional() @IsBoolean() isFeatured?: boolean;
   @IsOptional() @IsIn(PUBLISH_STATUSES) status?: (typeof PUBLISH_STATUSES)[number];
   @IsOptional() @IsInt() @Min(0) @Max(100000) sortOrder?: number;
+  /** The package (WHM) or service plan (Plesk) name on the hosting panel. Must match the panel exactly. */
+  @IsOptional() @Transform(blankToNull) @IsString() @MaxLength(120) panelPackage?: string | null;
+  /** With several servers: only servers with this panel take the plan. Null: any server. */
+  @IsOptional() @Transform(blankToNull) @IsIn(['CPANEL', 'PLESK']) hostingPanel?: 'CPANEL' | 'PLESK' | null;
 }
 export class PlanDto extends PlanPatchDto {
   @ApiProperty() @Transform(trim) @IsString() @Matches(SLUG, slugMsg) @MaxLength(120) slug!: string;

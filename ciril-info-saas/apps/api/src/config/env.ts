@@ -87,7 +87,7 @@ export const envSchema = z
     /** The most one automatic charge may take, in rupees. RBI lets card standing instructions charge up to 15,000 without the customer. */
     CARD_AUTOPAY_MAX_AMOUNT: z.coerce.number().int().min(1).max(1_000_000).default(15_000),
     /** manual: no panel is called; each task goes to staff, who do it by hand and mark it done. */
-    HOSTING_PROVIDER: z.enum(['mock', 'manual', 'cpanel', 'plesk']).default('mock'),
+    HOSTING_PROVIDER: z.enum(['mock', 'manual', 'cpanel', 'plesk', 'servers']).default('mock'),
     /** Where DNS zones live. mock keeps them in memory (development only); cpanel edits the zones on the WHM server below; none switches customer DNS editing off. */
     DNS_PROVIDER: z.enum(['mock', 'cpanel', 'none']).default('mock'),
     /** cPanel/WHM. The token goes in the server's .env only, never in chat, git or a screenshot. */

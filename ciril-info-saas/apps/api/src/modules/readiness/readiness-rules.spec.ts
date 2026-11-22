@@ -80,6 +80,11 @@ describe('registrar, email, storage, errors', () => {
     expect(get(run({ hosting: { provider: 'plesk', plesk: { hostSet: true, keySet: false, ipSet: false, tls: 'verify' } } }), 'hosting')).toMatchObject({ status: 'todo', detail: expect.stringContaining('the API key and the IP address') });
   });
   it('mentions Stripe as optional when it is not connected', () => expect(get(run({ payment: { ...ready().payment, stripe: { keySet: false, webhookSecretSet: false } } }), 'stripe')).toMatchObject({ status: 'info' }));
+  it('several-servers mode needs an active server that has passed a connection test', () => {
+    expect(get(run({ hosting: { provider: 'servers', servers: { active: 0, unchecked: 0 } } }), 'hosting')).toMatchObject({ status: 'todo', detail: expect.stringContaining('Admin > Hosting servers') });
+    expect(get(run({ hosting: { provider: 'servers', servers: { active: 2, unchecked: 1 } } }), 'hosting')).toMatchObject({ status: 'todo', detail: expect.stringContaining('Test connection') });
+    expect(get(run({ hosting: { provider: 'servers', servers: { active: 2, unchecked: 0 } } }), 'hosting')).toMatchObject({ status: 'ok', detail: expect.stringContaining('2 active servers') });
+  });
   it('accepts Amazon SES for email', () => expect(get(run({ email: { provider: 'ses' } }), 'email')).toMatchObject({ status: 'ok', detail: expect.stringContaining('sandbox') }));
   it('asks for virus scanning until ClamAV is switched on', () => expect(get(run({ virusScan: { mode: 'off' } }), 'virus-scan')).toMatchObject({ status: 'todo', detail: expect.stringContaining('VIRUS_SCAN=clamav') }));
   it('reminds about backups for local storage', () => expect(get(run({ storage: { driver: 'local' } }), 'storage')).toMatchObject({ status: 'info', detail: expect.stringContaining('backed up') }));

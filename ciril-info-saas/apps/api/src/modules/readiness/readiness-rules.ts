@@ -20,7 +20,7 @@ export interface Check {
 export interface ReadinessFacts {
   production: boolean;
   payment: { provider: string; keyIdSet: boolean; keySecretSet: boolean; webhookSecretSet: boolean; liveKey: boolean; stripe?: { keySet: boolean; webhookSecretSet: boolean } };
-  hosting: { provider: string; plesk?: { hostSet: boolean; keySet: boolean; ipSet: boolean; tls: string } };
+  hosting: { provider: string; plesk?: { hostSet: boolean; keySet: boolean; ipSet: boolean; tls: string }; servers?: { active: number; unchecked: number } };
   dns: { provider: string };
   registrar: { provider: string; godaddy?: { env: string; keySet: boolean; nameserversSet: boolean } };
   cpanel: { hostSet: boolean; userSet: boolean; tokenSet: boolean; tls: string };
@@ -63,6 +63,10 @@ export function evaluateReadiness(f: ReadinessFacts): Check[] {
       if (cpanelMissing.length) add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: `cPanel is selected but ${list(cpanelMissing)} ${cpanelMissing.length === 1 ? 'is' : 'are'} not set.` });
       else if (c.tls === 'skip') add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: 'cPanel is connected but its security certificate is not being checked. Install a valid certificate on the server and set CPANEL_TLS=verify.' });
       else add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'ok', detail: 'Accounts are created on your cPanel/WHM server.' });
+    } else if (h === 'servers') {
+      const s = f.hosting.servers ?? { active: 0, unchecked: 0 };
+      if (!s.active) add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: 'Several-servers mode is on, but no active server with credentials is listed. Add one in Admin > Hosting servers.' });
+      else add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: s.unchecked ? 'todo' : 'ok', detail: s.unchecked ? `${s.active} active ${s.active === 1 ? 'server' : 'servers'}; ${s.unchecked} not tested successfully yet. Use Test connection in Admin > Hosting servers.` : `Accounts are spread over ${s.active} active ${s.active === 1 ? 'server' : 'servers'}.` });
     } else if (h === 'plesk') {
       const p = f.hosting.plesk ?? { hostSet: false, keySet: false, ipSet: false, tls: 'verify' };
       const missing = [!p.hostSet && 'the server', !p.keySet && 'the API key', !p.ipSet && 'the IP address'].filter(Boolean) as string[];

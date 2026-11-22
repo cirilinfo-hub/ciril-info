@@ -2,7 +2,7 @@
  * The boundary between our hosting code and a hosting control panel (cPanel/WHM, Plesk). Everything panel-specific
  * lives behind this, so the queue, retries, notices and screens do not change when a real panel is connected.
  */
-export type HostingProviderId = 'MOCK' | 'MANUAL' | 'CPANEL' | 'PLESK';
+export type HostingProviderId = 'MOCK' | 'MANUAL' | 'CPANEL' | 'PLESK' | 'SERVERS';
 
 /** A failure with a verdict: a retryable one (timeout, panel busy) is tried again later; any other goes to staff. */
 export class ProvisioningError extends Error {
@@ -18,6 +18,8 @@ export class ProvisioningError extends Error {
 }
 
 export interface CreateAccountRequest {
+  /** Our hosting account. With several servers it says which server the account lives on. */
+  accountId?: string;
   domain: string;
   /** Proposed panel username. The panel may refuse it (taken), and the adapter reports that clearly. */
   username: string;
@@ -42,8 +44,10 @@ export interface HostingProvider {
   readonly mode: 'automatic' | 'manual';
   createAccount(req: CreateAccountRequest): Promise<CreateAccountResult>;
   // The domain is passed too: some panels (Plesk) name an account by its domain rather than its username.
-  suspend(req: { panelUsername: string; domain: string; reason: string }): Promise<void>;
-  unsuspend(req: { panelUsername: string; domain: string }): Promise<void>;
-  changePackage(req: { panelUsername: string; domain: string; packageName: string }): Promise<void>;
-  terminate(req: { panelUsername: string; domain: string }): Promise<void>;
+  suspend(req: { accountId?: string; panelUsername: string; domain: string; reason: string }): Promise<void>;
+  unsuspend(req: { accountId?: string; panelUsername: string; domain: string }): Promise<void>;
+  changePackage(req: { accountId?: string; panelUsername: string; domain: string; packageName: string }): Promise<void>;
+  terminate(req: { accountId?: string; panelUsername: string; domain: string }): Promise<void>;
+  /** A harmless call that proves the panel answers and accepts our credentials. Returns what the panel says it is. */
+  ping?(): Promise<string>;
 }

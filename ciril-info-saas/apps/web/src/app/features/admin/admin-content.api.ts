@@ -69,6 +69,10 @@ export interface AdminPlan {
   isFeatured: boolean;
   status: PublishStatus;
   isSample: boolean;
+  /** The package (WHM) or service plan (Plesk) name on the hosting panel. */
+  panelPackage?: string | null;
+  /** With several servers: only this kind of server takes the plan. */
+  hostingPanel?: 'CPANEL' | 'PLESK' | null;
   features: { label: string; value: string | null; highlight: boolean }[];
   prices: AdminPrice[];
 }

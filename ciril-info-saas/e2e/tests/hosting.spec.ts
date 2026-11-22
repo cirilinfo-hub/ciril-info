@@ -77,7 +77,7 @@ test.describe('Hosting', () => {
     const ctx = await browser.newContext();
     const staff = await ctx.newPage();
     await staffSignIn(staff, staffEmail, secret);
-    await staff.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Hosting' }).click();
+    await staff.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Hosting', exact: true }).click();
     await staff.getByRole('searchbox', { name: 'Search hosting' }).fill(domain);
     const srow = staff.getByRole('row', { name: new RegExp(domain) });
     await expect(srow.locator('.cf-badge', { hasText: 'Active' })).toBeVisible();
@@ -134,7 +134,7 @@ test.describe('Hosting', () => {
     const ctx = await browser.newContext();
     const staff = await ctx.newPage();
     await staffSignIn(staff, staffEmail, secret);
-    await staff.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Hosting' }).click();
+    await staff.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Hosting', exact: true }).click();
     await staff.getByRole('searchbox', { name: 'Search hosting' }).fill(domain);
     const srow = staff.getByRole('row', { name: new RegExp(domain) });
     await expect(srow.locator('.cf-badge', { hasText: 'Failed' })).toBeVisible();
@@ -160,7 +160,7 @@ test.describe('Hosting', () => {
     const staff = await ctx.newPage();
     await staffSignIn(staff, staffEmail, secret);
     await expect(staff.getByText('Hosting tasks')).toBeVisible(); // the dashboard says work is waiting
-    await staff.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Hosting' }).click();
+    await staff.getByRole('complementary', { name: 'Admin navigation' }).getByRole('link', { name: 'Hosting', exact: true }).click();
     await staff.getByRole('button', { name: 'Needs action' }).click();
     await staff.getByRole('searchbox', { name: 'Search hosting' }).fill(domain);
     const srow = staff.getByRole('row', { name: new RegExp(domain) });

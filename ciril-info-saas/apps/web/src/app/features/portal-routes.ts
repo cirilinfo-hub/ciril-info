@@ -60,6 +60,7 @@ const ADMIN_NAV: NavSection[] = [
     items: [
       { path: '/customers', label: 'Customers', icon: 'building', permission: 'tenants:read' },
       { path: '/hosting', label: 'Hosting', icon: 'globe', permission: 'hosting:read' },
+      { path: '/hosting-servers', label: 'Hosting servers', icon: 'layers', permission: 'hosting:read' },
       { path: '/domains', label: 'Domains', icon: 'link', permission: 'domains:read' },
       { path: '/invoices', label: 'Invoices', icon: 'file', permission: 'billing:read' },
       { path: '/tds', label: 'TDS certificates', icon: 'receipt', permission: 'billing:read' },
@@ -163,6 +164,7 @@ export function adminRoutes(base: string): Routes {
             { path: 'company', title: 'Company profile · Ciril Info Admin', canActivate: [requirePermission('content:read')], loadComponent: () => import('./admin/content/company.page').then((m) => m.CompanyPage) },
             { path: 'inquiries', title: 'Enquiries · Ciril Info Admin', canActivate: [requirePermission('inquiries:read')], loadComponent: () => import('./admin/content/inquiries.page').then((m) => m.InquiriesPage) },
             { path: 'notifications', title: 'Notifications · Ciril Info Admin', loadComponent: () => import('./customer/notifications.page').then((m) => m.NotificationsPage) },
+            { path: 'hosting-servers', title: 'Hosting servers · Ciril Info Admin', canActivate: [requirePermission('hosting:read')], loadComponent: () => import('./admin/hosting/servers.page').then((m) => m.AdminServersPage) },
             { path: 'hosting', title: 'Hosting · Ciril Info Admin', canActivate: [requirePermission('hosting:read')], loadComponent: () => import('./admin/hosting/hosting.page').then((m) => m.AdminHostingPage) },
             { path: 'chargebacks', title: 'Chargebacks · Ciril Info Admin', canActivate: [requirePermission('billing:read')], loadComponent: () => import('./admin/billing/chargebacks.page').then((m) => m.AdminChargebacksPage) },
             { path: 'tds', title: 'TDS certificates · Ciril Info Admin', canActivate: [requirePermission('billing:read')], loadComponent: () => import('./admin/billing/tds.page').then((m) => m.AdminTdsPage) },

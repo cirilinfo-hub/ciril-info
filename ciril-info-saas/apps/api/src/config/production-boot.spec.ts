@@ -20,7 +20,7 @@ const base = {
 const boot = (over: Record<string, string> = {}) => {
   const env = validateEnv({ ...base, ...over }) as Env;
   const config = new ConfigService<Env, true>(env as never);
-  return { hosting: new HostingGateway(config).provider, dns: new DnsGateway(config).provider, registrar: new RegistrarGateway(config).provider };
+  return { hosting: new HostingGateway(config, {} as never).provider, dns: new DnsGateway(config).provider, registrar: new RegistrarGateway(config).provider };
 };
 
 describe('a production configuration that passes validation also starts', () => {
@@ -66,7 +66,7 @@ describe('a production configuration that passes validation also starts', () => 
   it('still starts in development with every mock', () => {
     const dev = { ...base, NODE_ENV: 'development', HOSTING_PROVIDER: 'mock', DNS_PROVIDER: 'mock', REGISTRAR_PROVIDER: 'mock', PAYMENT_PROVIDER: 'mock', EMAIL_PROVIDER: 'mailpit', RAZORPAY_KEY_ID: '' };
     const config = new ConfigService<Env, true>(validateEnv(dev) as never);
-    expect(new HostingGateway(config).provider.id).toBe('MOCK');
+    expect(new HostingGateway(config, {} as never).provider.id).toBe('MOCK');
     expect(new DnsGateway(config).provider.id).toBe('MOCK');
     expect(new RegistrarGateway(config).provider.id).toBe('MOCK');
   });

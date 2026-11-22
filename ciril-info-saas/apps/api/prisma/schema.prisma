@@ -576,6 +576,8 @@ model Plan {
   isSample     Boolean       @default(false) @map("is_sample")
   /// Package name on the hosting panel (cPanel/Plesk) this plan maps to.
   panelPackage String?       @map("panel_package") @db.VarChar(120)
+  /// With several servers: only servers with this panel take the plan (its package exists only there). Null: any.
+  hostingPanel HostingPanel? @map("hosting_panel")
   createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -756,6 +758,14 @@ model HostingServer {
   /// Panel API credentials, encrypted (AES-256-GCM). Never returned by the API.
   credentialsEnc String?      @map("credentials_enc")
   nameservers    String[]     @default([])
+  /// The panel's API port (WHM 2087, Plesk 8443). Null: the panel's usual one.
+  port           Int?
+  /// WHM: the user the API token belongs to (root or a reseller). Unused for Plesk.
+  username       String?      @db.VarChar(64)
+  /// verify, skip (self-signed certificate) or off (tests only).
+  tls            String       @default("verify") @db.VarChar(8)
+  lastCheckedAt  DateTime?    @map("last_checked_at") @db.Timestamptz(3)
+  lastCheck      String?      @map("last_check") @db.VarChar(255)
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
 

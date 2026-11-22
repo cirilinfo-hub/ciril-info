@@ -35,7 +35,7 @@ Restart the API and the worker after changing these. The API refuses to start if
 
 ## 2. Make the packages match
 
-Each plan has a **Panel package** field (Admin > Products & Pricing). It must be the **exact name of a package in WHM** (WHM > Packages > List Packages). A plan with no package set fails clearly for staff instead of guessing.
+Each hosting plan has a **Panel package** field (Admin > Products & Pricing > Edit plan). It must be the **exact name of a package in WHM** (WHM > Packages > List Packages). A plan with no package set fails clearly for staff instead of guessing.
 
 ## 3. Try it on a test account first
 
@@ -87,9 +87,28 @@ username, emailed by Plesk so the customer can sign in and set a password) ownin
    subscription and its customer.
 
 DNS editing for customers is built for cPanel only: with Plesk, set `DNS_PROVIDER=none` (DNS is managed in Plesk).
-Tested against a pretend Plesk only. Plesk and cPanel cannot be used at the same time yet (that needs choosing between
-servers).
+Tested against a pretend Plesk only.
+
+## Several servers (cPanel and Plesk side by side)
+
+With `HOSTING_PROVIDER=servers`, the servers are listed in **Admin > Hosting servers** instead of the `.env` file:
+
+1. A Super Admin adds each server: a name, its address, its shared IPv4, the panel (cPanel/WHM or Plesk), the WHM user
+   (cPanel), the API token or key, and the most accounts it should hold. The credentials are stored encrypted and never
+   shown again; leave them empty when editing to keep the saved ones.
+2. Press **Test connection** on each server. The launch checklist stays on "to do" until every active server has
+   passed once.
+3. A new hosting account goes to the active server with the most room for its size (accounts held compared with its
+   limit; a tie goes to the one with fewer accounts). A full server takes no more. If a plan's package exists on only one
+   kind of panel, set the plan's **Server type** to cPanel or Plesk.
+4. The server is recorded on the account before the panel is called, so a retry goes to the same server, and every
+   later action (suspend, restore, plan change, removal) goes to the server the account lives on.
+5. Set a server to **Maintenance**, **Full** or **Retired** to stop new accounts going there; its existing accounts keep
+   working.
+
+If no active server has room, the set-up goes to staff with a reason ("Add a server or raise a server's account limit").
+Customer DNS editing still uses the single WHM server in `CPANEL_*` (`DNS_PROVIDER=cpanel`), or set `DNS_PROVIDER=none`.
 
 ## Not built yet
 
-Picking between several servers (and so using cPanel and Plesk side by side). DNS for domains that are registered with us but not hosted on the panel (their DNS lives at the registrar) waits for the registrar adapter.
+Moving an existing account from one server to another. DNS for domains that are registered with us but not hosted on the panel (their DNS lives at the registrar) waits for the registrar adapter.

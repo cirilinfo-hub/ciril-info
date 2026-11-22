@@ -76,6 +76,14 @@ export class PleskHostingProvider implements HostingProvider {
     });
   }
 
+  async ping(): Promise<string> {
+    const { status, text } = await this.request('GET', '/api/v2/server');
+    if (status === 401 || status === 403) throw new ProvisioningError('The Plesk server refused our API key.', false);
+    if (status !== 200) throw new ProvisioningError(`The Plesk server answered HTTP ${status}. Check that its REST API is enabled.`, status >= 500);
+    const info = JSON.parse(text || '{}') as { hostname?: string; panel_version?: string };
+    return `Plesk ${info.panel_version ?? ''}${info.hostname ? ` on ${info.hostname}` : ''}`.trim();
+  }
+
   /** The login of the customer owning the domain's subscription, '' if it has no customer owner, or null if there is none. */
   private async subscriptionOwner(domain: string): Promise<string | null> {
     try {
@@ -89,7 +97,7 @@ export class PleskHostingProvider implements HostingProvider {
 
   /** One command-line tool call. `harmless` is what Plesk says when it is already as asked. `secret` is scrubbed from messages. */
   private async cli(tool: 'customer' | 'subscription', params: string[], secret?: string, harmless?: RegExp): Promise<CliReply> {
-    const { status, text } = await this.post(`/api/v2/cli/${tool}/call`, JSON.stringify({ params }));
+    const { status, text } = await this.request('POST', `/api/v2/cli/${tool}/call`, JSON.stringify({ params }));
     if (status === 401 || status === 403) throw new ProvisioningError('The Plesk server refused our API key. Check PLESK_API_KEY.', false);
     if (status === 429 || status >= 500) throw new ProvisioningError(`The Plesk server is not available right now (HTTP ${status}).`, true);
     if (status !== 200) throw new ProvisioningError(`The Plesk server answered with an unexpected status (HTTP ${status}). Check that its REST API is enabled.`, false);
@@ -108,13 +116,13 @@ export class PleskHostingProvider implements HostingProvider {
     throw err;
   }
 
-  private post(path: string, body: string): Promise<{ status: number; text: string }> {
+  private request(method: 'GET' | 'POST', path: string, body = ''): Promise<{ status: number; text: string }> {
     const useTls = this.cfg.tls !== 'off';
     const lib = useTls ? https : http;
     return new Promise((resolve, reject) => {
       const req = lib.request(
         {
-          host: this.cfg.host, port: this.cfg.port, path, method: 'POST', timeout: this.timeoutMs,
+          host: this.cfg.host, port: this.cfg.port, path, method, timeout: this.timeoutMs,
           headers: { 'X-API-Key': this.cfg.apiKey, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Accept: 'application/json' },
           ...(useTls ? { rejectUnauthorized: this.cfg.tls === 'verify' } : {}),
         },

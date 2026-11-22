@@ -51,6 +51,11 @@ export class CpanelHostingProvider implements HostingProvider {
     await this.whm.call('changepackage', { user: req.panelUsername, pkg: req.packageName });
   }
 
+  async ping(): Promise<string> {
+    const r = await this.whm.call('version', {});
+    return `WHM ${String(r.data?.['version'] ?? '').trim() || 'answered'}`;
+  }
+
   async terminate(req: { panelUsername: string }): Promise<void> {
     await this.whm.call('removeacct', { user: req.panelUsername, keepdns: '0' }, undefined, NOT_FOUND);
   }
