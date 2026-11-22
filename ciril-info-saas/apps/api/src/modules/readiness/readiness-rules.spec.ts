@@ -74,7 +74,8 @@ describe('registrar, email, storage, errors', () => {
     expect(get(run({ registrar: { provider: 'godaddy', godaddy: { env: 'production', keySet: true, nameserversSet: true } } }), 'registrar').detail).not.toContain('GODADDY_NAMESERVERS');
   });
   it('flags the local test inbox', () => expect(get(run({ email: { provider: 'mailpit' } }), 'email')).toMatchObject({ status: 'todo', detail: expect.stringContaining('will not receive') }));
-  it('flags an email provider that does not exist yet', () => expect(get(run({ email: { provider: 'ses' } }), 'email').status).toBe('todo'));
+  it('flags an email provider that does not exist', () => expect(get(run({ email: { provider: 'postmark' } }), 'email').status).toBe('todo'));
+  it('accepts Amazon SES for email', () => expect(get(run({ email: { provider: 'ses' } }), 'email')).toMatchObject({ status: 'ok', detail: expect.stringContaining('sandbox') }));
   it('asks for virus scanning until ClamAV is switched on', () => expect(get(run({ virusScan: { mode: 'off' } }), 'virus-scan')).toMatchObject({ status: 'todo', detail: expect.stringContaining('VIRUS_SCAN=clamav') }));
   it('reminds about backups for local storage', () => expect(get(run({ storage: { driver: 'local' } }), 'storage')).toMatchObject({ status: 'info', detail: expect.stringContaining('backed up') }));
   it('treats missing error tracking as information', () => expect(get(run({ errorTrackingSet: false }), 'errors').status).toBe('info'));

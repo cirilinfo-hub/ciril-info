@@ -2,8 +2,8 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Job } from 'bullmq';
-import nodemailer, { type Transporter } from 'nodemailer';
 import type { Env } from '../config/env.js';
+import { type EmailSender, mailpitSender, resendSender, sesSender } from '../modules/mail/email-senders.js';
 import { renderEmail } from '../modules/mail/templates.js';
 import { EMAIL_SEND_EVENT, type EmailMessage } from '../modules/mail/mail.types.js';
 import { DomainEventsHandler } from '../modules/domains/domain-events.handler.js';
@@ -16,16 +16,14 @@ interface EventJob {
 }
 
 /**
- * Delivers queued emails. Providers: mailpit (local SMTP catcher), resend (HTTPS API).
+ * Delivers queued emails. Providers: mailpit (local SMTP catcher), resend (HTTPS API) and Amazon SES (API v2).
  * BullMQ retries failed sends with exponential backoff (see outbox relay job options).
  */
 @Processor(EVENTS_QUEUE)
 export class EventsProcessor extends WorkerHost {
   private readonly log = new Logger('Email');
-  private readonly provider: Env['EMAIL_PROVIDER'];
   private readonly from: string;
-  private readonly smtp?: Transporter;
-  private readonly resendKey?: string;
+  private readonly sender: EmailSender | null;
 
   constructor(
     config: ConfigService<Env, true>,
@@ -33,16 +31,16 @@ export class EventsProcessor extends WorkerHost {
     private readonly domains: DomainEventsHandler,
   ) {
     super();
-    this.provider = config.get('EMAIL_PROVIDER', { infer: true });
     this.from = config.get('EMAIL_FROM', { infer: true });
-    if (this.provider === 'mailpit') {
-      this.smtp = nodemailer.createTransport({
-        host: config.get('SMTP_HOST', { infer: true }),
-        port: config.get('SMTP_PORT', { infer: true }),
-        secure: false,
-      });
-    }
-    this.resendKey = process.env['RESEND_API_KEY'] || undefined;
+    const provider = config.get('EMAIL_PROVIDER', { infer: true });
+    const resendKey = config.get('RESEND_API_KEY', { infer: true });
+    this.sender =
+      provider === 'mailpit' ? mailpitSender(config.get('SMTP_HOST', { infer: true }), config.get('SMTP_PORT', { infer: true }))
+      : provider === 'ses' ? sesSender({
+          region: config.get('AWS_SES_REGION', { infer: true }), accessKeyId: config.get('AWS_SES_ACCESS_KEY_ID', { infer: true }), secretAccessKey: config.get('AWS_SES_SECRET_ACCESS_KEY', { infer: true }),
+          configurationSet: config.get('AWS_SES_CONFIGURATION_SET', { infer: true }) || undefined, endpoint: config.get('AWS_SES_ENDPOINT', { infer: true }) || undefined,
+        })
+      : resendKey ? resendSender(resendKey) : null;
   }
 
   async process(job: Job<EventJob>): Promise<void> {
@@ -60,21 +58,8 @@ export class EventsProcessor extends WorkerHost {
     const msg = job.data.payload as EmailMessage;
     const rendered = renderEmail(msg);
 
-    if (this.provider === 'mailpit') {
-      await this.smtp!.sendMail({ from: this.from, to: msg.to, subject: rendered.subject, text: rendered.text, html: rendered.html });
-    } else if (this.provider === 'resend') {
-      if (!this.resendKey) throw new Error('RESEND_API_KEY is not configured');
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${this.resendKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': job.data.eventId },
-        body: JSON.stringify({ from: this.from, to: [msg.to], subject: rendered.subject, text: rendered.text, html: rendered.html }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!res.ok) throw new Error(`Resend responded ${res.status}`);
-    } else {
-      // AWS SES adapter arrives with the Phase 6 integrations; fail loudly instead of pretending to send.
-      throw new Error(`Email provider "${this.provider}" is not implemented yet`);
-    }
-    this.log.log({ template: msg.template, eventId: job.data.eventId }, 'Email sent');
+    if (!this.sender) throw new Error('RESEND_API_KEY is not configured');
+    await this.sender.send({ from: this.from, to: msg.to, subject: rendered.subject, text: rendered.text, html: rendered.html, idempotencyKey: job.data.eventId });
+    this.log.log({ template: msg.template, eventId: job.data.eventId, provider: this.sender.name }, 'Email sent');
   }
 }

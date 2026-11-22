@@ -51,6 +51,16 @@ export const envSchema = z
     EMAIL_FROM: z.string().default('CirilInfo <no-reply@cirilinfo.com>'),
     SMTP_HOST: z.string().default('localhost'),
     SMTP_PORT: z.coerce.number().int().default(1025),
+    /** EMAIL_PROVIDER=resend. In the server's .env only. */
+    RESEND_API_KEY: z.string().trim().default(''),
+    /** EMAIL_PROVIDER=ses: an IAM key allowed only ses:SendEmail. In the server's .env only. */
+    AWS_SES_REGION: z.string().trim().default('ap-south-1'),
+    AWS_SES_ACCESS_KEY_ID: z.string().trim().default(''),
+    AWS_SES_SECRET_ACCESS_KEY: z.string().trim().default(''),
+    /** Optional SES configuration set (bounce and complaint tracking). */
+    AWS_SES_CONFIGURATION_SET: z.string().trim().default(''),
+    /** Tests only: a pretend SES. */
+    AWS_SES_ENDPOINT: z.string().trim().default(''),
 
     /** Renewal invoices are issued this many days before a subscription's period ends. */
     RENEWAL_LEAD_DAYS: z.coerce.number().int().min(1).max(60).default(14),
@@ -155,6 +165,12 @@ export const envSchema = z
       if (env.NODE_ENV === 'production' && env.GODADDY_API_BASE) {
         ctx.addIssue({ code: 'custom', path: ['GODADDY_API_BASE'], message: 'is for tests only; leave it empty in production' });
       }
+    }
+    if (env.EMAIL_PROVIDER === 'ses') {
+      for (const key of ['AWS_SES_ACCESS_KEY_ID', 'AWS_SES_SECRET_ACCESS_KEY'] as const) {
+        if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: 'required when EMAIL_PROVIDER=ses' });
+      }
+      if (env.NODE_ENV === 'production' && env.AWS_SES_ENDPOINT) ctx.addIssue({ code: 'custom', path: ['AWS_SES_ENDPOINT'], message: 'is for tests only; leave it empty in production' });
     }
     if (env.STORAGE_DRIVER === 's3') {
       for (const key of ['S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'] as const) {

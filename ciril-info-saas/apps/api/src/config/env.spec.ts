@@ -135,3 +135,13 @@ describe('validateEnv: S3 storage', () => {
     expect(() => validateEnv({ ...prodReal, ...s3, S3_ENDPOINT: 'https://acc.r2.cloudflarestorage.com', S3_REGION: 'auto' })).not.toThrow();
   });
 });
+
+describe('validateEnv: Amazon SES', () => {
+  it('needs an access key pair, and no test endpoint in production', () => {
+    const ses = { EMAIL_PROVIDER: 'ses', AWS_SES_ACCESS_KEY_ID: 'AKIA', AWS_SES_SECRET_ACCESS_KEY: 'secret' };
+    expect(() => validateEnv({ ...base, ...ses })).not.toThrow();
+    expect(() => validateEnv({ ...base, ...ses, AWS_SES_SECRET_ACCESS_KEY: '' })).toThrow(/AWS_SES_SECRET_ACCESS_KEY/);
+    expect(() => validateEnv({ ...prodReal, ...ses })).not.toThrow();
+    expect(() => validateEnv({ ...prodReal, ...ses, AWS_SES_ENDPOINT: 'http://127.0.0.1:1' })).toThrow(/tests only/);
+  });
+});

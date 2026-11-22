@@ -87,7 +87,9 @@ export function evaluateReadiness(f: ReadinessFacts): Check[] {
       ? { key: 'email', group: 'Connections', label: 'Email', status: 'todo', detail: 'Emails go to a local test inbox (Mailpit). Customers will not receive sign-in links or invoices. Set up Resend.' }
       : f.email.provider === 'resend'
         ? { key: 'email', group: 'Connections', label: 'Email', status: 'ok', detail: 'Emails are sent through Resend.' }
-        : { key: 'email', group: 'Connections', label: 'Email', status: 'todo', detail: `The email provider "${f.email.provider}" is not available yet. Use Resend.` },
+        : f.email.provider === 'ses'
+          ? { key: 'email', group: 'Connections', label: 'Email', status: 'ok', detail: 'Emails are sent through Amazon SES. Make sure your account is out of the SES sandbox, or only verified addresses receive them.' }
+          : { key: 'email', group: 'Connections', label: 'Email', status: 'todo', detail: `The email provider "${f.email.provider}" is not available. Use Resend or Amazon SES.` },
   );
   add(
     f.storage.driver === 'local'

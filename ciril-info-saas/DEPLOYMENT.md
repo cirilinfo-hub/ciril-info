@@ -21,7 +21,10 @@ Five addresses point at the one server: `cirilinfo.com`, `www.`, `app.` (custome
 
 - A VPS with Ubuntu 24.04, 2 CPUs and 8 GB of memory or more, and its public IP address.
 - Access to the DNS settings of your domain.
-- A **Resend** account with your domain verified (so email is delivered), and its API key.
+- A **Resend** account with your domain verified (so email is delivered), and its API key. Or **Amazon SES** instead
+  (`EMAIL_PROVIDER=ses`): verify your domain in SES (region `ap-south-1` unless you choose another), ask AWS for
+  production access (a new SES account is in a "sandbox" that only sends to verified addresses), and create an IAM
+  access key allowed only `ses:SendEmail`. Optionally set `AWS_SES_CONFIGURATION_SET` to track bounces and complaints.
 - **Razorpay live keys** and the webhook, as in `PAYMENTS.md`.
 - Your WHM server's address and an API token, as in `HOSTING.md`. **If you don't have a cPanel server yet, you can still launch:** set `HOSTING_PROVIDER=manual` (your team creates each hosting account by hand and marks the task done) and `DNS_PROVIDER=none` (customers are told DNS editing is not set up yet and asked to contact you). Switch both to `cpanel` once WHM is connected.
 - About an hour, and a person who is comfortable typing commands on a server.
@@ -30,7 +33,7 @@ Five addresses point at the one server: `cirilinfo.com`, `www.`, `app.` (custome
 
 Create **A records** pointing to the server's IP for `@`, `www`, `app`, `admin` and `api`. Do this at least a day before launch with a short TTL (300), so that changes spread quickly.
 
-If your domain's email is hosted elsewhere, leave its MX records alone. Add the SPF and DKIM records that Resend asks for.
+If your domain's email is hosted elsewhere, leave its MX records alone. Add the SPF and DKIM records that Resend (or SES) asks for.
 
 ## 2. Prepare the server
 
