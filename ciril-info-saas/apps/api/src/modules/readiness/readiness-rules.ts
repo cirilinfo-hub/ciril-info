@@ -1,0 +1,178 @@
+/**
+ * The launch checklist: what is still in test mode, empty or missing before real customers use the site. Pure rules over
+ * plain facts, so every message is tested. Nothing here ever holds a secret, only whether one is set.
+ */
+
+export type CheckStatus = 'ok' | 'todo' | 'info';
+export type CheckGroup = 'Connections' | 'Business details' | 'Catalogue and content' | 'Security';
+
+export interface Check {
+  key: string;
+  group: CheckGroup;
+  label: string;
+  status: CheckStatus;
+  /** What it means for you, in plain words. */
+  detail: string;
+  /** An admin-portal page where it can be fixed, such as "/company". */
+  link?: string;
+}
+
+export interface ReadinessFacts {
+  production: boolean;
+  payment: { provider: string; keyIdSet: boolean; keySecretSet: boolean; webhookSecretSet: boolean; liveKey: boolean; stripe?: { keySet: boolean; webhookSecretSet: boolean } };
+  hosting: { provider: string; plesk?: { hostSet: boolean; keySet: boolean; ipSet: boolean; tls: string }; servers?: { active: number; unchecked: number } };
+  dns: { provider: string };
+  registrar: { provider: string; godaddy?: { env: string; keySet: boolean; nameserversSet: boolean } };
+  cpanel: { hostSet: boolean; userSet: boolean; tokenSet: boolean; tls: string };
+  email: { provider: string };
+  storage: { driver: string };
+  virusScan?: { mode: string };
+  errorTrackingSet: boolean;
+  company: { legalName: boolean; gstin: boolean; address: boolean; stateCode: boolean; email: boolean; phone: boolean; bank: boolean };
+  tax: { defaultRate: number | null; defaultName: string | null };
+  catalogue: { publishedPlans: number; activeDomainEndings: number; sampleRecords: number };
+  legal: { published: number; total: number; missing: string[] };
+  security: { staff: number; staffWithoutMfa: number };
+}
+
+const list = (xs: string[]) => (xs.length <= 2 ? xs.join(' and ') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+
+export function evaluateReadiness(f: ReadinessFacts): Check[] {
+  const checks: Check[] = [];
+  const add = (c: Check) => checks.push(c);
+
+  // ── Connections ──
+  {
+    const p = f.payment;
+    if (p.provider === 'mock') add({ key: 'payments', group: 'Connections', label: 'Payments', status: 'todo', detail: 'Test mode: no real money moves. Connect Razorpay (see PAYMENTS.md) before taking real orders.' });
+    else if (p.provider === 'razorpay') {
+      const missing = [!p.keyIdSet && 'the key id', !p.keySecretSet && 'the key secret', !p.webhookSecretSet && 'the webhook secret'].filter(Boolean) as string[];
+      if (missing.length) add({ key: 'payments', group: 'Connections', label: 'Payments', status: 'todo', detail: `Razorpay is selected but ${list(missing)} ${missing.length === 1 ? 'is' : 'are'} not set in the server settings.` });
+      else if (f.production && !p.liveKey) add({ key: 'payments', group: 'Connections', label: 'Payments', status: 'todo', detail: 'Production is using a Razorpay test key. Use the live key (rzp_live_...) so real payments work.' });
+      else if (!f.production) add({ key: 'payments', group: 'Connections', label: 'Payments', status: 'info', detail: p.liveKey ? 'A live Razorpay key is set outside production. Use a test key while developing.' : 'Razorpay test mode: the real checkout opens but no real money moves.' });
+      else add({ key: 'payments', group: 'Connections', label: 'Payments', status: 'ok', detail: 'Razorpay is connected with a live key.' });
+    } else add({ key: 'payments', group: 'Connections', label: 'Payments', status: 'todo', detail: `The payment provider "${p.provider}" is not available.` });
+  }
+  {
+    const c = f.cpanel;
+    const cpanelMissing = [!c.hostSet && 'the server', !c.userSet && 'the user', !c.tokenSet && 'the API token'].filter(Boolean) as string[];
+    const h = f.hosting.provider;
+    if (h === 'mock') add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: 'Test mode: accounts are pretend and nothing is created on a server. Choose cpanel or plesk (see HOSTING.md), or manual.' });
+    else if (h === 'manual') add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'info', detail: 'Manual: your team creates each account in the hosting panel and marks the task done in Admin > Hosting.' });
+    else if (h === 'cpanel') {
+      if (cpanelMissing.length) add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: `cPanel is selected but ${list(cpanelMissing)} ${cpanelMissing.length === 1 ? 'is' : 'are'} not set.` });
+      else if (c.tls === 'skip') add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: 'cPanel is connected but its security certificate is not being checked. Install a valid certificate on the server and set CPANEL_TLS=verify.' });
+      else add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'ok', detail: 'Accounts are created on your cPanel/WHM server.' });
+    } else if (h === 'servers') {
+      const s = f.hosting.servers ?? { active: 0, unchecked: 0 };
+      if (!s.active) add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: 'Several-servers mode is on, but no active server with credentials is listed. Add one in Admin > Hosting servers.' });
+      else add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: s.unchecked ? 'todo' : 'ok', detail: s.unchecked ? `${s.active} active ${s.active === 1 ? 'server' : 'servers'}; ${s.unchecked} not tested successfully yet. Use Test connection in Admin > Hosting servers.` : `Accounts are spread over ${s.active} active ${s.active === 1 ? 'server' : 'servers'}.` });
+    } else if (h === 'plesk') {
+      const p = f.hosting.plesk ?? { hostSet: false, keySet: false, ipSet: false, tls: 'verify' };
+      const missing = [!p.hostSet && 'the server', !p.keySet && 'the API key', !p.ipSet && 'the IP address'].filter(Boolean) as string[];
+      if (missing.length) add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: `Plesk is selected but ${list(missing)} ${missing.length === 1 ? 'is' : 'are'} not set.` });
+      else if (p.tls === 'skip') add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: 'Plesk is connected but its security certificate is not being checked. Install a valid certificate and set PLESK_TLS=verify.' });
+      else add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'ok', detail: 'Accounts are created on your Plesk server.' });
+    } else add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: `The hosting provider "${h}" is not available.` });
+
+    const d = f.dns.provider;
+    if (d === 'none') add({ key: 'dns', group: 'Connections', label: 'DNS records', status: 'info', detail: 'Switched off: customers are told DNS is not set up yet and asked to contact you. Choose cpanel once your WHM server is connected.' });
+    else if (d === 'mock') add({ key: 'dns', group: 'Connections', label: 'DNS records', status: 'todo', detail: 'Test mode: DNS changes are kept in memory and reach no real server. Choose cpanel to edit your WHM zones.' });
+    else if (d === 'cpanel') add({ key: 'dns', group: 'Connections', label: 'DNS records', status: cpanelMissing.length ? 'todo' : 'ok', detail: cpanelMissing.length ? `DNS uses cPanel but ${list(cpanelMissing)} ${cpanelMissing.length === 1 ? 'is' : 'are'} not set.` : 'Customers edit the DNS zones on your WHM server.' });
+    else add({ key: 'dns', group: 'Connections', label: 'DNS records', status: 'todo', detail: `The DNS provider "${d}" is not available.` });
+  }
+  add(
+    f.payment.stripe?.keySet
+      ? { key: 'stripe', group: 'Connections', label: 'International cards (Stripe)', status: 'ok', detail: 'Stripe is connected alongside Razorpay. Customers can pay with an international card on Stripe’s page.' }
+      : { key: 'stripe', group: 'Connections', label: 'International cards (Stripe)', status: 'info', detail: 'Not connected. Customers pay with Razorpay only. Set STRIPE_SECRET_KEY to add Stripe (see PAYMENTS.md).' },
+  );
+  add(
+    f.registrar.provider === 'mock'
+      ? { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'info', detail: 'Test mode: name searches give pretend answers, and your team does each registration, renewal and transfer by hand at your registrar.' }
+      : f.registrar.provider === 'rdap'
+        ? { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'info', detail: 'Names are checked against the public registry, so searches are real. No registrar is connected, so your team does each registration, renewal and transfer by hand at your registrar.' }
+        : f.registrar.provider === 'godaddy'
+          ? f.registrar.godaddy?.env === 'production'
+            ? { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'ok', detail: `GoDaddy is connected. Paid registrations, renewals and transfers are placed automatically and charged to your GoDaddy account, so keep its payment method funded.${f.registrar.godaddy.nameserversSet ? '' : ' New domains use GoDaddy\'s nameservers; set GODADDY_NAMESERVERS to point them at your hosting server.'}` }
+            : { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'todo', detail: 'GoDaddy\'s test environment (OTE) is connected: orders go through, but no real domain is bought. Set GODADDY_ENV=production with your production API key to go live.' }
+          : { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'ok', detail: `Connected: ${f.registrar.provider}.` },
+  );
+  add(
+    f.email.provider === 'mailpit'
+      ? { key: 'email', group: 'Connections', label: 'Email', status: 'todo', detail: 'Emails go to a local test inbox (Mailpit). Customers will not receive sign-in links or invoices. Set up Resend.' }
+      : f.email.provider === 'resend'
+        ? { key: 'email', group: 'Connections', label: 'Email', status: 'ok', detail: 'Emails are sent through Resend.' }
+        : f.email.provider === 'ses'
+          ? { key: 'email', group: 'Connections', label: 'Email', status: 'ok', detail: 'Emails are sent through Amazon SES. Make sure your account is out of the SES sandbox, or only verified addresses receive them.' }
+          : { key: 'email', group: 'Connections', label: 'Email', status: 'todo', detail: `The email provider "${f.email.provider}" is not available. Use Resend or Amazon SES.` },
+  );
+  add(
+    f.storage.driver === 'local'
+      ? { key: 'storage', group: 'Connections', label: 'File storage', status: 'info', detail: 'Uploaded files are kept on the server’s disk. Make sure that disk is backed up.' }
+      : { key: 'storage', group: 'Connections', label: 'File storage', status: 'ok', detail: 'Uploaded files go to your S3 bucket. Keep it private and turn on versioning or backups there.' },
+  );
+  add(
+    f.virusScan?.mode === 'clamav'
+      ? { key: 'virus-scan', group: 'Connections', label: 'Virus scanning', status: 'ok', detail: 'Uploaded files are checked by ClamAV first. If ClamAV is down, uploads are refused until it is back.' }
+      : { key: 'virus-scan', group: 'Connections', label: 'Virus scanning', status: 'todo', detail: 'Uploaded files are not checked for viruses. Run the ClamAV service and set VIRUS_SCAN=clamav (see DEPLOYMENT.md).' },
+  );
+  add(
+    f.errorTrackingSet
+      ? { key: 'errors', group: 'Connections', label: 'Error tracking', status: 'ok', detail: 'Errors are reported to you.' }
+      : { key: 'errors', group: 'Connections', label: 'Error tracking', status: 'info', detail: 'Not set up. You would only find out about errors from the server logs.' },
+  );
+
+  // ── Business details ──
+  {
+    const c = f.company;
+    const missing = [!c.legalName && 'legal name', !c.gstin && 'GSTIN', !c.address && 'address', !c.stateCode && 'GST state', !c.email && 'email', !c.phone && 'phone'].filter(Boolean) as string[];
+    add(missing.length
+      ? { key: 'company', group: 'Business details', label: 'Company profile', status: 'todo', detail: `Missing: ${list(missing)}. Invoices and the website show these.`, link: '/company' }
+      : { key: 'company', group: 'Business details', label: 'Company profile', status: 'ok', detail: 'Legal name, GSTIN, address and contact details are filled in.', link: '/company' });
+  }
+  add(
+    f.company.bank
+      ? { key: 'bank', group: 'Business details', label: 'Bank details for transfers', status: 'ok', detail: 'Customers see your bank and UPI details on an unpaid invoice, and can pay by transfer.', link: '/company' }
+      : { key: 'bank', group: 'Business details', label: 'Bank details for transfers', status: 'info', detail: 'Not filled in, so customers can only pay online. Add them if you accept bank transfer or UPI, and record those payments on the invoice.', link: '/company' },
+  );
+  add(
+    f.tax.defaultRate === null
+      ? { key: 'tax', group: 'Business details', label: 'GST rate', status: 'todo', detail: 'No default GST rate is set, so invoices carry no tax. Add one in Tax rates.', link: '/tax' }
+      : { key: 'tax', group: 'Business details', label: 'GST rate', status: 'ok', detail: `${f.tax.defaultName ?? 'GST'} at ${f.tax.defaultRate}% is added to new invoices. Have your accountant confirm the invoice format.`, link: '/tax' },
+  );
+
+  // ── Catalogue and content ──
+  add(
+    f.catalogue.publishedPlans > 0
+      ? { key: 'plans', group: 'Catalogue and content', label: 'Plans and prices', status: 'ok', detail: `${f.catalogue.publishedPlans} published ${f.catalogue.publishedPlans === 1 ? 'plan' : 'plans'}.`, link: '/products' }
+      : { key: 'plans', group: 'Catalogue and content', label: 'Plans and prices', status: 'todo', detail: 'No real plan is published yet, so there is nothing to buy. Add plans with prices in Products & Pricing.', link: '/products' },
+  );
+  add(
+    f.catalogue.activeDomainEndings > 0
+      ? { key: 'tlds', group: 'Catalogue and content', label: 'Domain prices', status: 'ok', detail: `${f.catalogue.activeDomainEndings} ${f.catalogue.activeDomainEndings === 1 ? 'ending' : 'endings'} on sale.`, link: '/domain-prices' }
+      : { key: 'tlds', group: 'Catalogue and content', label: 'Domain prices', status: 'todo', detail: 'No domain ending is on sale, so the Domains page has no prices. Add them in Domain prices.', link: '/domain-prices' },
+  );
+  add(
+    f.legal.published === f.legal.total
+      ? { key: 'legal', group: 'Catalogue and content', label: 'Legal pages', status: 'ok', detail: 'All legal pages are published. Have them reviewed by a lawyer.', link: '/legal' }
+      : { key: 'legal', group: 'Catalogue and content', label: 'Legal pages', status: 'todo', detail: `Not published yet: ${list(f.legal.missing)}. The website says these are being prepared.`, link: '/legal' },
+  );
+  add(
+    f.catalogue.sampleRecords > 0
+      ? { key: 'samples', group: 'Catalogue and content', label: 'Development samples', status: 'todo', detail: `${f.catalogue.sampleRecords} sample ${f.catalogue.sampleRecords === 1 ? 'record' : 'records'} (plans, testimonials, FAQs, projects, domain prices) are still in the database. Remove them with db:purge-samples before launch.` }
+      : { key: 'samples', group: 'Catalogue and content', label: 'Development samples', status: 'ok', detail: 'No sample data in the database.' },
+  );
+
+  // ── Security ──
+  add(
+    f.security.staffWithoutMfa > 0
+      ? { key: 'mfa', group: 'Security', label: 'Staff two-step sign-in', status: 'todo', detail: `${f.security.staffWithoutMfa} of ${f.security.staff} staff ${f.security.staffWithoutMfa === 1 ? 'has' : 'have'} not turned on two-step verification.`, link: '/staff' }
+      : { key: 'mfa', group: 'Security', label: 'Staff two-step sign-in', status: 'ok', detail: 'Every staff member uses two-step verification.', link: '/staff' },
+  );
+
+  return checks;
+}
+
+export function summarise(checks: readonly Check[]) {
+  return { todo: checks.filter((c) => c.status === 'todo').length, ok: checks.filter((c) => c.status === 'ok').length, info: checks.filter((c) => c.status === 'info').length };
+}

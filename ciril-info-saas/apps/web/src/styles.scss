@@ -1,0 +1,6 @@
+// CirilInfo global styles.
+// 1. Design system (verbatim from the approved reference — do not edit these files)
+@use 'styles/design-system/cirilinfo-core.css';
+@use 'styles/design-system/cirilinfo-portal.css';
+// 2. Extensions built only from the design tokens above
+@use 'styles/extensions';

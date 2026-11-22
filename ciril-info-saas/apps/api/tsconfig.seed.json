@@ -1,0 +1,15 @@
+{
+  // The seed is TypeScript, but the production image has no TypeScript tooling. This compiles it (and the few source files it
+  // imports) to plain JavaScript so it can run there: node dist-seed/prisma/seed.js
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist-seed",
+    "rootDir": ".",
+    "declaration": false,
+    "sourceMap": false,
+    "incremental": false,
+    "types": ["node"]
+  },
+  "include": ["prisma/seed.ts", "prisma/seed-data/**/*.ts", "src/modules/rbac/permissions.ts", "src/modules/settings/site-claims.ts"],
+  "exclude": ["node_modules", "dist", "dist-seed", "**/*spec.ts"]
+}

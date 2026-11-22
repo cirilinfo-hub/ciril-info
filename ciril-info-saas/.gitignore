@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+# Builds
+dist/
+dist-seed/
+.angular/
+coverage/
+apps/api/src/generated/
+# Environment & secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+# Local data
+storage/
+backups/
+playwright-report/
+# Local test-run logs
+.pw-*.txt
+.api-test.log
+.ng-serve.log
+.docker-build.log
+test-results/
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+e2e/screenshots/
+*.tsbuildinfo

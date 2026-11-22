@@ -1,0 +1,1694 @@
+// CirilInfo SaaS Platform — PostgreSQL schema
+//
+// Conventions
+//  - UUID primary keys (gen_random_uuid()), snake_case tables/columns via @@map/@map.
+//  - All timestamps are timestamptz and written in UTC.
+//  - Money is NUMERIC(14,2) + ISO-4217 currency (default INR). Never floats.
+//  - Every tenant-owned table has a non-null tenant_id and is protected by
+//    PostgreSQL Row-Level Security (see migrations/*_rls). Tenant-owned child
+//    tables carry tenant_id too (denormalised) so RLS never needs a join.
+//  - Catalogue and platform tables (products, plans, servers, registrars,
+//    settings) are global and not tenant-scoped.
+
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  runtime                = "nodejs"
+  moduleFormat           = "esm"
+  generatedFileExtension = "ts"
+  importFileExtension    = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  DISABLED
+}
+
+enum RoleScope {
+  PLATFORM
+  TENANT
+}
+
+enum TenantStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  REMOVED
+}
+
+enum ProductType {
+  WEB_HOSTING
+  WORDPRESS_HOSTING
+  CLOUD_HOSTING
+  VPS_HOSTING
+  DOMAIN
+  BUSINESS_EMAIL
+  WEBSITE_DESIGN
+  WEBSITE_DEVELOPMENT
+  WEBSITE_MAINTENANCE
+  SEO
+  DIGITAL_MARKETING
+}
+
+enum PublishStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum BillingCycle {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+  BIENNIAL
+  TRIENNIAL
+  ONE_TIME
+}
+
+enum DiscountType {
+  PERCENT
+  FIXED
+}
+
+enum HostingPanel {
+  CPANEL
+  PLESK
+  MOCK
+}
+
+enum ServerStatus {
+  ACTIVE
+  MAINTENANCE
+  FULL
+  RETIRED
+}
+
+enum HostingAccountStatus {
+  PENDING
+  PROVISIONING
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+  FAILED
+  TERMINATED
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  /// Manual hosting mode: waiting for staff to do it by hand.
+  AWAITING_STAFF
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum ProvisioningAction {
+  CREATE
+  SUSPEND
+  UNSUSPEND
+  CHANGE_PLAN
+  TERMINATE
+}
+
+enum DomainStatus {
+  PENDING_REGISTRATION
+  PENDING_TRANSFER
+  ACTIVE
+  EXPIRED
+  REDEMPTION
+  CANCELLED
+  TRANSFERRED_OUT
+  FAILED
+}
+
+enum DnsRecordType {
+  A
+  AAAA
+  CNAME
+  MX
+  TXT
+  NS
+  SRV
+  CAA
+}
+
+enum ContactChangeStatus {
+  REQUESTED
+  DONE
+  CANCELLED
+}
+
+enum NameserverChangeStatus {
+  REQUESTED
+  DONE
+  CANCELLED
+}
+
+enum TransferOutStatus {
+  REQUESTED
+  RELEASED
+  COMPLETED
+  CANCELLED
+}
+
+enum TransferStatus {
+  REQUESTED
+  PENDING_AUTH
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+  SUSPENDED
+}
+
+enum SubscriptionEvent {
+  CREATED
+  ACTIVATED
+  RENEWED
+  UPGRADED
+  DOWNGRADED
+  CANCEL_REQUESTED
+  CANCELLED
+  EXPIRED
+  SUSPENDED
+  REACTIVATED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  PARTIALLY_PAID
+  OVERDUE
+  VOID
+  REFUNDED
+}
+
+enum PaymentStatus {
+  CREATED
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentProvider {
+  RAZORPAY
+  STRIPE
+  MANUAL
+  MOCK
+}
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  WON
+  LOST
+  CLOSED
+}
+
+enum SavedCardStatus {
+  /// Saved at the provider, waiting for the card's bank to confirm the standing instruction.
+  PENDING
+  ACTIVE
+  /// The bank refused it.
+  REJECTED
+  /// Removed by the customer, replaced by another card, or cancelled at the provider.
+  REMOVED
+}
+
+enum RefundStatus {
+  REQUESTED
+  APPROVED
+  PROCESSING
+  SUCCEEDED
+  REJECTED
+  FAILED
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  AWAITING_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketCategory {
+  BILLING
+  HOSTING
+  DOMAIN
+  EMAIL
+  WEBSITE
+  TECHNICAL
+  SALES
+  OTHER
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PUBLISHED
+  FAILED
+}
+
+enum InquiryStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CLOSED
+  SPAM
+}
+
+// ───────────────────────────── Identity ─────────────────────────────
+
+model User {
+  id                String     @id @default(uuid()) @db.Uuid
+  email             String     @db.Citext
+  passwordHash      String?    @map("password_hash")
+  firstName         String     @map("first_name") @db.VarChar(80)
+  lastName          String     @map("last_name") @db.VarChar(80)
+  phone             String?    @db.VarChar(32)
+  status            UserStatus @default(ACTIVE)
+  emailVerifiedAt   DateTime?  @map("email_verified_at") @db.Timestamptz(3)
+  /// Platform staff role (Super Admin, Platform Admin, Finance Admin, Support Agent). Null for customers.
+  platformRoleId    String?    @map("platform_role_id") @db.Uuid
+  mfaEnabled        Boolean    @default(false) @map("mfa_enabled")
+  /// TOTP secret, encrypted with the app's data key (AES-256-GCM). Never plaintext.
+  mfaSecretEnc      String?    @map("mfa_secret_enc")
+  /// Last accepted TOTP time step; a code for the same or an earlier step is rejected (replay protection).
+  mfaLastStep       BigInt?    @map("mfa_last_step")
+  /// SHA-256 hashes of unused one-time recovery codes.
+  mfaRecoveryHashes String[]   @default([]) @map("mfa_recovery_hashes")
+  failedLoginCount  Int        @default(0) @map("failed_login_count")
+  lockedUntil       DateTime?  @map("locked_until") @db.Timestamptz(3)
+  lastLoginAt       DateTime?  @map("last_login_at") @db.Timestamptz(3)
+  passwordChangedAt DateTime?  @map("password_changed_at") @db.Timestamptz(3)
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  platformRole    Role?              @relation("UserPlatformRole", fields: [platformRoleId], references: [id])
+  memberships     TenantMembership[]
+  sessions        UserSession[]
+  invitationsSent Invitation[]       @relation("InvitationInviter")
+  notifications   Notification[]
+  ticketsOpened   SupportTicket[]    @relation("TicketOpener")
+  ticketsAssigned SupportTicket[]    @relation("TicketAssignee")
+  ticketMessages  TicketMessage[]
+  auditLogs       AuditLog[]
+  tokens          UserToken[]
+
+  @@unique([email])
+  @@index([platformRoleId])
+  @@map("users")
+}
+
+model Tenant {
+  id          String       @id @default(uuid()) @db.Uuid
+  name        String       @db.VarChar(160)
+  slug        String       @db.VarChar(80)
+  status      TenantStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  suspendedAt DateTime?    @map("suspended_at") @db.Timestamptz(3)
+
+  memberships         TenantMembership[]
+  invitations         Invitation[]
+  customerAccount     CustomerAccount?
+  addresses           CustomerAddress[]
+  hostingAccounts     HostingAccount[]
+  hostingResources    HostingResource[]
+  provisioningJobs    ProvisioningJob[]
+  domains             Domain[]
+  domainRenewals      DomainRenewal[]
+  domainTransferOuts  DomainTransferOut[]
+  savedCards          SavedCard[]
+  paymentDisputes     PaymentDispute[]
+  nameserverChanges   DomainNameserverChange[]
+  contactChanges      DomainContactChange[]
+  tdsDeductions       TdsDeduction[]
+  dnsRecords          DnsRecord[]
+  domainTransfers     DomainTransfer[]
+  subscriptions       Subscription[]
+  subscriptionItems   SubscriptionItem[]
+  subscriptionHistory SubscriptionHistory[]
+  creditNotes CreditNote[]
+  invoices            Invoice[]
+  invoiceItems        InvoiceItem[]
+  payments            Payment[]
+  refunds             Refund[]
+  tickets             SupportTicket[]
+  ticketMessages      TicketMessage[]
+  ticketAttachments   TicketAttachment[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+
+  @@unique([slug])
+  @@index([status, createdAt])
+  @@map("tenants")
+}
+
+model Role {
+  id          String    @id @default(uuid()) @db.Uuid
+  /// Stable machine key, e.g. SUPER_ADMIN, TENANT_OWNER.
+  key         String    @db.VarChar(64)
+  name        String    @db.VarChar(80)
+  description String?   @db.VarChar(255)
+  scope       RoleScope
+  isSystem    Boolean   @default(true) @map("is_system")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  permissions   RolePermission[]
+  platformUsers User[]             @relation("UserPlatformRole")
+  memberships   TenantMembership[]
+  invitations   Invitation[]
+
+  @@unique([key])
+  @@map("roles")
+}
+
+model Permission {
+  id          String    @id @default(uuid()) @db.Uuid
+  /// e.g. "customers:read", "invoices:refund". See src/modules/rbac/permissions.ts.
+  key         String    @db.VarChar(80)
+  description String?   @db.VarChar(255)
+  scope       RoleScope
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  roles RolePermission[]
+
+  @@unique([key])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model TenantMembership {
+  id        String           @id @default(uuid()) @db.Uuid
+  tenantId  String           @map("tenant_id") @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  roleId    String           @map("role_id") @db.Uuid
+  status    MembershipStatus @default(ACTIVE)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id])
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@index([roleId])
+  @@map("tenant_memberships")
+}
+
+model Invitation {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  email       String    @db.Citext
+  roleId      String    @map("role_id") @db.Uuid
+  /// SHA-256 of the invitation token; the raw token is only ever emailed.
+  tokenHash   String    @map("token_hash") @db.Char(64)
+  invitedById String    @map("invited_by_id") @db.Uuid
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(3)
+  acceptedAt  DateTime? @map("accepted_at") @db.Timestamptz(3)
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role      Role   @relation(fields: [roleId], references: [id])
+  invitedBy User   @relation("InvitationInviter", fields: [invitedById], references: [id])
+
+  @@unique([tokenHash])
+  @@index([tenantId, email])
+  @@index([roleId])
+  @@index([invitedById])
+  @@map("invitations")
+}
+
+/// One row per refresh-token family. Rotation replaces token_hash; reuse of an
+/// old token revokes the whole family (token theft detection).
+model UserSession {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  /// SHA-256 of the current refresh token.
+  refreshTokenHash  String    @map("refresh_token_hash") @db.Char(64)
+  /// SHA-256 of the immediately-previous refresh token, for reuse detection.
+  previousTokenHash String?   @map("previous_token_hash") @db.Char(64)
+  userAgent         String?   @map("user_agent") @db.VarChar(512)
+  ipAddress         String?   @map("ip_address") @db.Inet
+  /// "customer" or "admin" — which portal issued the session.
+  audience          String    @db.VarChar(16)
+  mfaVerified       Boolean   @default(false) @map("mfa_verified")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastUsedAt        DateTime  @default(now()) @map("last_used_at") @db.Timestamptz(3)
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(3)
+  revokedReason     String?   @map("revoked_reason") @db.VarChar(64)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([refreshTokenHash])
+  @@index([previousTokenHash])
+  @@index([userId, revokedAt])
+  @@map("user_sessions")
+}
+
+enum UserTokenPurpose {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+  /// Staff invitation: set initial password
+  ACCOUNT_SETUP
+}
+
+/// Single-use emailed tokens. Only the SHA-256 hash is stored.
+model UserToken {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  purpose   UserTokenPurpose
+  tokenHash String           @map("token_hash") @db.Char(64)
+  expiresAt DateTime         @map("expires_at") @db.Timestamptz(3)
+  usedAt    DateTime?        @map("used_at") @db.Timestamptz(3)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tokenHash])
+  @@index([userId, purpose])
+  @@map("user_tokens")
+}
+
+// ───────────────────────────── Catalogue (global) ─────────────────────────────
+
+model ProductCategory {
+  id          String   @id @default(uuid()) @db.Uuid
+  slug        String   @db.VarChar(80)
+  name        String   @db.VarChar(120)
+  description String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  products Product[]
+
+  @@unique([slug])
+  @@map("product_categories")
+}
+
+model Product {
+  id          String        @id @default(uuid()) @db.Uuid
+  categoryId  String        @map("category_id") @db.Uuid
+  slug        String        @db.VarChar(120)
+  name        String        @db.VarChar(160)
+  type        ProductType
+  tagline     String?       @db.VarChar(255)
+  description String?
+  imageUrl    String?       @map("image_url") @db.VarChar(512)
+  status      PublishStatus @default(DRAFT)
+  sortOrder   Int           @default(0) @map("sort_order")
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  category ProductCategory @relation(fields: [categoryId], references: [id])
+  plans    Plan[]
+
+  @@unique([slug])
+  @@index([categoryId])
+  @@index([status, sortOrder])
+  @@map("products")
+}
+
+model Plan {
+  id           String        @id @default(uuid()) @db.Uuid
+  productId    String        @map("product_id") @db.Uuid
+  slug         String        @db.VarChar(120)
+  name         String        @db.VarChar(120)
+  description  String?
+  isFeatured   Boolean       @default(false) @map("is_featured")
+  status       PublishStatus @default(DRAFT)
+  sortOrder    Int           @default(0) @map("sort_order")
+  /// Resource limits used by provisioning, e.g. {"disk_gb":50,"websites":10,"email_accounts":5}.
+  limits       Json          @default("{}")
+  /// Development sample data (never real pricing). The seed refuses to create samples in
+  /// production, and the API refuses to publish a sample plan when NODE_ENV=production.
+  isSample     Boolean       @default(false) @map("is_sample")
+  /// Package name on the hosting panel (cPanel/Plesk) this plan maps to.
+  panelPackage String?       @map("panel_package") @db.VarChar(120)
+  /// With several servers: only servers with this panel take the plan (its package exists only there). Null: any.
+  hostingPanel HostingPanel? @map("hosting_panel")
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  product           Product            @relation(fields: [productId], references: [id])
+  features          PlanFeature[]
+  pricingVersions   PricingVersion[]
+  subscriptionItems SubscriptionItem[]
+  hostingAccounts   HostingAccount[]
+  scheduledChanges  Subscription[]     @relation("ScheduledPlan")
+
+  @@unique([productId, slug])
+  @@index([status, sortOrder])
+  @@map("plans")
+}
+
+model PlanFeature {
+  id        String  @id @default(uuid()) @db.Uuid
+  planId    String  @map("plan_id") @db.Uuid
+  label     String  @db.VarChar(160)
+  /// Optional value shown in comparison tables ("50 GB", "Unlimited", "true").
+  value     String? @db.VarChar(80)
+  highlight Boolean @default(false)
+  sortOrder Int     @default(0) @map("sort_order")
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId, sortOrder])
+  @@map("plan_features")
+}
+
+/// Immutable price points. A price change creates a new row and closes the old
+/// one (effective_to); subscriptions/invoices snapshot the row they used.
+model PricingVersion {
+  id            String       @id @default(uuid()) @db.Uuid
+  planId        String       @map("plan_id") @db.Uuid
+  billingCycle  BillingCycle @map("billing_cycle")
+  currency      String       @default("INR") @db.Char(3)
+  /// Price for the first term.
+  price         Decimal      @db.Decimal(14, 2)
+  /// Price charged on renewal.
+  renewalPrice  Decimal      @map("renewal_price") @db.Decimal(14, 2)
+  /// Optional list ("was") price for strike-through display.
+  listPrice     Decimal?     @map("list_price") @db.Decimal(14, 2)
+  setupFee      Decimal      @default(0) @map("setup_fee") @db.Decimal(14, 2)
+  effectiveFrom DateTime     @default(now()) @map("effective_from") @db.Timestamptz(3)
+  effectiveTo   DateTime?    @map("effective_to") @db.Timestamptz(3)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  plan              Plan               @relation(fields: [planId], references: [id])
+  subscriptionItems SubscriptionItem[]
+
+  @@index([planId, billingCycle, effectiveFrom])
+  @@map("pricing_versions")
+}
+
+model Coupon {
+  id             String       @id @default(uuid()) @db.Uuid
+  code           String       @db.Citext
+  description    String?      @db.VarChar(255)
+  discountType   DiscountType @map("discount_type")
+  discountValue  Decimal      @map("discount_value") @db.Decimal(14, 2)
+  currency       String?      @db.Char(3)
+  /// Optional restriction to specific plans (array of plan ids).
+  planIds        String[]     @default([]) @map("plan_ids") @db.Uuid
+  maxRedemptions Int?         @map("max_redemptions")
+  redemptions    Int          @default(0)
+  firstTermOnly  Boolean      @default(true) @map("first_term_only")
+  /// Recurring coupons only: how many billing periods it discounts, counting the first. Null with firstTermOnly=false: every period.
+  durationPeriods Int?        @map("duration_periods")
+  startsAt       DateTime?    @map("starts_at") @db.Timestamptz(3)
+  endsAt         DateTime?    @map("ends_at") @db.Timestamptz(3)
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  subscriptions Subscription[]
+
+  @@unique([code])
+  @@map("coupons")
+}
+
+model Promotion {
+  id          String    @id @default(uuid()) @db.Uuid
+  title       String    @db.VarChar(160)
+  description String?
+  /// Coupon applied automatically / advertised by this promotion.
+  couponId    String?   @map("coupon_id") @db.Uuid
+  bannerText  String?   @map("banner_text") @db.VarChar(255)
+  startsAt    DateTime  @map("starts_at") @db.Timestamptz(3)
+  endsAt      DateTime? @map("ends_at") @db.Timestamptz(3)
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([isActive, startsAt])
+  @@map("promotions")
+}
+
+model TaxRate {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(80)
+  /// e.g. "GST", "IGST", "CGST", "SGST".
+  code      String   @db.VarChar(16)
+  /// Percentage, e.g. 18.000
+  rate      Decimal  @db.Decimal(6, 3)
+  country   String   @default("IN") @db.Char(2)
+  /// Indian state code for intra-state CGST/SGST split; null = all.
+  region    String?  @db.VarChar(8)
+  isDefault Boolean  @default(false) @map("is_default")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([country, region, isActive])
+  @@map("tax_rates")
+}
+
+// ───────────────────────────── Customers (tenant) ─────────────────────────────
+
+/// Billing profile of a tenant (one per tenant).
+model CustomerAccount {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  /// Human-friendly account number, e.g. CI-100023.
+  accountNo     String   @map("account_no") @db.VarChar(24)
+  companyName   String?  @map("company_name") @db.VarChar(160)
+  billingEmail  String   @map("billing_email") @db.Citext
+  phone         String?  @db.VarChar(32)
+  gstin         String?  @db.VarChar(15)
+  currency      String   @default("INR") @db.Char(3)
+  /// The payment provider's customer record (Razorpay customer id), made when a card is first saved.
+  paymentCustomerId String? @map("payment_customer_id") @db.VarChar(120)
+  /// Free-form notes visible to platform staff only.
+  internalNotes String?  @map("internal_notes")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId])
+  @@unique([accountNo])
+  @@map("customer_accounts")
+}
+
+model CustomerAddress {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  label      String   @default("Billing") @db.VarChar(40)
+  line1      String   @db.VarChar(200)
+  line2      String?  @db.VarChar(200)
+  city       String   @db.VarChar(80)
+  state      String   @db.VarChar(80)
+  /// GST state code (2 digits) used for CGST/SGST vs IGST.
+  stateCode  String?  @map("state_code") @db.VarChar(4)
+  postalCode String   @map("postal_code") @db.VarChar(16)
+  country    String   @default("IN") @db.Char(2)
+  isDefault  Boolean  @default(false) @map("is_default")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("customer_addresses")
+}
+
+// ───────────────────────────── Hosting ─────────────────────────────
+
+model HostingServer {
+  id             String       @id @default(uuid()) @db.Uuid
+  name           String       @db.VarChar(80)
+  hostname       String       @db.VarChar(255)
+  ipAddress      String       @map("ip_address") @db.Inet
+  panel          HostingPanel
+  location       String?      @db.VarChar(80)
+  status         ServerStatus @default(ACTIVE)
+  maxAccounts    Int          @default(500) @map("max_accounts")
+  /// Panel API credentials, encrypted (AES-256-GCM). Never returned by the API.
+  credentialsEnc String?      @map("credentials_enc")
+  nameservers    String[]     @default([])
+  /// The panel's API port (WHM 2087, Plesk 8443). Null: the panel's usual one.
+  port           Int?
+  /// WHM: the user the API token belongs to (root or a reseller). Unused for Plesk.
+  username       String?      @db.VarChar(64)
+  /// verify, skip (self-signed certificate) or off (tests only).
+  tls            String       @default("verify") @db.VarChar(8)
+  lastCheckedAt  DateTime?    @map("last_checked_at") @db.Timestamptz(3)
+  lastCheck      String?      @map("last_check") @db.VarChar(255)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  accounts HostingAccount[]
+
+  @@unique([hostname])
+  @@map("hosting_servers")
+}
+
+model HostingAccount {
+  id             String               @id @default(uuid()) @db.Uuid
+  tenantId       String               @map("tenant_id") @db.Uuid
+  subscriptionId String?              @map("subscription_id") @db.Uuid
+  planId         String               @map("plan_id") @db.Uuid
+  serverId       String?              @map("server_id") @db.Uuid
+  primaryDomain  String               @map("primary_domain") @db.VarChar(253)
+  /// Username on the hosting panel, set once provisioned.
+  panelUsername  String?              @map("panel_username") @db.VarChar(32)
+  status         HostingAccountStatus @default(PENDING)
+  provisionedAt  DateTime?            @map("provisioned_at") @db.Timestamptz(3)
+  suspendedAt    DateTime?            @map("suspended_at") @db.Timestamptz(3)
+  suspendReason  String?              @map("suspend_reason") @db.VarChar(255)
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  subscription Subscription?     @relation(fields: [subscriptionId], references: [id])
+  plan         Plan              @relation(fields: [planId], references: [id])
+  server       HostingServer?    @relation(fields: [serverId], references: [id])
+  resources    HostingResource[]
+  jobs         ProvisioningJob[]
+
+  @@unique([serverId, panelUsername])
+  @@index([tenantId, status])
+  @@index([subscriptionId])
+  @@index([planId])
+  @@map("hosting_accounts")
+}
+
+/// Latest usage snapshot per metric for a hosting account (synced by the worker).
+model HostingResource {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  hostingAccountId String   @map("hosting_account_id") @db.Uuid
+  /// e.g. disk_mb, bandwidth_mb, inodes, email_accounts, databases
+  metric           String   @db.VarChar(40)
+  used             Decimal  @db.Decimal(18, 2)
+  limitValue       Decimal? @map("limit_value") @db.Decimal(18, 2)
+  measuredAt       DateTime @map("measured_at") @db.Timestamptz(3)
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hostingAccount HostingAccount @relation(fields: [hostingAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([hostingAccountId, metric])
+  @@index([tenantId])
+  @@map("hosting_resources")
+}
+
+model ProvisioningJob {
+  id               String             @id @default(uuid()) @db.Uuid
+  tenantId         String             @map("tenant_id") @db.Uuid
+  hostingAccountId String             @map("hosting_account_id") @db.Uuid
+  action           ProvisioningAction
+  status           JobStatus          @default(QUEUED)
+  attempts         Int                @default(0)
+  /// Sanitised provider response / error. Never contains credentials.
+  result           Json?
+  errorMessage     String?            @map("error_message")
+  /// Idempotency key forwarded to the provider adapter.
+  idempotencyKey   String             @map("idempotency_key") @db.VarChar(80)
+  /// What the job should do, for example the new plan for CHANGE_PLAN or a reason for SUSPEND. Never contains credentials.
+  payload          Json?
+  /// Not picked up before this time. A retry sets it to wait out a back-off.
+  availableAt      DateTime           @default(now()) @map("available_at") @db.Timestamptz(3)
+  queuedAt         DateTime           @default(now()) @map("queued_at") @db.Timestamptz(3)
+  startedAt        DateTime?          @map("started_at") @db.Timestamptz(3)
+  finishedAt       DateTime?          @map("finished_at") @db.Timestamptz(3)
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hostingAccount HostingAccount @relation(fields: [hostingAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([idempotencyKey])
+  @@index([tenantId, status])
+  @@index([hostingAccountId])
+  @@index([status, availableAt])
+  @@map("provisioning_jobs")
+}
+
+// ───────────────────────────── Domains ─────────────────────────────
+
+/// What the website charges to register, renew and transfer a domain ending (rupees, set by admins). Real prices only:
+/// development samples are flagged and never created in production.
+model TldPrice {
+  id            String   @id @default(uuid()) @db.Uuid
+  /// Without the dot, lower case: "com", "co.in".
+  tld           String   @db.Citext
+  registerPrice Decimal  @map("register_price") @db.Decimal(14, 2)
+  renewPrice    Decimal  @map("renew_price") @db.Decimal(14, 2)
+  transferPrice Decimal  @map("transfer_price") @db.Decimal(14, 2)
+  isActive      Boolean  @default(true) @map("is_active")
+  isFeatured    Boolean  @default(false) @map("is_featured")
+  sortOrder     Int      @default(0) @map("sort_order")
+  isSample      Boolean  @default(false) @map("is_sample")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([tld])
+  @@map("tld_prices")
+}
+
+enum DomainRenewalStatus {
+  PENDING
+  DONE
+  CANCELLED
+}
+
+/// A request to extend a domain by some years, paid by its own invoice. Staff renew it at the registrar and mark it done.
+model DomainRenewal {
+  id          String              @id @default(uuid()) @db.Uuid
+  tenantId    String              @map("tenant_id") @db.Uuid
+  domainId    String              @map("domain_id") @db.Uuid
+  years       Int
+  invoiceId   String              @unique @map("invoice_id") @db.Uuid
+  status      DomainRenewalStatus @default(PENDING)
+  failureReason String?           @map("failure_reason") @db.VarChar(255)
+  requestedAt DateTime            @default(now()) @map("requested_at") @db.Timestamptz(3)
+  completedAt DateTime?           @map("completed_at") @db.Timestamptz(3)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  domain  Domain  @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@index([tenantId])
+  @@index([domainId, status])
+  @@map("domain_renewals")
+}
+
+/// Moving a domain away to another registrar. REQUESTED: waiting for the domain to be unlocked and its code issued. RELEASED:
+/// the customer has the code and starts the transfer at the new registrar. It ends COMPLETED when the domain leaves, or
+/// CANCELLED. One live request per domain (partial unique index in the migration).
+/// A nameserver change the customer asked for. Made at the registrar by the worker, or by staff by hand.
+model DomainNameserverChange {
+  id            String                 @id @default(uuid()) @db.Uuid
+  tenantId      String                 @map("tenant_id") @db.Uuid
+  domainId      String                 @map("domain_id") @db.Uuid
+  nameservers   String[]
+  status        NameserverChangeStatus @default(REQUESTED)
+  failureReason String?                @map("failure_reason") @db.VarChar(255)
+  requestedAt   DateTime               @default(now()) @map("requested_at") @db.Timestamptz(3)
+  completedAt   DateTime?              @map("completed_at") @db.Timestamptz(3)
+  updatedAt     DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  domain Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("domain_nameserver_changes")
+}
+
+/// A contact-details change the customer asked for. Made at the registrar by the worker, or by staff by hand.
+model DomainContactChange {
+  id            String              @id @default(uuid()) @db.Uuid
+  tenantId      String              @map("tenant_id") @db.Uuid
+  domainId      String              @map("domain_id") @db.Uuid
+  contact       Json
+  status        ContactChangeStatus @default(REQUESTED)
+  failureReason String?             @map("failure_reason") @db.VarChar(255)
+  requestedAt   DateTime            @default(now()) @map("requested_at") @db.Timestamptz(3)
+  completedAt   DateTime?           @map("completed_at") @db.Timestamptz(3)
+  updatedAt     DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  domain Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("domain_contact_changes")
+}
+
+model DomainTransferOut {
+  id            String            @id @default(uuid()) @db.Uuid
+  tenantId      String            @map("tenant_id") @db.Uuid
+  domainId      String            @map("domain_id") @db.Uuid
+  status        TransferOutStatus @default(REQUESTED)
+  /// The authorisation code, encrypted. Shown only to the customer, on request; deleted when the request ends.
+  authCodeEnc   String?           @map("auth_code_enc")
+  failureReason String?           @map("failure_reason") @db.VarChar(255)
+  requestedAt   DateTime          @default(now()) @map("requested_at") @db.Timestamptz(3)
+  releasedAt    DateTime?         @map("released_at") @db.Timestamptz(3)
+  completedAt   DateTime?         @map("completed_at") @db.Timestamptz(3)
+  updatedAt     DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  domain Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("domain_transfer_outs")
+}
+
+/// Tax a business customer deducted at source (TDS) instead of paying it to us. It counts towards paying the invoice, but it is
+/// not money we received, so it can never be refunded by us. The customer owes us the TDS certificate (Form 16A).
+model TdsDeduction {
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  invoiceId         String    @unique @map("invoice_id") @db.Uuid
+  amount            Decimal   @db.Decimal(14, 2)
+  /// The Income Tax Act section the customer deducted under, such as 194J or 194C.
+  section           String?   @db.VarChar(20)
+  certificateNumber String?   @map("certificate_number") @db.VarChar(60)
+  certificateAt     DateTime? @map("certificate_at") @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@index([tenantId])
+  @@index([certificateAt])
+  @@map("tds_deductions")
+}
+
+model DomainRegistrar {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String   @db.VarChar(80)
+  /// Adapter key: "mock", "resellerclub", "namecheap", "openprovider" …
+  adapter        String   @db.VarChar(40)
+  isDefault      Boolean  @default(false) @map("is_default")
+  isActive       Boolean  @default(true) @map("is_active")
+  credentialsEnc String?  @map("credentials_enc")
+  /// Supported TLDs with their prices, e.g. [{"tld":".com","register":999,"renew":1299,"transfer":999}]
+  tldPricing     Json     @default("[]") @map("tld_pricing")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  domains   Domain[]
+  transfers DomainTransfer[]
+
+  @@unique([name])
+  @@map("domain_registrars")
+}
+
+model Domain {
+  id             String       @id @default(uuid()) @db.Uuid
+  tenantId       String       @map("tenant_id") @db.Uuid
+  subscriptionId String?      @map("subscription_id") @db.Uuid
+  registrarId    String?      @map("registrar_id") @db.Uuid
+  /// Fully-qualified, lower-case, punycode (e.g. "example.com").
+  name           String       @db.VarChar(253)
+  tld            String       @db.VarChar(63)
+  status         DomainStatus @default(PENDING_REGISTRATION)
+  registeredAt   DateTime?    @map("registered_at") @db.Timestamptz(3)
+  expiresAt      DateTime?    @map("expires_at") @db.Timestamptz(3)
+  autoRenew      Boolean      @default(true) @map("auto_renew")
+  privacyEnabled Boolean      @default(true) @map("privacy_enabled")
+  locked         Boolean      @default(true)
+  nameservers    String[]     @default([])
+  /// Contact details last recorded (registrant, also admin/tech/billing). Null: the organisation's details at registration.
+  contact        Json?
+  registrarRef   String?      @map("registrar_ref") @db.VarChar(120)
+  /// Years paid for in the order that created it.
+  years          Int          @default(1)
+  /// The invoice that pays for the registration. Unique: one order, one domain.
+  orderInvoiceId String?      @unique @map("order_invoice_id") @db.Uuid
+  /// Why staff could not register it (shown to the customer).
+  failureReason  String?      @map("failure_reason") @db.VarChar(255)
+  /// Which expiry reminder was last sent: 0 none, 1 thirty days, 2 seven days, 3 expired.
+  reminderStage  Int          @default(0) @map("reminder_stage")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  renewals     DomainRenewal[]
+  transferOuts DomainTransferOut[]
+  nameserverChanges DomainNameserverChange[]
+  contactChanges DomainContactChange[]
+  subscription Subscription?    @relation(fields: [subscriptionId], references: [id])
+  registrar    DomainRegistrar? @relation(fields: [registrarId], references: [id])
+  orderInvoice Invoice?         @relation("DomainOrderInvoice", fields: [orderInvoiceId], references: [id])
+  dnsRecords   DnsRecord[]
+  transfers    DomainTransfer[]
+
+  @@index([tenantId, status])
+  @@index([expiresAt])
+  @@index([subscriptionId])
+  @@index([registrarId])
+  @@map("domains")
+}
+
+model DnsRecord {
+  id        String        @id @default(uuid()) @db.Uuid
+  tenantId  String        @map("tenant_id") @db.Uuid
+  domainId  String        @map("domain_id") @db.Uuid
+  type      DnsRecordType
+  /// Relative host ("@", "www", "mail").
+  name      String        @db.VarChar(253)
+  content   String        @db.VarChar(1024)
+  ttl       Int           @default(3600)
+  priority  Int?
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  domain Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([domainId, type, name])
+  @@map("dns_records")
+}
+
+model DomainTransfer {
+  id            String         @id @default(uuid()) @db.Uuid
+  tenantId      String         @map("tenant_id") @db.Uuid
+  domainId      String         @map("domain_id") @db.Uuid
+  registrarId   String?        @map("registrar_id") @db.Uuid
+  status        TransferStatus @default(REQUESTED)
+  /// EPP/auth code, encrypted. Never returned by the API.
+  authCodeEnc   String?        @map("auth_code_enc")
+  failureReason String?        @map("failure_reason") @db.VarChar(255)
+  /// The invoice that pays for bringing the domain to us.
+  invoiceId     String?        @unique @map("invoice_id") @db.Uuid
+  requestedAt   DateTime       @default(now()) @map("requested_at") @db.Timestamptz(3)
+  completedAt   DateTime?      @map("completed_at") @db.Timestamptz(3)
+  updatedAt     DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  domain    Domain           @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  registrar DomainRegistrar? @relation(fields: [registrarId], references: [id])
+  invoice   Invoice?         @relation(fields: [invoiceId], references: [id])
+
+  @@index([tenantId, status])
+  @@index([domainId])
+  @@index([registrarId])
+  @@map("domain_transfers")
+}
+
+// ───────────────────────────── Subscriptions ─────────────────────────────
+
+model Subscription {
+  id                 String             @id @default(uuid()) @db.Uuid
+  tenantId           String             @map("tenant_id") @db.Uuid
+  status             SubscriptionStatus @default(PENDING)
+  billingCycle       BillingCycle       @map("billing_cycle")
+  currency           String             @default("INR") @db.Char(3)
+  currentPeriodStart DateTime?          @map("current_period_start") @db.Timestamptz(3)
+  currentPeriodEnd   DateTime?          @map("current_period_end") @db.Timestamptz(3)
+  autoRenew          Boolean            @default(true) @map("auto_renew")
+  cancelAtPeriodEnd  Boolean            @default(false) @map("cancel_at_period_end")
+  cancelledAt        DateTime?          @map("cancelled_at") @db.Timestamptz(3)
+  /// A plan change the customer asked for. It takes effect when the next renewal is paid; until then the current plan stays.
+  scheduledPlanId    String?            @map("scheduled_plan_id") @db.Uuid
+  scheduledAt        DateTime?          @map("scheduled_at") @db.Timestamptz(3)
+  /// A recurring coupon the subscription was ordered with, and how many more renewals it discounts (null: every renewal).
+  couponId           String?            @map("coupon_id") @db.Uuid
+  couponPeriodsLeft  Int?               @map("coupon_periods_left")
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  scheduledPlan   Plan?                 @relation("ScheduledPlan", fields: [scheduledPlanId], references: [id], onDelete: SetNull)
+  coupon          Coupon?               @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  items           SubscriptionItem[]
+  history         SubscriptionHistory[]
+  invoices        Invoice[]
+  hostingAccounts HostingAccount[]
+  domains         Domain[]
+
+  @@index([tenantId, status])
+  @@index([status, currentPeriodEnd])
+  @@index([scheduledPlanId])
+  @@index([couponId])
+  @@map("subscriptions")
+}
+
+/// Price snapshot: unit_price/renewal_price are copied from pricing_versions at
+/// purchase time so later catalogue changes never alter existing contracts.
+model SubscriptionItem {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  subscriptionId   String   @map("subscription_id") @db.Uuid
+  planId           String   @map("plan_id") @db.Uuid
+  pricingVersionId String   @map("pricing_version_id") @db.Uuid
+  description      String   @db.VarChar(255)
+  quantity         Int      @default(1)
+  unitPrice        Decimal  @map("unit_price") @db.Decimal(14, 2)
+  renewalPrice     Decimal  @map("renewal_price") @db.Decimal(14, 2)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription   Subscription   @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  plan           Plan           @relation(fields: [planId], references: [id])
+  pricingVersion PricingVersion @relation(fields: [pricingVersionId], references: [id])
+
+  @@index([tenantId])
+  @@index([subscriptionId])
+  @@index([planId])
+  @@index([pricingVersionId])
+  @@map("subscription_items")
+}
+
+model SubscriptionHistory {
+  id             String              @id @default(uuid()) @db.Uuid
+  tenantId       String              @map("tenant_id") @db.Uuid
+  subscriptionId String              @map("subscription_id") @db.Uuid
+  event          SubscriptionEvent
+  fromStatus     SubscriptionStatus? @map("from_status")
+  toStatus       SubscriptionStatus  @map("to_status")
+  details        Json?
+  actorUserId    String?             @map("actor_user_id") @db.Uuid
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([subscriptionId, createdAt])
+  @@map("subscription_history")
+}
+
+// ───────────────────────────── Billing ─────────────────────────────
+
+model Invoice {
+  id              String        @id @default(uuid()) @db.Uuid
+  tenantId        String        @map("tenant_id") @db.Uuid
+  subscriptionId  String?       @map("subscription_id") @db.Uuid
+  /// Sequential, gap-free per financial year: INV-2026-000123.
+  number          String        @db.VarChar(32)
+  status          InvoiceStatus @default(DRAFT)
+  currency        String        @default("INR") @db.Char(3)
+  subtotal        Decimal       @db.Decimal(14, 2)
+  discountTotal   Decimal       @default(0) @map("discount_total") @db.Decimal(14, 2)
+  taxTotal        Decimal       @default(0) @map("tax_total") @db.Decimal(14, 2)
+  total           Decimal       @db.Decimal(14, 2)
+  amountPaid      Decimal       @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  /// Automatic charges of this (renewal) invoice to a saved card: how many were tried, and when the last one was.
+  autoChargeAttempts Int        @default(0) @map("auto_charge_attempts")
+  autoChargeLastAt   DateTime?  @map("auto_charge_last_at") @db.Timestamptz(3)
+  /// Snapshot of seller/buyer details and tax breakdown at issue time (GSTIN, addresses, CGST/SGST/IGST).
+  billingSnapshot Json          @default("{}") @map("billing_snapshot")
+  issuedAt        DateTime?     @map("issued_at") @db.Timestamptz(3)
+  dueAt           DateTime?     @map("due_at") @db.Timestamptz(3)
+  paidAt          DateTime?     @map("paid_at") @db.Timestamptz(3)
+  voidedAt        DateTime?     @map("voided_at") @db.Timestamptz(3)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+  domainOrder  Domain?       @relation("DomainOrderInvoice")
+  domainRenewal DomainRenewal?
+  domainTransfer DomainTransfer?
+  tdsDeduction  TdsDeduction?
+  items        InvoiceItem[]
+  payments     Payment[]
+  refunds      Refund[]
+  creditNotes  CreditNote[]
+  disputes     PaymentDispute[]
+
+  @@unique([number])
+  @@index([tenantId, status])
+  @@index([status, dueAt])
+  @@index([subscriptionId])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  invoiceId   String    @map("invoice_id") @db.Uuid
+  description String    @db.VarChar(255)
+  /// SAC code for GST (e.g. 998315 hosting, 998314 IT design/dev).
+  sacCode     String?   @map("sac_code") @db.VarChar(8)
+  quantity    Int       @default(1)
+  unitPrice   Decimal   @map("unit_price") @db.Decimal(14, 2)
+  discount    Decimal   @default(0) @db.Decimal(14, 2)
+  taxRate     Decimal   @default(0) @map("tax_rate") @db.Decimal(6, 3)
+  taxAmount   Decimal   @default(0) @map("tax_amount") @db.Decimal(14, 2)
+  lineTotal   Decimal   @map("line_total") @db.Decimal(14, 2)
+  periodStart DateTime? @map("period_start") @db.Timestamptz(3)
+  periodEnd   DateTime? @map("period_end") @db.Timestamptz(3)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
+
+model Payment {
+  id                String          @id @default(uuid()) @db.Uuid
+  tenantId          String          @map("tenant_id") @db.Uuid
+  invoiceId         String          @map("invoice_id") @db.Uuid
+  provider          PaymentProvider
+  status            PaymentStatus   @default(CREATED)
+  amount            Decimal         @db.Decimal(14, 2)
+  currency          String          @default("INR") @db.Char(3)
+  /// Provider order / intent id (Razorpay order_id, Stripe PaymentIntent id).
+  providerOrderId   String?         @map("provider_order_id") @db.VarChar(120)
+  /// Provider payment id once captured.
+  providerPaymentId String?         @map("provider_payment_id") @db.VarChar(120)
+  /// e.g. upi, card, netbanking — never card numbers.
+  method            String?         @db.VarChar(32)
+  failureReason     String?         @map("failure_reason") @db.VarChar(255)
+  idempotencyKey    String          @map("idempotency_key") @db.VarChar(80)
+  verifiedAt        DateTime?       @map("verified_at") @db.Timestamptz(3)
+  /// The customer asked to save the card used for this checkout.
+  savesCard         Boolean         @default(false) @map("saves_card")
+  /// Set on a charge we made automatically to a saved card.
+  savedCardId       String?         @map("saved_card_id") @db.Uuid
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  invoice Invoice  @relation(fields: [invoiceId], references: [id])
+  savedCard SavedCard? @relation(fields: [savedCardId], references: [id], onDelete: SetNull)
+  refunds Refund[]
+  disputes PaymentDispute[]
+
+  @@unique([idempotencyKey])
+  @@unique([provider, providerPaymentId])
+  @@index([tenantId, status])
+  @@index([invoiceId])
+  @@index([provider, providerOrderId])
+  @@map("payments")
+}
+
+/// A GST credit note, issued for every successful refund. Numbered in its own gap-free series per financial year.
+/// The snapshot keeps seller, buyer, the original invoice and the CGST/SGST/IGST split exactly as they were at issue time.
+model CreditNote {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  invoiceId String   @map("invoice_id") @db.Uuid
+  refundId  String   @map("refund_id") @db.Uuid
+  /// CN-2026-27-000001
+  number    String   @db.VarChar(32)
+  currency  String   @default("INR") @db.Char(3)
+  /// Taxable value credited (before tax).
+  subtotal  Decimal  @db.Decimal(14, 2)
+  taxTotal  Decimal  @default(0) @map("tax_total") @db.Decimal(14, 2)
+  total     Decimal  @db.Decimal(14, 2)
+  reason    String   @db.VarChar(255)
+  snapshot  Json     @default("{}")
+  issuedAt  DateTime @default(now()) @map("issued_at") @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  refund  Refund  @relation(fields: [refundId], references: [id])
+
+  @@unique([number])
+  @@unique([refundId])
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@map("credit_notes")
+}
+
+model Refund {
+  id               String       @id @default(uuid()) @db.Uuid
+  tenantId         String       @map("tenant_id") @db.Uuid
+  paymentId        String       @map("payment_id") @db.Uuid
+  invoiceId        String       @map("invoice_id") @db.Uuid
+  amount           Decimal      @db.Decimal(14, 2)
+  currency         String       @default("INR") @db.Char(3)
+  reason           String       @db.VarChar(255)
+  status           RefundStatus @default(REQUESTED)
+  providerRefundId String?      @map("provider_refund_id") @db.VarChar(120)
+  requestedById    String?      @map("requested_by_id") @db.Uuid
+  approvedById     String?      @map("approved_by_id") @db.Uuid
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  payment Payment @relation(fields: [paymentId], references: [id])
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  creditNote CreditNote?
+
+  @@index([tenantId, status])
+  @@index([paymentId])
+  @@index([invoiceId])
+  @@map("refunds")
+}
+
+/// Raw inbound payment webhooks. (provider, event_id) is unique => duplicates are dropped.
+/// A card the customer saved for automatic renewal payments. The card stays with the provider; we hold its token id
+/// and what the customer needs to recognise it (network, last four digits, expiry). Never a card number.
+model SavedCard {
+  id                 String          @id @default(uuid()) @db.Uuid
+  tenantId           String          @map("tenant_id") @db.Uuid
+  provider           PaymentProvider
+  providerCustomerId String          @map("provider_customer_id") @db.VarChar(120)
+  providerTokenId    String          @map("provider_token_id") @db.VarChar(120)
+  status             SavedCardStatus @default(PENDING)
+  network            String?         @db.VarChar(40)
+  last4              String?         @db.VarChar(4)
+  expiryMonth        Int?            @map("expiry_month")
+  expiryYear         Int?            @map("expiry_year")
+  /// The most one automatic charge may take (the limit the standing instruction was set up with).
+  maxAmount          Decimal         @map("max_amount") @db.Decimal(14, 2)
+  /// The customer can keep the card but stop automatic payments.
+  autoPay            Boolean         @default(true) @map("auto_pay")
+  failureReason      String?         @map("failure_reason") @db.VarChar(255)
+  createdBy          String?         @map("created_by") @db.Uuid
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  confirmedAt        DateTime?       @map("confirmed_at") @db.Timestamptz(3)
+  removedAt          DateTime?       @map("removed_at") @db.Timestamptz(3)
+  updatedAt          DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@unique([provider, providerTokenId], map: "saved_cards_provider_token_key")
+  @@index([tenantId])
+  @@map("saved_cards")
+}
+
+/// A chargeback (dispute) a customer's bank raised against a payment, as the provider reports it. Staff answer it in the
+/// provider's dashboard; this keeps the deadline and the outcome. Staff only: customers do not see it.
+model PaymentDispute {
+  id                String          @id @default(uuid()) @db.Uuid
+  tenantId          String          @map("tenant_id") @db.Uuid
+  paymentId         String          @map("payment_id") @db.Uuid
+  invoiceId         String          @map("invoice_id") @db.Uuid
+  provider          PaymentProvider
+  providerDisputeId String          @map("provider_dispute_id") @db.VarChar(120)
+  amount            Decimal         @db.Decimal(14, 2)
+  currency          String          @default("INR") @db.Char(3)
+  /// What the provider has taken back from your balance for it.
+  amountDeducted    Decimal         @default(0) @map("amount_deducted") @db.Decimal(14, 2)
+  reasonCode        String?         @map("reason_code") @db.VarChar(60)
+  reason            String?         @db.VarChar(255)
+  /// chargeback, pre_arbitration, arbitration, retrieval or fraud, in the provider's words.
+  phase             String?         @db.VarChar(40)
+  status            DisputeStatus   @default(OPEN)
+  respondBy         DateTime?       @map("respond_by") @db.Timestamptz(3)
+  openedAt          DateTime        @default(now()) @map("opened_at") @db.Timestamptz(3)
+  resolvedAt        DateTime?       @map("resolved_at") @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerDisputeId], map: "payment_disputes_provider_dispute_key")
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@index([status])
+  @@map("payment_disputes")
+}
+
+model PaymentWebhook {
+  id          String          @id @default(uuid()) @db.Uuid
+  provider    PaymentProvider
+  eventId     String          @map("event_id") @db.VarChar(120)
+  eventType   String          @map("event_type") @db.VarChar(80)
+  signatureOk Boolean         @map("signature_ok")
+  payload     Json
+  processedAt DateTime?       @map("processed_at") @db.Timestamptz(3)
+  error       String?
+  receivedAt  DateTime        @default(now()) @map("received_at") @db.Timestamptz(3)
+
+  @@unique([provider, eventId])
+  @@index([processedAt])
+  @@map("payment_webhooks")
+}
+
+// ───────────────────────────── Support ─────────────────────────────
+
+model SupportTicket {
+  id          String         @id @default(uuid()) @db.Uuid
+  tenantId    String         @map("tenant_id") @db.Uuid
+  /// Human-friendly reference, e.g. TKT-4493.
+  number      Int            @default(autoincrement())
+  subject     String         @db.VarChar(200)
+  category    TicketCategory
+  priority    TicketPriority @default(MEDIUM)
+  status      TicketStatus   @default(OPEN)
+  openedById  String         @map("opened_by_id") @db.Uuid
+  assigneeId  String?        @map("assignee_id") @db.Uuid
+  lastReplyAt DateTime?      @map("last_reply_at") @db.Timestamptz(3)
+  resolvedAt  DateTime?      @map("resolved_at") @db.Timestamptz(3)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  openedBy    User               @relation("TicketOpener", fields: [openedById], references: [id])
+  assignee    User?              @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  messages    TicketMessage[]
+  attachments TicketAttachment[]
+
+  @@unique([number])
+  @@index([tenantId, status])
+  @@index([status, priority, createdAt])
+  @@index([assigneeId])
+  @@index([openedById])
+  @@map("support_tickets")
+}
+
+model TicketMessage {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  ticketId   String   @map("ticket_id") @db.Uuid
+  authorId   String   @map("author_id") @db.Uuid
+  body       String
+  /// Internal staff notes are never visible to the customer.
+  isInternal Boolean  @default(false) @map("is_internal")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket      SupportTicket      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author      User               @relation(fields: [authorId], references: [id])
+  attachments TicketAttachment[]
+
+  @@index([tenantId])
+  @@index([ticketId, createdAt])
+  @@index([authorId])
+  @@map("ticket_messages")
+}
+
+model TicketAttachment {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  ticketId    String   @map("ticket_id") @db.Uuid
+  messageId   String?  @map("message_id") @db.Uuid
+  fileName    String   @map("file_name") @db.VarChar(255)
+  contentType String   @map("content_type") @db.VarChar(120)
+  sizeBytes   Int      @map("size_bytes")
+  /// Object-storage key (tenant-prefixed). Files are served via short-lived signed URLs.
+  storageKey  String   @map("storage_key") @db.VarChar(512)
+  sha256      String   @db.Char(64)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  tenant  Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ticket  SupportTicket  @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  message TicketMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@unique([storageKey])
+  @@index([tenantId])
+  @@index([ticketId])
+  @@index([messageId])
+  @@map("ticket_attachments")
+}
+
+// ───────────────────────────── System ─────────────────────────────
+
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tenantId  String?   @map("tenant_id") @db.Uuid
+  type      String    @db.VarChar(64)
+  title     String    @db.VarChar(200)
+  body      String?
+  link      String?   @db.VarChar(512)
+  readAt    DateTime? @map("read_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+  @@index([tenantId])
+  @@map("notifications")
+}
+
+/// Append-only. The app role has INSERT/SELECT only (no UPDATE/DELETE) — see RLS migration.
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String?  @map("tenant_id") @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  /// e.g. "tenant.suspend", "invoice.refund", "auth.login_failed"
+  action     String   @db.VarChar(80)
+  entityType String?  @map("entity_type") @db.VarChar(64)
+  entityId   String?  @map("entity_id") @db.VarChar(64)
+  /// Changed fields (before/after), with secrets redacted.
+  metadata   Json?
+  ipAddress  String?  @map("ip_address") @db.Inet
+  userAgent  String?  @map("user_agent") @db.VarChar(512)
+  requestId  String?  @map("request_id") @db.VarChar(64)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  actor  User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  /// Namespaced key, e.g. "company.profile", "email.provider", "payments.razorpay".
+  key         String   @id @db.VarChar(80)
+  /// Non-secret settings as JSON.
+  value       Json
+  /// Secret part (API keys etc.), encrypted. Never returned in full by the API.
+  secretEnc   String?  @map("secret_enc")
+  updatedById String?  @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("system_settings")
+}
+
+/// Transactional outbox: written in the same DB transaction as the business
+/// change, relayed to BullMQ by the worker. Guarantees at-least-once side effects.
+model OutboxEvent {
+  id            String       @id @default(uuid()) @db.Uuid
+  tenantId      String?      @map("tenant_id") @db.Uuid
+  type          String       @db.VarChar(80)
+  aggregateType String       @map("aggregate_type") @db.VarChar(64)
+  aggregateId   String       @map("aggregate_id") @db.VarChar(64)
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int          @default(0)
+  lastError     String?      @map("last_error")
+  availableAt   DateTime     @default(now()) @map("available_at") @db.Timestamptz(3)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  publishedAt   DateTime?    @map("published_at") @db.Timestamptz(3)
+
+  @@index([status, availableAt])
+  @@index([aggregateType, aggregateId])
+  @@map("outbox_events")
+}
+
+/// Public website contact / quote requests.
+model ContactInquiry {
+  id        String        @id @default(uuid()) @db.Uuid
+  name      String        @db.VarChar(120)
+  email     String        @db.Citext
+  phone     String?       @db.VarChar(32)
+  company   String?       @db.VarChar(160)
+  service   String?       @db.VarChar(80)
+  budget    String?       @db.VarChar(40)
+  message   String
+  status    InquiryStatus @default(NEW)
+  ipAddress String?       @map("ip_address") @db.Inet
+  /// When the visitor ticked "I agree that Ciril Info may contact me" (required to submit).
+  consentAt DateTime      @default(now()) @map("consent_at") @db.Timestamptz(3)
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, createdAt])
+  @@map("contact_inquiries")
+}
+
+// ───────────────────────────── Website content (admin-managed) ─────────────────────────────
+
+/// Customer testimonials shown on the public site. Nothing is shown until an admin
+/// publishes a testimonial and confirms the customer agreed to be quoted.
+model Testimonial {
+  id               String    @id @default(uuid()) @db.Uuid
+  quote            String    @db.VarChar(600)
+  authorName       String    @map("author_name") @db.VarChar(120)
+  /// e.g. "Founder, Pixelwise Studio"
+  authorRole       String?   @map("author_role") @db.VarChar(160)
+  avatarUrl        String?   @map("avatar_url") @db.VarChar(512)
+  /// Optional 1–5 star rating.
+  rating           Int?      @db.SmallInt
+  /// Where it may appear: "home", "hosting", "pricing", … Empty = everywhere.
+  placements       String[]  @default([])
+  isPublished      Boolean   @default(false) @map("is_published")
+  /// Publishing requires recorded consent from the customer.
+  consentConfirmed Boolean   @default(false) @map("consent_confirmed")
+  consentNote      String?   @map("consent_note") @db.VarChar(255)
+  isSample         Boolean   @default(false) @map("is_sample")
+  sortOrder        Int       @default(0) @map("sort_order")
+  publishedAt      DateTime? @map("published_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([isPublished, sortOrder])
+  @@map("testimonials")
+}
+
+/// FAQs shown on pricing and product pages. Grouped by `topic`
+/// ("pricing", "domain-registration", "business-email", …).
+model Faq {
+  id          String   @id @default(uuid()) @db.Uuid
+  topic       String   @db.VarChar(64)
+  question    String   @db.VarChar(255)
+  answer      String
+  isPublished Boolean  @default(false) @map("is_published")
+  isSample    Boolean  @default(false) @map("is_sample")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([topic, isPublished, sortOrder])
+  @@map("faqs")
+}
+
+/// "Our Work" projects shown on the public website. Admin-managed; development
+/// samples are flagged is_sample and clearly labelled on the page.
+model PortfolioProject {
+  id          String   @id @default(uuid()) @db.Uuid
+  slug        String   @unique @db.VarChar(120)
+  title       String   @db.VarChar(160)
+  clientName  String   @map("client_name") @db.VarChar(160)
+  /// Filter group, e.g. "Web Design", "Web Development".
+  category    String   @db.VarChar(64)
+  summary     String   @db.VarChar(400)
+  description String?
+  /// What the project covered, shown as a list in the details dialog.
+  scope       String[] @default([])
+  tags        String[] @default([])
+  imageUrl    String?  @map("image_url") @db.VarChar(512)
+  projectUrl  String?  @map("project_url") @db.VarChar(512)
+  isPublished Boolean  @default(false) @map("is_published")
+  isSample    Boolean  @default(false) @map("is_sample")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([isPublished, category, sortOrder])
+  @@map("portfolio_projects")
+}
+
+/// Gap-free per-key counters (e.g. "invoice:2026-27"). Incremented under a row lock
+/// inside the same transaction that uses the number, so a rollback never leaves a gap.
+model DocumentCounter {
+  key   String @id @db.VarChar(64)
+  value Int    @default(0)
+
+  @@map("document_counters")
+}

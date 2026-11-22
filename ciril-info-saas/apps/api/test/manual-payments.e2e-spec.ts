@@ -1,0 +1,336 @@
+import { randomUUID } from 'node:crypto';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import request from 'supertest';
+import type { PlatformPrisma } from '../src/database/prisma-clients.js';
+import { cleanupUsers, createStaff, createTestApp, customer, platformDb, staffToken } from './utils.js';
+
+/** Payments recorded by hand: a bank transfer, UPI, cheque or cash that reached the business outside the checkout. */
+describe('Manual payments (e2e)', () => {
+  let app: NestExpressApplication;
+  let db: PlatformPrisma;
+  const tag = randomUUID().slice(0, 8);
+  const emails: string[] = [];
+  let alice: Awaited<ReturnType<typeof customer>>;
+  let finance: string;
+  let agent: string;
+  let superAdmin: string;
+  let planId: string;
+  const today = new Date().toISOString().slice(0, 10);
+
+  const http = () => request(app.getHttpServer());
+  const auth = (t: string) => ({ Authorization: `Bearer ${t}` });
+  const api = (p: string) => `/api/v1/${p}`;
+  const address = { line1: '1 Test Street', city: 'Pune', stateCode: '27', postalCode: '411001' };
+  const bank = (over: object = {}) => ({ method: 'BANK_TRANSFER', reference: `UTR${tag}`, receivedOn: today, ...over });
+  const record = (invoiceId: string, body: object, token = finance) => http().post(api(`admin/invoices/${invoiceId}/payments`)).set(auth(token)).send(body);
+  /** A fresh unpaid invoice (and a pending subscription) for alice. */
+  async function invoice() {
+    const o = await http().post(api('orders')).set(auth(alice.token)).send({ planId, billingCycle: 'YEARLY' }).expect(201);
+    return { id: o.body.invoice.id as string, subscriptionId: o.body.subscriptionId as string, total: o.body.invoice.total as string };
+  }
+  const inv = (id: string) => db.invoice.findUniqueOrThrow({ where: { id }, include: { payments: true } });
+
+  beforeAll(async () => {
+    app = await createTestApp();
+    db = platformDb();
+    alice = await customer(app, db, 'man-a');
+    const fin = await createStaff(db, 'FINANCE_ADMIN', 'manfin');
+    const ag = await createStaff(db, 'SUPPORT_AGENT', 'managent');
+    const sa = await createStaff(db, 'SUPER_ADMIN', 'mansa');
+    emails.push(alice.email, fin.email, ag.email, sa.email);
+    [finance, agent, superAdmin] = await Promise.all([staffToken(app, db, fin), staffToken(app, db, ag), staffToken(app, db, sa)]);
+    await http().post(api('organisation/addresses')).set(auth(alice.token)).send(address).expect(201);
+    const category = await db.productCategory.upsert({ where: { slug: 'hosting' }, update: {}, create: { slug: 'hosting', name: 'Hosting' } });
+    const product = await db.product.create({ data: { categoryId: category.id, slug: `t-man-${tag}`, name: `Man ${tag}`, type: 'WEB_HOSTING', status: 'PUBLISHED' } });
+    const plan = await db.plan.create({ data: { productId: product.id, slug: `p-${tag}`, name: `Plan ${tag}`, status: 'PUBLISHED', isSample: true } });
+    await db.pricingVersion.create({ data: { planId: plan.id, billingCycle: 'YEARLY', price: '1000.00', renewalPrice: '1000.00' } });
+    planId = plan.id;
+  });
+
+  afterAll(async () => {
+    const tenantIds = [alice?.tenantId].filter(Boolean) as string[];
+    await db.creditNote.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.tdsDeduction.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.refund.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.invoice.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.subscription.deleteMany({ where: { tenantId: { in: tenantIds } } });
+    await db.outboxEvent.deleteMany({ where: { tenantId: { in: tenantIds }, type: 'subscription.activated' } });
+    await db.pricingVersion.deleteMany({ where: { planId } });
+    await db.plan.deleteMany({ where: { id: planId } });
+    await db.product.deleteMany({ where: { slug: `t-man-${tag}` } });
+    await cleanupUsers(db, emails);
+    await app.close();
+  });
+
+  it('needs billing write access', async () => {
+    const i = await invoice();
+    await http().post(api(`admin/invoices/${i.id}/payments`)).send(bank()).expect(401);
+    await record(i.id, bank(), alice.token).expect(403);
+    await record(i.id, bank(), agent).expect(403);
+    expect((await inv(i.id)).status).toBe('ISSUED');
+  });
+
+  it('validates what it is given', async () => {
+    const i = await invoice();
+    await record(i.id, bank({ method: 'BITCOIN' })).expect(400);
+    expect((await record(i.id, bank({ reference: '' })).expect(400)).body.error.message).toContain('reference');
+    expect((await record(i.id, { method: 'UPI', receivedOn: today }).expect(400)).body.error.message).toContain('reference');
+    await record(i.id, bank({ receivedOn: 'yesterday' })).expect(400);
+    await record(i.id, bank({ receivedOn: '2026-02-31' })).expect(400); // not a real day
+    const future = new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10);
+    expect((await record(i.id, bank({ receivedOn: future })).expect(400)).body.error.message).toContain('future');
+    expect((await record(i.id, bank({ receivedOn: '2000-01-01' })).expect(400)).body.error.message).toContain('before the invoice');
+    await record(i.id, bank({ idempotencyKey: 'not-a-uuid' })).expect(400);
+    expect((await inv(i.id)).payments).toHaveLength(0);
+  });
+
+  it('records the whole payment: the invoice is paid, the service starts, and the customer is told', async () => {
+    const i = await invoice();
+    const r = await record(i.id, bank({ reference: `UTR-A-${tag}`, note: 'HDFC, 19 Nov' })).expect(200);
+    expect(r.body.status).toBe('PAID');
+    const after = await inv(i.id);
+    expect(Number(after.amountPaid)).toBe(Number(after.total));
+    expect(after.paidAt).not.toBeNull();
+    expect(after.payments).toHaveLength(1);
+    expect(after.payments[0]).toMatchObject({ provider: 'MANUAL', status: 'SUCCEEDED', method: 'bank_transfer', providerPaymentId: `BANK_TRANSFER:UTR-A-${tag}`.toUpperCase() });
+    expect(after.payments[0]!.verifiedAt!.toISOString().slice(0, 10)).toBe(today); // when the money arrived
+    expect((await db.subscription.findUniqueOrThrow({ where: { id: i.subscriptionId } })).status).toBe('ACTIVE');
+    expect(await db.outboxEvent.count({ where: { type: 'subscription.activated', aggregateId: i.subscriptionId } })).toBe(1);
+    expect(await db.notification.count({ where: { tenantId: alice.tenantId, type: 'payment.succeeded', link: `/invoices/${i.id}` } })).toBe(1);
+    const audit = await db.auditLog.findFirstOrThrow({ where: { action: 'payment.manual_recorded', entityId: i.id } });
+    expect(audit.actorId).not.toBeNull();
+    expect(audit.metadata).toMatchObject({ method: 'BANK_TRANSFER', reference: `UTR-A-${tag}`, note: 'HDFC, 19 Nov', receivedOn: today });
+    // The customer sees it on their own invoice.
+    const mine = await http().get(api(`invoices/${i.id}`)).set(auth(alice.token)).expect(200);
+    expect(mine.body.status).toBe('PAID');
+  });
+
+  it('refuses a second payment on a paid invoice, and one on a voided invoice', async () => {
+    const paid = await invoice();
+    await record(paid.id, bank({ reference: `UTR-B-${tag}` })).expect(200);
+    expect((await record(paid.id, bank({ reference: `UTR-B2-${tag}` })).expect(409)).body.error.code).toBe('INVOICE_NOT_PAYABLE');
+    const voided = await invoice();
+    await http().post(api(`admin/invoices/${voided.id}/void`)).set(auth(superAdmin)).send({ reason: 'Customer cancelled' }).expect(200);
+    expect((await record(voided.id, bank({ reference: `UTR-C-${tag}` })).expect(409)).body.error.code).toBe('INVOICE_NOT_PAYABLE');
+    await record(randomUUID(), bank()).expect(404);
+  });
+
+  it('never records the same bank reference twice', async () => {
+    const a = await invoice();
+    const b = await invoice();
+    await record(a.id, bank({ reference: `UTR-D-${tag}` })).expect(200);
+    expect((await record(b.id, bank({ reference: ` utr-d-${tag} ` })).expect(409)).body.error.code).toBe('REFERENCE_ALREADY_RECORDED'); // case and spaces do not matter
+    expect((await inv(b.id)).payments).toHaveLength(0);
+    expect((await inv(b.id)).status).toBe('ISSUED');
+    // The same number under a different method is a different payment.
+    await record(b.id, bank({ method: 'UPI', reference: `UTR-D-${tag}` })).expect(200);
+  });
+
+  it('one form submission records one payment, even if it is sent twice', async () => {
+    const i = await invoice();
+    const key = randomUUID();
+    await record(i.id, bank({ reference: `UTR-E-${tag}`, idempotencyKey: key })).expect(200);
+    const again = await record(i.id, bank({ reference: `UTR-E-${tag}`, idempotencyKey: key })).expect(200);
+    expect(again.body.status).toBe('PAID');
+    expect((await inv(i.id)).payments).toHaveLength(1);
+  });
+
+  it('two staff recording at once pay the invoice once', async () => {
+    const i = await invoice();
+    const res = await Promise.all([record(i.id, bank({ reference: `UTR-F1-${tag}` })), record(i.id, bank({ reference: `UTR-F2-${tag}` }), superAdmin)]);
+    expect(res.map((r) => r.status).sort()).toEqual([200, 409]);
+    const after = await inv(i.id);
+    expect(after.payments.filter((p) => p.status === 'SUCCEEDED')).toHaveLength(1);
+    expect(await db.outboxEvent.count({ where: { type: 'subscription.activated', aggregateId: (await db.invoice.findUniqueOrThrow({ where: { id: i.id } })).subscriptionId! } })).toBe(1);
+  });
+
+  it('cash and "other" need no reference', async () => {
+    const i = await invoice();
+    await record(i.id, { method: 'CASH', receivedOn: today }).expect(200);
+    const p = (await inv(i.id)).payments[0]!;
+    expect(p).toMatchObject({ provider: 'MANUAL', method: 'cash', providerPaymentId: null });
+  });
+
+  it('bank details on the company profile are validated, and reach the invoice so customers can pay by transfer', async () => {
+    const original = await db.systemSetting.findUnique({ where: { key: 'company.profile' } });
+    try {
+      const current = (await http().get(api('admin/settings/company')).set(auth(superAdmin)).expect(200)).body;
+      const save = (bank: object) => http().put(api('admin/settings/company')).set(auth(superAdmin)).send({ ...current, bank });
+      const good = { accountName: 'Ciril Info Pvt Ltd', bankName: 'HDFC Bank', accountNumber: '50100123456789', ifsc: 'hdfc0001234', upiId: 'cirilinfo@hdfcbank' };
+      await save({ ...good, ifsc: 'NOTANIFSC' }).expect(400);
+      await save({ ...good, accountNumber: '12AB' }).expect(400);
+      await save({ ...good, upiId: 'no-at-sign' }).expect(400);
+      const saved = await save(good).expect(200);
+      expect(saved.body.bank).toMatchObject({ ifsc: 'HDFC0001234', accountNumber: '50100123456789' }); // IFSC is stored in capitals
+
+      const i = await invoice();
+      const snapshot = (await inv(i.id)).billingSnapshot as { seller?: { bank?: Record<string, string> } };
+      expect(snapshot.seller?.bank).toMatchObject({ bankName: 'HDFC Bank', upiId: 'cirilinfo@hdfcbank' });
+      // The customer's own copy carries it, so their invoice page can show how to pay.
+      const mine = await http().get(api(`invoices/${i.id}`)).set(auth(alice.token)).expect(200);
+      expect(mine.body.billingSnapshot.seller.bank.accountNumber).toBe('50100123456789');
+      // The public website never does.
+      expect(JSON.stringify((await http().get(api('public/site')).expect(200)).body)).not.toContain('50100123456789');
+    } finally {
+      if (original) await db.systemSetting.update({ where: { key: 'company.profile' }, data: { value: original.value as never } });
+    }
+  });
+
+  it('a payment recorded by hand can be refunded, without asking the gateway, and a credit note is issued', async () => {
+    const i = await invoice();
+    await record(i.id, bank({ reference: `UTR-G-${tag}` })).expect(200);
+    const r = await http().post(api(`admin/invoices/${i.id}/refunds`)).set(auth(finance)).send({ reason: 'Customer cancelled within the guarantee' }).expect(200);
+    expect(r.body.status).toBe('REFUNDED');
+    const refund = await db.refund.findFirstOrThrow({ where: { invoiceId: i.id } });
+    expect(refund).toMatchObject({ status: 'SUCCEEDED', providerRefundId: null }); // nothing came back from a gateway, because there was none
+    expect(await db.creditNote.count({ where: { invoiceId: i.id } })).toBe(1);
+  });
+
+  describe('TDS deducted by the customer', () => {
+    it('settles the invoice with the money received plus the TDS, and keeps the TDS apart from the payment', async () => {
+      const i = await invoice();
+      const total = Number(i.total);
+      const r = await record(i.id, bank({ reference: `UTR-T1-${tag}`, tdsAmount: 100, tdsSection: '194j' })).expect(200);
+      expect(r.body.status).toBe('PAID');
+      expect(r.body.tdsDeduction).toMatchObject({ section: '194J', certificateNumber: null, certificateAt: null });
+      expect(Number(r.body.tdsDeduction.amount)).toBe(100);
+      const after = await inv(i.id);
+      expect(Number(after.amountPaid)).toBe(total); // paid in full
+      expect(after.payments).toHaveLength(1);
+      expect(Number(after.payments[0]!.amount)).toBe(total - 100); // what actually reached us
+      const audit = await db.auditLog.findFirstOrThrow({ where: { action: 'payment.manual_recorded', entityId: i.id } });
+      expect(audit.metadata).toMatchObject({ tds: '100.00', tdsSection: '194J' });
+      // The customer sees it on their invoice.
+      const mine = await http().get(api(`invoices/${i.id}`)).set(auth(alice.token)).expect(200);
+      expect(Number(mine.body.tdsDeduction.amount)).toBe(100);
+      expect(mine.body.tdsDeduction.certificateAt).toBeNull();
+    });
+
+    it('refuses TDS that is not less than the amount due, and an odd section', async () => {
+      const i = await invoice();
+      await record(i.id, bank({ reference: `UTR-T2-${tag}`, tdsAmount: Number(i.total) })).expect(400);
+      await record(i.id, bank({ reference: `UTR-T2-${tag}`, tdsAmount: 10, tdsSection: 'section 194 J' })).expect(400);
+      await record(i.id, bank({ reference: `UTR-T2-${tag}`, tdsAmount: 0 })).expect(400);
+      expect((await inv(i.id)).payments).toHaveLength(0);
+      expect(await db.tdsDeduction.count({ where: { invoiceId: i.id } })).toBe(0);
+    });
+
+    it('a refund can only return the money that actually reached us, never the TDS', async () => {
+      const i = await invoice();
+      await record(i.id, bank({ reference: `UTR-T3-${tag}`, tdsAmount: 100 })).expect(200);
+      const received = Number(i.total) - 100;
+      const tooMuch = await http().post(api(`admin/invoices/${i.id}/refunds`)).set(auth(finance)).send({ amount: received + 1, reason: 'Over the received amount' }).expect(409);
+      expect(tooMuch.body.error.code).toBe('REFUND_TOO_LARGE');
+      await http().post(api(`admin/invoices/${i.id}/refunds`)).set(auth(finance)).send({ reason: 'Customer cancelled' }).expect(200);
+      const refund = await db.refund.findFirstOrThrow({ where: { invoiceId: i.id } });
+      expect(Number(refund.amount)).toBe(received);
+    });
+
+    it('tracks the certificate: listed until it arrives, recorded once, and only staff with billing write may record it', async () => {
+      const i = await invoice();
+      await record(i.id, bank({ reference: `UTR-T4-${tag}`, tdsAmount: 50, tdsSection: '194C' })).expect(200);
+      const pending = await http().get(api('admin/tds')).query({ pending: 'true' }).set(auth(agent)).expect(200); // billing:read can see the list
+      expect(pending.body.data.map((t: { invoice: { id: string } }) => t.invoice.id)).toContain(i.id);
+      await http().post(api(`admin/invoices/${i.id}/tds-certificate`)).set(auth(agent)).send({ certificateNumber: 'ABCD1234' }).expect(403);
+      await http().post(api(`admin/invoices/${i.id}/tds-certificate`)).set(auth(finance)).send({ certificateNumber: 'x' }).expect(400);
+      const done = await http().post(api(`admin/invoices/${i.id}/tds-certificate`)).set(auth(finance)).send({ certificateNumber: 'ABCDE1234F-Q2' }).expect(200);
+      expect(done.body.tdsDeduction).toMatchObject({ certificateNumber: 'ABCDE1234F-Q2' });
+      expect(done.body.tdsDeduction.certificateAt).not.toBeNull();
+      expect((await http().post(api(`admin/invoices/${i.id}/tds-certificate`)).set(auth(finance)).send({ certificateNumber: 'AGAIN123' }).expect(409)).body.error.code).toBe('TDS_CERTIFICATE_RECORDED');
+      const still = await http().get(api('admin/tds')).query({ pending: 'true' }).set(auth(finance)).expect(200);
+      expect(still.body.data.map((t: { invoice: { id: string } }) => t.invoice.id)).not.toContain(i.id);
+      expect(await db.auditLog.count({ where: { action: 'tds.certificate_received', entityId: i.id } })).toBe(1);
+      // An invoice without TDS has no certificate to record.
+      const plain = await invoice();
+      await record(plain.id, bank({ reference: `UTR-T5-${tag}` })).expect(200);
+      await http().post(api(`admin/invoices/${plain.id}/tds-certificate`)).set(auth(finance)).send({ certificateNumber: 'ABCD1234' }).expect(404);
+    });
+  });
+
+  describe('paying in parts', () => {
+    const subOf = async (invoiceId: string) => (await db.invoice.findUniqueOrThrow({ where: { id: invoiceId } })).subscriptionId!;
+
+    it('a part payment keeps the invoice open, and the service starts only when it is paid in full', async () => {
+      const i = await invoice();
+      const total = Number(i.total);
+      const r = await record(i.id, bank({ reference: `UTR-P1-${tag}`, amount: 400 })).expect(200);
+      expect(r.body.status).toBe('PARTIALLY_PAID');
+      expect(Number(r.body.amountPaid)).toBe(400);
+      const sub = await subOf(i.id);
+      expect((await db.subscription.findUniqueOrThrow({ where: { id: sub } })).status).toBe('PENDING'); // not yet
+      expect(await db.outboxEvent.count({ where: { type: 'subscription.activated', aggregateId: sub } })).toBe(0);
+      const note = await db.notification.findFirstOrThrow({ where: { tenantId: alice.tenantId, type: 'payment.partial', link: `/invoices/${i.id}` } });
+      expect(note.body).toContain((total - 400).toFixed(2));
+
+      // More than what is left is refused; exactly what is left completes it.
+      expect((await record(i.id, bank({ reference: `UTR-P2-${tag}`, amount: total })).expect(400)).body.error.message).toContain('more than is due');
+      const done = await record(i.id, bank({ reference: `UTR-P3-${tag}`, amount: total - 400 })).expect(200);
+      expect(done.body.status).toBe('PAID');
+      expect(Number(done.body.amountPaid)).toBe(total);
+      expect((await db.subscription.findUniqueOrThrow({ where: { id: sub } })).status).toBe('ACTIVE');
+      expect(await db.outboxEvent.count({ where: { type: 'subscription.activated', aggregateId: sub } })).toBe(1);
+      expect((await inv(i.id)).payments.filter((p) => p.status === 'SUCCEEDED')).toHaveLength(2);
+    });
+
+    it('without an amount, a second payment records just what is left', async () => {
+      const i = await invoice();
+      await record(i.id, bank({ reference: `UTR-P4-${tag}`, amount: 100 })).expect(200);
+      const r = await record(i.id, bank({ reference: `UTR-P5-${tag}` })).expect(200);
+      expect(r.body.status).toBe('PAID');
+      const amounts = (await inv(i.id)).payments.map((p) => Number(p.amount)).sort((a, b) => a - b);
+      expect(amounts).toEqual([100, Number(i.total) - 100]);
+    });
+
+    it('the customer can pay the rest online, and is charged only what is left', async () => {
+      const i = await invoice();
+      await record(i.id, bank({ reference: `UTR-P6-${tag}`, amount: 300 })).expect(200);
+      const mine = await http().get(api(`invoices/${i.id}`)).set(auth(alice.token)).expect(200);
+      expect(mine.body.status).toBe('PARTIALLY_PAID');
+      expect(Number(mine.body.amountPaid)).toBe(300);
+      const paid = await http().post(api(`invoices/${i.id}/pay`)).set(auth(alice.token)).send({}).expect(200);
+      expect(paid.body.status).toBe('SUCCEEDED');
+      const online = (await inv(i.id)).payments.find((p) => p.provider !== 'MANUAL')!;
+      expect(Number(online.amount)).toBe(Number(i.total) - 300);
+      expect((await inv(i.id)).status).toBe('PAID');
+      expect((await db.subscription.findUniqueOrThrow({ where: { id: await subOf(i.id) } })).status).toBe('ACTIVE');
+    });
+
+    it('TDS goes with the payment that completes the invoice', async () => {
+      const i = await invoice();
+      const r = await record(i.id, bank({ reference: `UTR-P7-${tag}`, amount: 200, tdsAmount: 50 })).expect(400);
+      expect(r.body.error.message).toContain('completes the invoice');
+      await record(i.id, bank({ reference: `UTR-P7-${tag}`, amount: Number(i.total) - 50, tdsAmount: 50 })).expect(200);
+      expect((await inv(i.id)).status).toBe('PAID');
+    });
+
+    it('an invoice paid in parts cannot be voided', async () => {
+      const i = await invoice();
+      await record(i.id, bank({ reference: `UTR-P8-${tag}`, amount: 100 })).expect(200);
+      expect((await http().post(api(`admin/invoices/${i.id}/void`)).set(auth(superAdmin)).send({ reason: 'Try to void' }).expect(409)).body.error.code).toBe('INVOICE_HAS_PAYMENT');
+    });
+
+    it('a refund comes out of the latest payment first, and the invoice is refunded once every payment is', async () => {
+      const i = await invoice();
+      const total = Number(i.total);
+      await record(i.id, bank({ reference: `UTR-P9-${tag}`, amount: 250 })).expect(200);
+      await record(i.id, bank({ reference: `UTR-P10-${tag}` })).expect(200); // the rest
+      const latest = total - 250;
+      const tooMuch = await http().post(api(`admin/invoices/${i.id}/refunds`)).set(auth(finance)).send({ amount: latest + 1, reason: 'More than one payment' }).expect(409);
+      expect(tooMuch.body.error.message).toContain('paid in parts');
+      expect(tooMuch.body.error.message).toContain('250.00 more');
+
+      const first = await http().post(api(`admin/invoices/${i.id}/refunds`)).set(auth(finance)).send({ reason: 'Customer cancelled' }).expect(200);
+      expect(first.body.status).toBe('PAID'); // 250 is still with us
+      const second = await http().post(api(`admin/invoices/${i.id}/refunds`)).set(auth(finance)).send({ reason: 'Customer cancelled' }).expect(200);
+      expect(second.body.status).toBe('REFUNDED');
+      const refunds = await db.refund.findMany({ where: { invoiceId: i.id }, orderBy: { createdAt: 'asc' } });
+      expect(refunds.map((r) => Number(r.amount))).toEqual([latest, 250]);
+      expect(await db.creditNote.count({ where: { invoiceId: i.id } })).toBe(2);
+      const notes = await db.creditNote.findMany({ where: { invoiceId: i.id } });
+      expect(notes.reduce((t, n) => t + Number(n.total), 0)).toBe(total); // the credit notes add up to the invoice
+      expect(notes.reduce((t, n) => t + Number(n.taxTotal), 0)).toBeCloseTo(Number((await db.invoice.findUniqueOrThrow({ where: { id: i.id } })).taxTotal), 2);
+      expect((await http().post(api(`admin/invoices/${i.id}/refunds`)).set(auth(finance)).send({ reason: 'Again' }).expect(409)).body.error.code).toBe('ALREADY_REFUNDED');
+    });
+  });
+});

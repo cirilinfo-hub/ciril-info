@@ -1,0 +1,323 @@
+import { DatePipe } from '@angular/common';
+import { ChangeDetectionStrategy, Component, type OnInit, ViewEncapsulation, inject, signal } from '@angular/core';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { toApiError } from '../../core/api/api-error';
+import { AuthService } from '../../core/auth/auth.service';
+import { Icon } from '../../design-system/icon/icon';
+import { PageHead } from '../../shared/components/page-head';
+import { BillingApi, INVOICE_BADGE, type InvoiceDetail, type PayResult, money } from './billing.api';
+import { openRazorpayCheckout } from './razorpay-checkout';
+
+@Component({
+  selector: 'ci-invoice-detail',
+  imports: [DatePipe, RouterLink, Icon, PageHead],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  // Global (not encapsulated) so the print rules can hide the portal menu and top bar around this page.
+  encapsulation: ViewEncapsulation.None,
+  styles: `
+    @media print {
+      .hx-side, .hx-topbar, .hx-side-scrim, .cx-skip, .hx-page-head, .no-print { display: none !important; }
+      .hx-admin-main { margin: 0 !important; padding: 0 !important; }
+      ci-invoice-detail .card { border: 0 !important; box-shadow: none !important; max-width: none !important; padding: 0 !important; }
+      ci-invoice-detail .print-only { display: block !important; }
+      body { background: #fff !important; }
+    }
+    ci-invoice-detail .print-only { display: none; }
+    ci-invoice-detail .parties { display: grid; gap: var(--space-5); grid-template-columns: 1fr; margin-bottom: var(--space-4); }
+    @media (min-width: 640px), print { ci-invoice-detail .parties { grid-template-columns: 1fr 1fr; } }
+    .card { border: 1px solid var(--color-border-subtle); max-width: 720px; margin-bottom: var(--space-5); }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { text-align: left; color: var(--color-text-secondary); font-weight: 600; }
+    th, td { padding: var(--space-2) 0; border-top: 1px solid var(--color-border-subtle); }
+    thead th { border-top: 0; }
+    .r { text-align: right; white-space: nowrap; }
+    .billed { font-style: normal; font-size: 14px; line-height: 22px; margin-bottom: var(--space-4); }
+    .total td { font-weight: 700; font-size: 16px; }
+    .meta { display: flex; gap: var(--space-5); flex-wrap: wrap; font-size: 14px; margin-bottom: var(--space-4); }
+    .meta span { color: var(--color-text-secondary); }
+    .pay { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; margin-top: var(--space-4); }
+    ci-invoice-detail .bank { display: grid; gap: var(--space-2); margin: var(--space-3) 0 0; }
+    ci-invoice-detail .bank div { display: grid; grid-template-columns: 140px 1fr; gap: var(--space-3); }
+    ci-invoice-detail .bank dt { color: var(--color-text-secondary); }
+    ci-invoice-detail .bank dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+    .pays { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); font-size: 14px; }
+  `,
+  template: `
+    <ci-page-head [title]="inv()?.number ?? 'Invoice'" crumb="Invoice">
+      <a class="cf-btn cf-btn-secondary" [routerLink]="auth.link('/invoices')">All invoices</a>
+      @if (inv()) { <button type="button" class="cf-btn cf-btn-primary" (click)="print()"><ci-icon name="file" [size]="16" />Print / Save as PDF</button> }
+    </ci-page-head>
+    @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+    @if (notice(); as n) { <div class="cf-alert cf-alert-success" role="status"><ci-icon name="check-circle" /><span>{{ n }}</span></div> }
+
+    @if (inv(); as i) {
+      <section class="cf-card card" aria-labelledby="inv-h">
+        <h2 id="inv-h" class="cx-sr">Invoice {{ i.number }}</h2>
+        <div class="print-only" aria-hidden="true"><p style="font-size:24px;font-weight:700;margin:0 0 16px">Invoice {{ i.number }}</p></div>
+        <div class="meta">
+          <div><span>Status</span><br /><span class="cf-badge" [class]="'cf-badge ' + badge(i).cls">{{ badge(i).label }}</span></div>
+          <div><span>Issued</span><br />{{ i.issuedAt | date: 'd MMM y' }}</div>
+          <div><span>Due</span><br />{{ i.dueAt | date: 'd MMM y' }}</div>
+          @if (i.paidAt) { <div><span>Paid</span><br />{{ i.paidAt | date: 'd MMM y' }}</div> }
+        </div>
+        <div class="parties">
+          @if (i.billingSnapshot?.seller; as f) {
+            <address class="billed">
+              <strong>From</strong><br />
+              @if (f.name) { {{ f.name }}<br /> }
+              @if (f.address; as a) { {{ addr(a) }}<br /> }
+              @if (f.gstin) { GSTIN {{ f.gstin }}<br /> }
+              @if (f.email) { {{ f.email }} }
+            </address>
+          }
+          @if (i.billingSnapshot?.buyer; as b) {
+            <address class="billed">
+              <strong>Billed to</strong><br />
+              @if (b.name) { {{ b.name }}<br /> }
+              @if (b.address; as a) { {{ a.line1 }}@if (a.line2) { , {{ a.line2 }} }, {{ a.city }}, {{ a.state }} {{ a.postalCode }}@if (a.stateCode) { (GST state {{ a.stateCode }}) }<br /> }
+              @if (b.gstin) { GSTIN {{ b.gstin }}<br /> }
+              {{ b.email }}
+            </address>
+          }
+        </div>
+        <table>
+          <thead><tr><th scope="col">Item</th><th scope="col" class="r">Tax</th><th scope="col" class="r">Amount</th></tr></thead>
+          <tbody>
+            @for (l of i.items; track l.description) {
+              <tr><td>{{ l.description }}</td><td class="r">{{ fmt(l.taxAmount, i.currency) }}</td><td class="r">{{ fmt(l.lineTotal, i.currency) }}</td></tr>
+            }
+            @if (+i.discountTotal > 0) { <tr><td colspan="2">Discount{{ i.billingSnapshot?.coupon ? ' (' + i.billingSnapshot?.coupon?.code + ')' : '' }}</td><td class="r">−{{ fmt(i.discountTotal, i.currency) }}</td></tr> }
+            <tr class="total"><td colspan="2">Total</td><td class="r">{{ fmt(i.total, i.currency) }}</td></tr>
+            @if (i.status === 'PARTIALLY_PAID') {
+              <tr data-testid="paid-so-far"><td colspan="2">Paid so far</td><td class="r">{{ fmt(i.amountPaid, i.currency) }}</td></tr>
+              <tr class="total" data-testid="still-due"><td colspan="2">Still due</td><td class="r">{{ fmt(due(i), i.currency) }}</td></tr>
+            }
+          </tbody>
+        </table>
+
+        @if (payable(i)) {
+          @if (i.testMode) { <div class="cf-alert cf-alert-info no-print" style="margin-top:var(--space-4)"><ci-icon name="info" /><span><strong>Test mode.</strong> No real payment gateway is connected yet, so no money is taken.</span></div> }
+          @else { <p class="ts-body-sm no-print" style="margin-top:var(--space-4)">You pay in Razorpay's secure window with UPI, card or net banking@if (i.stripe) {, or with an international card on Stripe's secure page}. Ciril Info never sees your card or bank details.</p> }
+          @if (i.cards?.autoPay; as ap) {
+            <div class="cf-alert cf-alert-info no-print" style="margin-top:var(--space-4)" data-testid="auto-pay"><ci-icon name="card" /><span>This invoice will be charged to your {{ ap.card }} on {{ ap.on | date: 'd MMM y' }}. You do not need to do anything, or you can pay it now.</span></div>
+          }
+          @if (auth.can('billing:pay')) {
+            <div class="pay no-print">
+              <button type="button" class="cf-btn cf-btn-primary" [disabled]="busy()" (click)="pay()">{{ busy() ? 'Processing…' : (i.testMode ? 'Pay ' + fmt(due(i), i.currency) + ' (test)' : 'Pay ' + fmt(due(i), i.currency)) }}</button>
+              @if (i.stripe) {
+                <button type="button" class="cf-btn cf-btn-secondary" [disabled]="busy()" (click)="payWithStripe()">Pay with an international card</button>
+              }
+              @if (i.cards?.available && !i.cards?.saved) {
+                <label class="cf-check"><input type="checkbox" [checked]="saveCard()" (change)="saveCard.set($any($event.target).checked)" /><span>Save this card and pay renewals automatically</span></label>
+              }
+            </div>
+            @if (saveCard()) { <p class="cf-help no-print">You will pay by card. We charge it only for renewal invoices, a day before they are due, and email you the amount and date first. You can switch this off or remove the card under Invoices.</p> }
+          } @else {
+            <p class="ts-body-sm">Your role cannot pay invoices. Ask an organisation owner.</p>
+          }
+        }
+      </section>
+
+      @if (i.refunds.length) {
+        <section class="cf-card card" aria-labelledby="ref-h">
+          <h2 id="ref-h" class="ts-heading-5">Refunds</h2>
+          <ul class="pays">
+            @for (r of i.refunds; track r.id) {
+              <li>{{ r.createdAt | date: 'd MMM y' }} · {{ fmt(r.amount, i.currency) }} refunded · {{ r.reason }}@if (r.creditNote; as cn) { · <a [routerLink]="[auth.link('/credit-notes'), cn.id]">Credit note {{ cn.number }}</a> }</li>
+            }
+          </ul>
+        </section>
+      }
+      @if (i.billingSnapshot?.seller?.bank; as bk) {
+        @if (i.status === 'ISSUED' || i.status === 'OVERDUE' || i.status === 'PARTIALLY_PAID') {
+          <section class="cf-card card" aria-labelledby="bank-h">
+            <h2 id="bank-h" class="ts-heading-5">Pay by bank transfer or UPI</h2>
+            <p class="cf-help">Prefer not to pay online? Transfer {{ fmt(due(i), i.currency) }} and quote <strong>{{ i.number }}</strong> as the reference. We mark the invoice paid when the money reaches us, usually within a working day.</p>
+            <dl class="bank">
+              @if (bk.accountName) { <div><dt>Account name</dt><dd>{{ bk.accountName }}</dd></div> }
+              @if (bk.bankName) { <div><dt>Bank</dt><dd>{{ bk.bankName }}</dd></div> }
+              @if (bk.accountNumber) { <div><dt>Account number</dt><dd>{{ bk.accountNumber }}</dd></div> }
+              @if (bk.ifsc) { <div><dt>IFSC</dt><dd>{{ bk.ifsc }}</dd></div> }
+              @if (bk.upiId) { <div><dt>UPI ID</dt><dd>{{ bk.upiId }}</dd></div> }
+            </dl>
+          </section>
+        }
+      }
+      @if (i.tdsDeduction; as t) {
+        <section class="cf-card card" aria-labelledby="tds-h">
+          <h2 id="tds-h" class="ts-heading-5">TDS</h2>
+          <p>You deducted <strong>{{ fmt(t.amount, i.currency) }}</strong> as TDS@if (t.section) { under section {{ t.section }} }. It counts towards this invoice.</p>
+          @if (t.certificateAt) { <p class="cf-help">We have received your TDS certificate. Thank you.</p> }
+          @else { <p class="cf-help">Please send us the TDS certificate (Form 16A) for this amount when it is issued.</p> }
+        </section>
+      }
+      @if (i.payments.length) {
+        <section class="cf-card card" aria-labelledby="pay-h">
+          <h2 id="pay-h" class="ts-heading-5">Payments</h2>
+          <ul class="pays">
+            @for (p of i.payments; track p.id) {
+              <li>{{ p.createdAt | date: 'd MMM y, h:mm a' }} · {{ fmt(p.amount, i.currency) }} · {{ p.status === 'SUCCEEDED' ? 'Succeeded' : p.status === 'FAILED' ? 'Failed' : p.status }}@if (p.failureReason) { ({{ p.failureReason }}) }</li>
+            }
+          </ul>
+        </section>
+      }
+    } @else if (!error()) {
+      <span class="ci-skeleton" style="height:200px;max-width:720px"></span>
+    }
+  `,
+})
+export class InvoiceDetailPage implements OnInit {
+  protected readonly auth = inject(AuthService);
+  private readonly api = inject(BillingApi);
+  private readonly route = inject(ActivatedRoute);
+  protected readonly inv = signal<InvoiceDetail | null>(null);
+  protected readonly error = signal<string | null>(null);
+  protected readonly notice = signal<string | null>(null);
+  protected readonly busy = signal(false);
+  protected readonly saveCard = signal(false);
+  /** One key per page visit: a double click or retry can never charge twice. */
+  private readonly key = `web-${crypto.randomUUID()}`;
+  protected fmt = money;
+
+  ngOnInit() {
+    void this.load().then(() => this.backFromStripe());
+  }
+
+  /** Stripe sends the customer back here with ?stripe=success&session=... or ?stripe=cancelled. */
+  private async backFromStripe() {
+    const q = this.route.snapshot.queryParamMap;
+    const outcome = q.get('stripe');
+    if (!outcome) return;
+    const id = this.route.snapshot.paramMap.get('id')!;
+    // Leave the address clean so a reload does not confirm again.
+    history.replaceState(null, '', location.pathname);
+    if (outcome !== 'success') {
+      this.notice.set('The card payment was cancelled. Nothing was charged; you can try again.');
+      return;
+    }
+    const session = q.get('session');
+    if (!session) return;
+    this.busy.set(true);
+    try {
+      const r = await this.api.confirmStripe(id, session);
+      if (r.status === 'PENDING') {
+        this.notice.set('Payment received. We are waiting for the card company to confirm it. This page updates by itself.');
+        await this.waitForPayment(id);
+        return;
+      }
+      this.finish(r);
+      await this.load();
+    } catch (e) {
+      this.error.set(toApiError(e).message);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async payWithStripe() {
+    const i = this.inv();
+    if (!i) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      const r = await this.api.pay(i.id, { idempotencyKey: `${this.key}-stripe-${Date.now()}`, gateway: 'STRIPE' });
+      if (r.action === 'REDIRECT' && r.redirectUrl) {
+        window.location.assign(r.redirectUrl);
+        return;
+      }
+      this.finish(r);
+      await this.load();
+    } catch (e) {
+      this.error.set(toApiError(e).message);
+      this.busy.set(false);
+    }
+  }
+
+  protected badge(i: InvoiceDetail) {
+    return INVOICE_BADGE[i.status];
+  }
+
+  protected print() {
+    window.print();
+  }
+
+  protected addr(a: { line1?: string; line2?: string; city?: string; state?: string; postalCode?: string }) {
+    return [a.line1, a.line2, a.city, [a.state, a.postalCode].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  }
+
+  private finish(r: PayResult) {
+    if (r.status === 'SUCCEEDED') this.notice.set(this.saveCard() ? 'Payment received, and your card is saved for automatic renewals.' : 'Payment received. Your service is being set up.');
+    else this.error.set(r.failureReason ?? 'The payment did not go through. Please try again.');
+  }
+
+  /** Bank confirmations can take a moment: look again every few seconds for up to two minutes. */
+  private async waitForPayment(id: string) {
+    for (let n = 0; n < 40; n++) {
+      await new Promise((r) => setTimeout(r, 3000));
+      try {
+        const latest = await this.api.invoice(id);
+        this.inv.set(latest);
+        if (latest.status === 'PAID') {
+          this.notice.set('Payment received. Your service is being set up.');
+          return;
+        }
+      } catch {
+        // Keep waiting; a brief network problem should not end the check.
+      }
+    }
+    this.notice.set('Your payment is still being confirmed. You do not need to pay again: this invoice will show as paid as soon as your bank confirms.');
+  }
+
+  /** What is left to pay: an invoice can be paid in parts (for example a bank transfer recorded by our team). */
+  protected due(i: InvoiceDetail) {
+    return (Math.max(0, Math.round((Number(i.total) - Number(i.amountPaid)) * 100)) / 100).toFixed(2);
+  }
+
+  protected payable(i: InvoiceDetail) {
+    return i.status === 'ISSUED' || i.status === 'OVERDUE' || i.status === 'PARTIALLY_PAID';
+  }
+
+  private async load(): Promise<void> {
+    try {
+      this.inv.set(await this.api.invoice(this.route.snapshot.paramMap.get('id')!));
+    } catch (e) {
+      this.error.set(toApiError(e).message);
+    }
+  }
+
+  protected async pay() {
+    const i = this.inv();
+    if (!i) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      // Saving the card is a different checkout (card only), so it gets its own key.
+      let r = await this.api.pay(i.id, { idempotencyKey: this.saveCard() ? `${this.key}-card` : this.key, ...(this.saveCard() ? { saveCard: true } : {}) });
+      if (r.action === 'CHECKOUT' && r.checkout) {
+        const result = await openRazorpayCheckout(r.checkout);
+        if (result.kind === 'dismissed') {
+          this.notice.set('The payment window was closed. If your bank has already taken the money it will show here within a few minutes; otherwise you can try again.');
+          await this.load();
+          return;
+        }
+        if (result.kind === 'failed') {
+          this.error.set(result.reason);
+          return;
+        }
+        // The customer paid. Our server checks Razorpay's signature and the payment itself before anything is recorded.
+        r = await this.api.confirmPayment(i.id, { providerOrderId: result.payment.razorpay_order_id, providerPaymentId: result.payment.razorpay_payment_id, signature: result.payment.razorpay_signature });
+        if (r.status === 'PENDING') {
+          this.notice.set('Payment received. We are waiting for your bank to confirm it. This page updates by itself.');
+          await this.waitForPayment(i.id);
+          return;
+        }
+      }
+      this.finish(r);
+      await this.load();
+    } catch (e) {
+      this.error.set(toApiError(e).message);
+    } finally {
+      this.busy.set(false);
+    }
+  }
+}
