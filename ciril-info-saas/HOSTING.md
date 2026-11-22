@@ -64,6 +64,32 @@ To use your WHM server's zones, set `DNS_PROVIDER=cpanel` (it uses the same `CPA
 - Long TXT values (such as DKIM keys) are sent as one value and WHM splits them.
 - **Not yet tried against a real WHM.** The field names used for each record type follow WHM's zone functions but were only tested against a pretend server. Try adding one record of each type on a test domain before relying on it.
 
+## Plesk instead of cPanel
+
+`HOSTING_PROVIDER=plesk` creates accounts on a Plesk (Obsidian) server through its REST API, which runs Plesk's own
+`customer` and `subscription` command-line tools. Each hosting account becomes a Plesk **customer** (login = the panel
+username, emailed by Plesk so the customer can sign in and set a password) owning one **subscription** for the domain.
+
+1. On the server, create an API key: `plesk bin secret_key -c -ip-address <your app server's IP> -description cirilinfo`.
+2. In Plesk, create **service plans** named exactly like each plan's panel package in Admin > Products & Pricing.
+3. Put the values in the server's `.env` only:
+
+   ```
+   HOSTING_PROVIDER=plesk
+   PLESK_HOST=plesk.yourhost.com
+   PLESK_PORT=8443
+   PLESK_API_KEY=...
+   PLESK_IP=203.0.113.10      # the shared IPv4 new subscriptions go on
+   PLESK_TLS=verify           # skip only until the server has a valid certificate
+   ```
+4. Restart the API and worker, then do a test order as in step 3 above. Suspending switches the subscription's
+   webspace off, restoring switches it on, a plan change switches the service plan, and removal deletes the
+   subscription and its customer.
+
+DNS editing for customers is built for cPanel only: with Plesk, set `DNS_PROVIDER=none` (DNS is managed in Plesk).
+Tested against a pretend Plesk only. Plesk and cPanel cannot be used at the same time yet (that needs choosing between
+servers).
+
 ## Not built yet
 
-Plesk, and picking between several servers. DNS for domains that are registered with us but not hosted on the panel (their DNS lives at the registrar) waits for the registrar adapter.
+Picking between several servers (and so using cPanel and Plesk side by side). DNS for domains that are registered with us but not hosted on the panel (their DNS lives at the registrar) waits for the registrar adapter.

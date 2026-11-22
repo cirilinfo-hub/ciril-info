@@ -165,23 +165,23 @@ export class HostingJobsService {
       }
       case 'SUSPEND': {
         if (!account.panelUsername) return { note: 'account was never created' }; // nothing exists to suspend
-        await p.suspend({ panelUsername: account.panelUsername, reason: job.payload?.reason ?? 'suspended' });
+        await p.suspend({ panelUsername: account.panelUsername, domain: account.primaryDomain, reason: job.payload?.reason ?? 'suspended' });
         return {};
       }
       case 'UNSUSPEND': {
         if (!account.panelUsername) throw new ProvisioningError('There is no account on the panel to restore.', false);
-        await p.unsuspend({ panelUsername: account.panelUsername });
+        await p.unsuspend({ panelUsername: account.panelUsername, domain: account.primaryDomain });
         return {};
       }
       case 'CHANGE_PLAN': {
         const plan = await this.planFor(job.payload?.planId);
         if (!account.panelUsername) return { note: 'applied before creation' };
         if (!plan.panelPackage) throw new ProvisioningError('The new plan has no panel package set. An admin needs to set one.', false);
-        await p.changePackage({ panelUsername: account.panelUsername, packageName: plan.panelPackage });
+        await p.changePackage({ panelUsername: account.panelUsername, domain: account.primaryDomain, packageName: plan.panelPackage });
         return { note: `package ${plan.panelPackage}` };
       }
       case 'TERMINATE': {
-        if (account.panelUsername) await p.terminate({ panelUsername: account.panelUsername });
+        if (account.panelUsername) await p.terminate({ panelUsername: account.panelUsername, domain: account.primaryDomain });
         return {};
       }
     }

@@ -49,7 +49,7 @@ export class ReadinessService {
       payment: {
         provider: this.env('PAYMENT_PROVIDER'), keyIdSet: !!keyId, keySecretSet: !!this.env('RAZORPAY_KEY_SECRET'), webhookSecretSet: !!this.env('RAZORPAY_WEBHOOK_SECRET'), liveKey: keyId.startsWith('rzp_live_'),
       },
-      hosting: { provider: this.env('HOSTING_PROVIDER') },
+      hosting: { provider: this.env('HOSTING_PROVIDER'), plesk: { hostSet: !!this.env('PLESK_HOST'), keySet: !!this.env('PLESK_API_KEY'), ipSet: !!this.env('PLESK_IP'), tls: this.env('PLESK_TLS') } },
       dns: { provider: this.env('DNS_PROVIDER') },
       registrar: { provider: this.env('REGISTRAR_PROVIDER'), godaddy: { env: this.env('GODADDY_ENV'), keySet: !!this.env('GODADDY_API_KEY') && !!this.env('GODADDY_API_SECRET'), nameserversSet: !!this.env('GODADDY_NAMESERVERS') } },
       cpanel: { hostSet: !!this.env('CPANEL_HOST'), userSet: !!this.env('CPANEL_USER'), tokenSet: !!this.env('CPANEL_API_TOKEN'), tls: this.env('CPANEL_TLS') },

@@ -41,8 +41,9 @@ export interface HostingProvider {
   /** automatic: we call the panel. manual: a person does it and tells us. */
   readonly mode: 'automatic' | 'manual';
   createAccount(req: CreateAccountRequest): Promise<CreateAccountResult>;
-  suspend(req: { panelUsername: string; reason: string }): Promise<void>;
-  unsuspend(req: { panelUsername: string }): Promise<void>;
-  changePackage(req: { panelUsername: string; packageName: string }): Promise<void>;
-  terminate(req: { panelUsername: string }): Promise<void>;
+  // The domain is passed too: some panels (Plesk) name an account by its domain rather than its username.
+  suspend(req: { panelUsername: string; domain: string; reason: string }): Promise<void>;
+  unsuspend(req: { panelUsername: string; domain: string }): Promise<void>;
+  changePackage(req: { panelUsername: string; domain: string; packageName: string }): Promise<void>;
+  terminate(req: { panelUsername: string; domain: string }): Promise<void>;
 }

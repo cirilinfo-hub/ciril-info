@@ -93,6 +93,12 @@ export const envSchema = z
     CPANEL_API_TOKEN: z.string().trim().default(''),
     /** verify: normal HTTPS. skip: do not check the certificate (self-signed server). off: plain HTTP, tests only. */
     CPANEL_TLS: z.enum(['verify', 'skip', 'off']).default('verify'),
+    /** HOSTING_PROVIDER=plesk: the Plesk server, an API key (`plesk bin secret_key -c`), and its shared IPv4 for new subscriptions. */
+    PLESK_HOST: z.string().trim().default(''),
+    PLESK_PORT: z.coerce.number().int().positive().default(8443),
+    PLESK_API_KEY: z.string().trim().default(''),
+    PLESK_TLS: z.enum(['verify', 'skip', 'off']).default('verify'),
+    PLESK_IP: z.string().trim().default(''),
     /** mock (test mode), rdap (real searches, registrations by hand) or godaddy (searches and orders placed through GoDaddy). */
     REGISTRAR_PROVIDER: z.string().default('mock'),
     /** GoDaddy API key and secret (developer.godaddy.com). Server .env only, never in chat, git or a screenshot. */
@@ -154,6 +160,12 @@ export const envSchema = z
       if (env.NODE_ENV === 'production' && env.CPANEL_TLS === 'off') {
         ctx.addIssue({ code: 'custom', path: ['CPANEL_TLS'], message: 'production must talk to WHM over HTTPS' });
       }
+    }
+    if (env.HOSTING_PROVIDER === 'plesk') {
+      for (const key of ['PLESK_HOST', 'PLESK_API_KEY', 'PLESK_IP'] as const) {
+        if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: 'required when HOSTING_PROVIDER=plesk' });
+      }
+      if (env.NODE_ENV === 'production' && env.PLESK_TLS === 'off') ctx.addIssue({ code: 'custom', path: ['PLESK_TLS'], message: 'production must talk to Plesk over HTTPS' });
     }
     if (env.REGISTRAR_PROVIDER === 'godaddy') {
       for (const key of ['GODADDY_API_KEY', 'GODADDY_API_SECRET'] as const) {

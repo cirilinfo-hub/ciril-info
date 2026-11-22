@@ -20,7 +20,7 @@ export interface Check {
 export interface ReadinessFacts {
   production: boolean;
   payment: { provider: string; keyIdSet: boolean; keySecretSet: boolean; webhookSecretSet: boolean; liveKey: boolean };
-  hosting: { provider: string };
+  hosting: { provider: string; plesk?: { hostSet: boolean; keySet: boolean; ipSet: boolean; tls: string } };
   dns: { provider: string };
   registrar: { provider: string; godaddy?: { env: string; keySet: boolean; nameserversSet: boolean } };
   cpanel: { hostSet: boolean; userSet: boolean; tokenSet: boolean; tls: string };
@@ -57,12 +57,18 @@ export function evaluateReadiness(f: ReadinessFacts): Check[] {
     const c = f.cpanel;
     const cpanelMissing = [!c.hostSet && 'the server', !c.userSet && 'the user', !c.tokenSet && 'the API token'].filter(Boolean) as string[];
     const h = f.hosting.provider;
-    if (h === 'mock') add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: 'Test mode: accounts are pretend and nothing is created on a server. Choose cpanel (see HOSTING.md) or manual.' });
+    if (h === 'mock') add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: 'Test mode: accounts are pretend and nothing is created on a server. Choose cpanel or plesk (see HOSTING.md), or manual.' });
     else if (h === 'manual') add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'info', detail: 'Manual: your team creates each account in the hosting panel and marks the task done in Admin > Hosting.' });
     else if (h === 'cpanel') {
       if (cpanelMissing.length) add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: `cPanel is selected but ${list(cpanelMissing)} ${cpanelMissing.length === 1 ? 'is' : 'are'} not set.` });
       else if (c.tls === 'skip') add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: 'cPanel is connected but its security certificate is not being checked. Install a valid certificate on the server and set CPANEL_TLS=verify.' });
       else add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'ok', detail: 'Accounts are created on your cPanel/WHM server.' });
+    } else if (h === 'plesk') {
+      const p = f.hosting.plesk ?? { hostSet: false, keySet: false, ipSet: false, tls: 'verify' };
+      const missing = [!p.hostSet && 'the server', !p.keySet && 'the API key', !p.ipSet && 'the IP address'].filter(Boolean) as string[];
+      if (missing.length) add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: `Plesk is selected but ${list(missing)} ${missing.length === 1 ? 'is' : 'are'} not set.` });
+      else if (p.tls === 'skip') add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: 'Plesk is connected but its security certificate is not being checked. Install a valid certificate and set PLESK_TLS=verify.' });
+      else add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'ok', detail: 'Accounts are created on your Plesk server.' });
     } else add({ key: 'hosting', group: 'Connections', label: 'Hosting accounts', status: 'todo', detail: `The hosting provider "${h}" is not available.` });
 
     const d = f.dns.provider;

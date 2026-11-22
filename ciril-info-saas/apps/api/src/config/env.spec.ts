@@ -145,3 +145,12 @@ describe('validateEnv: Amazon SES', () => {
     expect(() => validateEnv({ ...prodReal, ...ses, AWS_SES_ENDPOINT: 'http://127.0.0.1:1' })).toThrow(/tests only/);
   });
 });
+
+describe('validateEnv: Plesk', () => {
+  it('needs the server, an API key and the IP address, and HTTPS in production', () => {
+    const plesk = { HOSTING_PROVIDER: 'plesk', PLESK_HOST: 'plesk.example.com', PLESK_API_KEY: 'key', PLESK_IP: '203.0.113.10' };
+    expect(() => validateEnv({ ...base, ...plesk })).not.toThrow();
+    for (const key of ['PLESK_HOST', 'PLESK_API_KEY', 'PLESK_IP'] as const) expect(() => validateEnv({ ...base, ...plesk, [key]: '' })).toThrow(new RegExp(key));
+    expect(() => validateEnv({ ...prodReal, ...plesk, PLESK_TLS: 'off' })).toThrow(/HTTPS/);
+  });
+});

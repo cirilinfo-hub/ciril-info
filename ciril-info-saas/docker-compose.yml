@@ -51,6 +51,12 @@ x-app-env: &app-env
   CPANEL_USER: ${CPANEL_USER:-}
   CPANEL_API_TOKEN: ${CPANEL_API_TOKEN:-}
   CPANEL_TLS: ${CPANEL_TLS:-verify}
+  # Plesk, used when HOSTING_PROVIDER is plesk (see HOSTING.md).
+  PLESK_HOST: ${PLESK_HOST:-}
+  PLESK_PORT: ${PLESK_PORT:-8443}
+  PLESK_API_KEY: ${PLESK_API_KEY:-}
+  PLESK_IP: ${PLESK_IP:-}
+  PLESK_TLS: ${PLESK_TLS:-verify}
   # Uploaded files: the persistent volume below (local), or a private S3 bucket (s3).
   STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
   STORAGE_LOCAL_DIR: /app/storage

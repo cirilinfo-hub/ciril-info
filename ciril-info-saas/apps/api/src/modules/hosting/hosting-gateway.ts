@@ -5,11 +5,9 @@ import { CpanelHostingProvider } from './providers/cpanel-hosting.provider.js';
 import type { HostingProvider } from './providers/hosting-provider.js';
 import { ManualHostingProvider } from './providers/manual-hosting.provider.js';
 import { MockHostingProvider } from './providers/mock-hosting.provider.js';
+import { PleskHostingProvider } from './providers/plesk-hosting.provider.js';
 
-/**
- * Picks how hosting gets made from HOSTING_PROVIDER: "mock" (test mode), "manual" (staff do it by hand), or "cpanel" (WHM).
- * Plesk is not built yet and is refused at startup with a clear message.
- */
+/** Picks how hosting gets made from HOSTING_PROVIDER: "mock" (test mode), "manual" (staff do it by hand), "cpanel" (WHM) or "plesk". */
 @Injectable()
 export class HostingGateway {
   readonly provider: HostingProvider;
@@ -23,7 +21,12 @@ export class HostingGateway {
         host: config.get('CPANEL_HOST', { infer: true }), port: config.get('CPANEL_PORT', { infer: true }), user: config.get('CPANEL_USER', { infer: true }),
         token: config.get('CPANEL_API_TOKEN', { infer: true }), tls: config.get('CPANEL_TLS', { infer: true }),
       });
-    } else throw new Error(`Hosting provider "${which}" is not available yet. Use "cpanel", "manual" (staff do it by hand) or "mock" (test mode).`);
+    } else if (which === 'plesk') {
+      this.provider = new PleskHostingProvider({
+        host: config.get('PLESK_HOST', { infer: true }), port: config.get('PLESK_PORT', { infer: true }), apiKey: config.get('PLESK_API_KEY', { infer: true }),
+        tls: config.get('PLESK_TLS', { infer: true }), ip: config.get('PLESK_IP', { infer: true }),
+      });
+    } else throw new Error(`Hosting provider "${which}" is not available yet. Use "cpanel", "plesk", "manual" (staff do it by hand) or "mock" (test mode).`);
   }
 
   get isMock() {
