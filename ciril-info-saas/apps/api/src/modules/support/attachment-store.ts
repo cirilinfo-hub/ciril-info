@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Inject, Injectable, NotFoundException, PayloadTooLargeException, UnsupportedMediaTypeException } from '@nestjs/common';
 import { OBJECT_STORAGE, type ObjectStorage } from '../../common/storage/object-storage.js';
+import { VirusScanner } from '../../common/security/virus-scanner.js';
+import { AuditService } from '../audit/audit.service.js';
 import { MAX_ATTACHMENT_BYTES, MAX_FILES_PER_MESSAGE, safeFileName, sniffAttachment } from './attachments.js';
 
 /** What the upload middleware hands us for each file. */
@@ -32,7 +34,11 @@ const KEY = /^tickets\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/;
  */
 @Injectable()
 export class AttachmentStore {
-  constructor(@Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage) {}
+  constructor(
+    @Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage,
+    private readonly scanner: VirusScanner,
+    private readonly audit: AuditService,
+  ) {}
 
   /** Checks every file before anything is written, so a bad one rejects the whole message. */
   prepare(files: readonly UploadedFileLike[] | undefined): PreparedFile[] {
@@ -58,6 +64,14 @@ export class AttachmentStore {
   }
 
   async saveAll(tenantId: string, files: readonly PreparedFile[]): Promise<StoredFile[]> {
+    // Every file is checked before any is written, so an infected one rejects the whole message.
+    try {
+      await this.scanner.assertClean(files.map((f) => ({ name: f.fileName, body: f.buffer })));
+    } catch (e) {
+      const signature = (e as { getResponse?: () => { details?: { signature?: string } } }).getResponse?.()?.details?.signature;
+      if (signature) await this.audit.record({ action: 'upload.infected', tenantId, entityType: 'ticket_attachment', metadata: { signature } }).catch(() => undefined);
+      throw e;
+    }
     const saved: StoredFile[] = [];
     try {
       for (const f of files) {

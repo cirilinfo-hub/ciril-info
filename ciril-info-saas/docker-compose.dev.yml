@@ -51,6 +51,18 @@ services:
       - "127.0.0.1:1025:1025"
       - "127.0.0.1:8025:8025"
 
+  # Optional virus scanner (about 1.5 GB of memory): docker compose -f docker-compose.dev.yml --profile scan up -d clamav
+  # then set VIRUS_SCAN=clamav and CLAMAV_HOST=localhost in .env.
+  clamav:
+    image: clamav/clamav:1.4
+    profiles: [scan]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3310:3310"
+    volumes:
+      - clamavdb:/var/lib/clamav
+
 volumes:
   pgdata:
   redisdata:
+  clamavdb:

@@ -26,6 +26,7 @@ export interface ReadinessFacts {
   cpanel: { hostSet: boolean; userSet: boolean; tokenSet: boolean; tls: string };
   email: { provider: string };
   storage: { driver: string };
+  virusScan?: { mode: string };
   errorTrackingSet: boolean;
   company: { legalName: boolean; gstin: boolean; address: boolean; stateCode: boolean; email: boolean; phone: boolean; bank: boolean };
   tax: { defaultRate: number | null; defaultName: string | null };
@@ -92,6 +93,11 @@ export function evaluateReadiness(f: ReadinessFacts): Check[] {
     f.storage.driver === 'local'
       ? { key: 'storage', group: 'Connections', label: 'File storage', status: 'info', detail: 'Uploaded files are kept on the server’s disk. Make sure that disk is backed up.' }
       : { key: 'storage', group: 'Connections', label: 'File storage', status: 'ok', detail: 'Uploaded files go to your S3 bucket. Keep it private and turn on versioning or backups there.' },
+  );
+  add(
+    f.virusScan?.mode === 'clamav'
+      ? { key: 'virus-scan', group: 'Connections', label: 'Virus scanning', status: 'ok', detail: 'Uploaded files are checked by ClamAV first. If ClamAV is down, uploads are refused until it is back.' }
+      : { key: 'virus-scan', group: 'Connections', label: 'Virus scanning', status: 'todo', detail: 'Uploaded files are not checked for viruses. Run the ClamAV service and set VIRUS_SCAN=clamav (see DEPLOYMENT.md).' },
   );
   add(
     f.errorTrackingSet

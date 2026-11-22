@@ -11,6 +11,7 @@ const ready = (): ReadinessFacts => ({
   cpanel: { hostSet: true, userSet: true, tokenSet: true, tls: 'verify' },
   email: { provider: 'resend' },
   storage: { driver: 's3' },
+  virusScan: { mode: 'clamav' },
   errorTrackingSet: true,
   company: { legalName: true, gstin: true, address: true, stateCode: true, email: true, phone: true, bank: true },
   tax: { defaultRate: 18, defaultName: 'GST' },
@@ -74,6 +75,7 @@ describe('registrar, email, storage, errors', () => {
   });
   it('flags the local test inbox', () => expect(get(run({ email: { provider: 'mailpit' } }), 'email')).toMatchObject({ status: 'todo', detail: expect.stringContaining('will not receive') }));
   it('flags an email provider that does not exist yet', () => expect(get(run({ email: { provider: 'ses' } }), 'email').status).toBe('todo'));
+  it('asks for virus scanning until ClamAV is switched on', () => expect(get(run({ virusScan: { mode: 'off' } }), 'virus-scan')).toMatchObject({ status: 'todo', detail: expect.stringContaining('VIRUS_SCAN=clamav') }));
   it('reminds about backups for local storage', () => expect(get(run({ storage: { driver: 'local' } }), 'storage')).toMatchObject({ status: 'info', detail: expect.stringContaining('backed up') }));
   it('treats missing error tracking as information', () => expect(get(run({ errorTrackingSet: false }), 'errors').status).toBe('info'));
 });

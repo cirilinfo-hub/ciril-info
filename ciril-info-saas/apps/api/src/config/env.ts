@@ -112,6 +112,12 @@ export const envSchema = z
     /** Optional folder inside the bucket, e.g. "cirilinfo". */
     S3_PREFIX: z.string().trim().default(''),
 
+    /** clamav: every uploaded file is checked by a ClamAV daemon first, and refused if infected or if it cannot be checked. */
+    VIRUS_SCAN: z.enum(['off', 'clamav']).default('off'),
+    CLAMAV_HOST: z.string().trim().default('clamav'),
+    CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
+    CLAMAV_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(30_000),
+
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
     SENTRY_DSN: z.string().optional().default(''),
     SWAGGER_ENABLED: bool,

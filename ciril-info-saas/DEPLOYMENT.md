@@ -164,6 +164,20 @@ Each run saves the database and the uploaded files to `/opt/cirilinfo/backups`, 
 
 Also keep a separate copy of `.env`, above all `DATA_ENCRYPTION_KEY`. It is not in the backups.
 
+### Virus scanning
+
+`docker-compose.yml` runs a `clamav` service and sets `VIRUS_SCAN=clamav`, so every uploaded file (ticket attachments,
+website images) is checked before it is kept. An infected file is refused, with the virus name shown to whoever
+uploaded it and an `upload.infected` entry in the audit log.
+
+- ClamAV needs about **1.5 GB of memory**; size the server for it (the KVM 2 plan is enough).
+- On the first start it downloads its virus signatures, which takes a few minutes. Until it answers, uploads are
+  refused with "Files cannot be checked for viruses right now", never kept unchecked. Text-only tickets still work.
+- It updates its signatures by itself every few hours (it needs outbound internet, which the `edge` network gives it).
+- Check it is working: upload a text file containing the standard EICAR test string as a ticket attachment; it must be
+  refused. **Admin > Launch checklist** shows whether scanning is on.
+- To turn it off (not recommended), set `VIRUS_SCAN=off` in `.env` and restart the API.
+
 ### Uploaded files in S3 (optional)
 
 By default, website images and ticket attachments are kept on the server's disk (a Docker volume) and included in the

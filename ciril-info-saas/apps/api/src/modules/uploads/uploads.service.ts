@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, PayloadTooLargeException, UnsupportedMediaTypeException } from '@nestjs/common';
 import { OBJECT_STORAGE, type ObjectStorage } from '../../common/storage/object-storage.js';
+import { VirusScanner } from '../../common/security/virus-scanner.js';
 
 export const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 /** Stored as "/uploads/images/<uuid>.<ext>" and turned into a full address when served to the website. */
@@ -20,7 +21,10 @@ export function sniffImage(buf: Buffer): 'png' | 'jpg' | 'webp' | null {
 /** Image uploads, on the server's disk or in S3 (STORAGE_DRIVER). Files get a random name; the original name is never used. */
 @Injectable()
 export class UploadsService {
-  constructor(@Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage) {}
+  constructor(
+    @Inject(OBJECT_STORAGE) private readonly storage: ObjectStorage,
+    private readonly scanner: VirusScanner,
+  ) {}
 
   async saveImage(buf: Buffer | undefined): Promise<{ path: string; bytes: number }> {
     if (!buf?.length) throw new UnsupportedMediaTypeException({ code: 'NO_FILE', message: 'Choose an image to upload.' });
@@ -31,6 +35,7 @@ export class UploadsService {
     if (!ext) {
       throw new UnsupportedMediaTypeException({ code: 'UNSUPPORTED_IMAGE', message: 'Upload a PNG, JPEG or WebP image.' });
     }
+    await this.scanner.assertClean([{ name: 'The image', body: buf }]);
     const name = `${randomUUID()}.${ext}`;
     await this.storage.put(`images/${name}`, buf, IMAGE_MIME[ext]!);
     return { path: `/uploads/images/${name}`, bytes: buf.length };

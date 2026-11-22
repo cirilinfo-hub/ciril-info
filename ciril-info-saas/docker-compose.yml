@@ -50,6 +50,10 @@ x-app-env: &app-env
   # Uploaded files: the persistent volume below (local), or a private S3 bucket (s3).
   STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
   STORAGE_LOCAL_DIR: /app/storage
+  # Uploaded files are checked by the clamav service below before they are kept.
+  VIRUS_SCAN: ${VIRUS_SCAN:-clamav}
+  CLAMAV_HOST: clamav
+  CLAMAV_PORT: 3310
   COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
   # Billing rhythm. The defaults are fine; they are listed so they can be changed in one place.
   RENEWAL_LEAD_DAYS: ${RENEWAL_LEAD_DAYS:-14}
@@ -107,6 +111,16 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     logging: *logging
 
+  # ClamAV: checks every uploaded file. Needs about 1.5 GB of memory; it updates its virus signatures itself (edge network).
+  # It takes a few minutes to start; uploads are refused (never kept unchecked) until it answers.
+  clamav:
+    image: clamav/clamav:1.4
+    restart: unless-stopped
+    volumes:
+      - clamavdb:/var/lib/clamav
+    networks: [backend, edge]
+    logging: *logging
+
   # One-shot: applies pending Prisma migrations, then exits. API/worker wait for it.
   migrate:
     image: ${REGISTRY:-ghcr.io/cirilinfo}/api:${IMAGE_TAG:?required}
@@ -162,6 +176,7 @@ volumes:
   pgdata:
   redisdata:
   storage:
+  clamavdb:
 
 networks:
   backend:

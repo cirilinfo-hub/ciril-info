@@ -55,6 +55,7 @@ export class ReadinessService {
       cpanel: { hostSet: !!this.env('CPANEL_HOST'), userSet: !!this.env('CPANEL_USER'), tokenSet: !!this.env('CPANEL_API_TOKEN'), tls: this.env('CPANEL_TLS') },
       email: { provider: this.env('EMAIL_PROVIDER') },
       storage: { driver: this.env('STORAGE_DRIVER') },
+      virusScan: { mode: this.env('VIRUS_SCAN') },
       errorTrackingSet: !!this.env('SENTRY_DSN'),
       company: { legalName: text(p['legalName']), gstin: text(p['gstin']), address: text(a['line1']) && text(a['city']) && text(a['postalCode']), stateCode: text(a['stateCode']), email: text(p['email']), phone: text(p['phone']), bank: text(((p['bank'] ?? {}) as Record<string, unknown>)['accountNumber']) || text(((p['bank'] ?? {}) as Record<string, unknown>)['upiId']) },
       tax: { defaultRate: tax ? Number(tax.rate.toString()) : null, defaultName: tax?.name ?? null },
