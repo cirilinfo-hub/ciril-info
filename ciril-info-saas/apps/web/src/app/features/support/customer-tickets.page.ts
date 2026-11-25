@@ -1,13 +1,17 @@
 import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, type OnInit, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { NonNullableFormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
+import { debounceTime, distinctUntilChanged, map, of, switchMap } from 'rxjs';
 import { toApiError } from '../../core/api/api-error';
 import { AuthService } from '../../core/auth/auth.service';
+import { RUNTIME_CONFIG } from '../../core/config/runtime-config';
 import { Dialog } from '../../design-system/dialogs/dialog';
 import { Field, describedBy } from '../../design-system/forms/field';
 import { Icon } from '../../design-system/icon/icon';
 import { PageHead } from '../../shared/components/page-head';
+import { PublicApi } from '../public/shared/public-api';
 import { FilePicker } from './file-picker';
 import { CATEGORIES, CATEGORY_LABEL, STATUSES, STATUS_LABEL, SupportApi, type TicketCategory, type TicketPriority, type TicketRow, type TicketStatus } from './support.models';
 
@@ -20,6 +24,8 @@ import { CATEGORIES, CATEGORY_LABEL, STATUSES, STATUS_LABEL, SupportApi, type Ti
     .bar { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); }
     .pager { display: flex; gap: var(--space-3); align-items: center; justify-content: flex-end; margin-top: var(--space-4); }
     td small { display: block; color: var(--color-text-secondary); }
+    .kb { margin: 0; }
+    .kb ul { margin: var(--space-2) 0 0; padding-left: var(--space-5); }
   `,
   template: `
     <ci-page-head title="Support" sub="Ask us anything about your services. We reply in your client area.">
@@ -66,6 +72,19 @@ import { CATEGORIES, CATEGORY_LABEL, STATUSES, STATUS_LABEL, SupportApi, type Ti
           <ci-field label="Subject" for="tk-subject" [control]="form.controls.subject" [required]="true" errorLabel="a subject (at least 5 characters)">
             <input id="tk-subject" class="cf-input" formControlName="subject" maxlength="200" [attr.aria-describedby]="describedBy('tk-subject', form.controls.subject)" />
           </ci-field>
+          @if (suggestions().length) {
+            <div class="cf-alert cf-alert-info kb" role="status" aria-live="polite">
+              <ci-icon name="info" />
+              <div>
+                <strong>These help articles might answer your question</strong>
+                <ul>
+                  @for (a of suggestions(); track a.slug) {
+                    <li><a class="cf-link" [href]="helpUrl(a.slug)" target="_blank" rel="noopener">{{ a.title }}</a> <span class="cx-sr">(opens in a new tab)</span></li>
+                  }
+                </ul>
+              </div>
+            </div>
+          }
           <ci-field label="Topic" for="tk-cat" [control]="form.controls.category" [required]="true">
             <select id="tk-cat" class="cf-input" formControlName="category" [attr.aria-describedby]="describedBy('tk-cat', form.controls.category)">
               @for (c of categories; track c) { <option [value]="c">{{ cat[c] }}</option> }
@@ -115,6 +134,21 @@ export class CustomerTicketsPage implements OnInit {
     priority: ['MEDIUM' as TicketPriority],
     message: ['', [Validators.required, Validators.minLength(10), Validators.maxLength(10_000)]],
   });
+
+  private readonly publicApi = inject(PublicApi);
+  /** Published help articles matching the subject being typed (up to three). */
+  protected readonly suggestions = toSignal(
+    this.form.controls.subject.valueChanges.pipe(
+      map((v) => v.trim()),
+      debounceTime(400),
+      distinctUntilChanged(),
+      switchMap((q) => (q.length < 4 ? of([]) : this.publicApi.kbArticles({ search: q, limit: 3, match: 'any' }))),
+    ),
+    { initialValue: [] },
+  );
+  protected helpUrl(slug: string) {
+    return `${RUNTIME_CONFIG.publicUrl.replace(/\/$/, '')}/help/${slug}`;
+  }
 
   ngOnInit() {
     return this.load();

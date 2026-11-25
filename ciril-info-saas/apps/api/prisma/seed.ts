@@ -34,6 +34,7 @@ import { PRODUCT_LINES } from './seed-data/product-lines.js';
 import {
   SAMPLE_EMAIL_PLANS,
   SAMPLE_FAQS,
+  SAMPLE_KB,
   SAMPLE_HOSTING,
   SAMPLE_SITE_CLAIMS,
   SAMPLE_TESTIMONIALS,
@@ -269,6 +270,16 @@ async function seedSamples() {
     faqs = r.count;
   }
 
+  let kbArticles = 0;
+  for (const [ci, group] of SAMPLE_KB.entries()) {
+    const category = await prisma.kbCategory.upsert({ where: { slug: group.category.slug }, update: {}, create: { ...group.category, sortOrder: ci } });
+    for (const [i, a] of group.articles.entries()) {
+      if (await prisma.kbArticle.findUnique({ where: { slug: a.slug } })) continue;
+      await prisma.kbArticle.create({ data: { ...a, categoryId: category.id, status: 'PUBLISHED', publishedAt: new Date(), isSample: true, sortOrder: i } });
+      kbArticles++;
+    }
+  }
+
   let projects = 0;
   for (const [i, pr] of SAMPLE_PROJECTS.entries()) {
     if (await prisma.portfolioProject.findUnique({ where: { slug: pr.slug } })) continue;
@@ -318,7 +329,7 @@ async function seedSamples() {
     if (await prisma.tldPrice.findUnique({ where: { tld } })) continue;
     await prisma.tldPrice.create({ data: { tld, registerPrice: register, renewPrice: renew, transferPrice: register, isFeatured: i < 4, sortOrder: i, isSample: true } });
   }
-  console.log(`✓ SAMPLE data (dev only): ${plans} plans, ${testimonials} testimonials, ${faqs} FAQs, ${projects} projects, mock server + registrar`);
+  console.log(`✓ SAMPLE data (dev only): ${plans} plans, ${testimonials} testimonials, ${faqs} FAQs, ${kbArticles} help articles, ${projects} projects, mock server + registrar`);
 }
 
 /** `npm run db:purge-samples`: removes every sample row. Run before entering real data. */
@@ -335,6 +346,9 @@ async function purgeSamples() {
     prisma.portfolioProject.deleteMany({ where: { isSample: true } }),
     prisma.tldPrice.deleteMany({ where: { isSample: true } }),
   ]);
+  const kb = await prisma.kbArticle.deleteMany({ where: { isSample: true } });
+  // Sample categories go too, once empty (a category staff added real articles to is kept).
+  await prisma.kbCategory.deleteMany({ where: { slug: { in: SAMPLE_KB.map((g) => g.category.slug) }, articles: { none: {} } } });
   // Legal pages published only by the sample seed go back to draft.
   for (const d of LEGAL_DRAFTS) {
     const key = `legal.${d.slug}`;
@@ -350,7 +364,7 @@ async function purgeSamples() {
   // Products left without plans go back to draft so nothing empty is published.
   await prisma.product.updateMany({ where: { plans: { none: {} }, status: 'PUBLISHED' }, data: { status: 'DRAFT' } });
   console.log(
-    `✓ Purged samples: ${plans.count} plans, ${t.count} testimonials, ${f.count} FAQs, ${pj.count} projects` +
+    `✓ Purged samples: ${plans.count} plans, ${t.count} testimonials, ${f.count} FAQs, ${kb.count} help articles, ${pj.count} projects` +
       (usedIds.length ? ` (${usedIds.length} sample plans kept because subscriptions reference them)` : ''),
   );
 }

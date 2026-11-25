@@ -1684,6 +1684,43 @@ model PortfolioProject {
   @@map("portfolio_projects")
 }
 
+/// Knowledge base (help centre) categories. Admin-managed; public at /help.
+model KbCategory {
+  id          String      @id @default(uuid()) @db.Uuid
+  slug        String      @unique @db.VarChar(80)
+  name        String      @db.VarChar(120)
+  description String?     @db.VarChar(400)
+  sortOrder   Int         @default(0) @map("sort_order")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(3)
+  articles    KbArticle[]
+
+  @@map("kb_categories")
+}
+
+/// Knowledge base articles. Only PUBLISHED articles in a category are public. The body is
+/// plain text ("## " headings, "- " bullets, blank line between paragraphs); it is never
+/// rendered as HTML. Development samples are flagged is_sample.
+model KbArticle {
+  id          String        @id @default(uuid()) @db.Uuid
+  categoryId  String        @map("category_id") @db.Uuid
+  slug        String        @unique @db.VarChar(120)
+  title       String        @db.VarChar(200)
+  summary     String        @db.VarChar(400)
+  body        String
+  status      PublishStatus @default(DRAFT)
+  isSample    Boolean       @default(false) @map("is_sample")
+  sortOrder   Int           @default(0) @map("sort_order")
+  publishedAt DateTime?     @map("published_at") @db.Timestamptz(3)
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  category    KbCategory    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@index([status, categoryId, sortOrder])
+  @@index([categoryId])
+  @@map("kb_articles")
+}
+
 /// Gap-free per-key counters (e.g. "invoice:2026-27"). Incremented under a row lock
 /// inside the same transaction that uses the number, so a rollback never leaves a gap.
 model DocumentCounter {

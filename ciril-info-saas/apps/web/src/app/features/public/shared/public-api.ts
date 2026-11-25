@@ -139,6 +139,41 @@ export interface InquiryPayload {
   website?: string;
 }
 
+export interface KbCategory {
+  slug: string;
+  name: string;
+  description: string | null;
+  articleCount: number;
+}
+
+export interface KbArticleSummary {
+  slug: string;
+  title: string;
+  summary: string;
+  isSample: boolean;
+  updatedAt: string;
+  category: { slug: string; name: string };
+}
+
+/** Article text as display blocks. Shown as text only, never as HTML. */
+export type KbBlock =
+  | { type: 'heading'; text: string }
+  | { type: 'paragraph'; text: string }
+  | { type: 'bullets'; items: string[] }
+  | { type: 'steps'; items: string[] };
+
+export interface KbArticle {
+  slug: string;
+  title: string;
+  summary: string;
+  isSample: boolean;
+  blocks: KbBlock[];
+  publishedAt: string | null;
+  updatedAt: string;
+  category: { slug: string; name: string };
+  related: { slug: string; title: string }[];
+}
+
 /**
  * Read-only access to the public website API. Responses are cached per page load;
  * a failed request degrades to "nothing to show" so a content outage never blanks a page.
@@ -184,6 +219,33 @@ export class PublicApi {
   /** Emits null when the document is not published (404) or unreachable. */
   legal(slug: string): Observable<LegalDoc | null> {
     return this.get<LegalDoc | null>(`legal/${slug}`, null);
+  }
+
+  /** Help centre categories that have published articles. */
+  kbCategories(): Observable<KbCategory[]> {
+    return this.get<{ data: KbCategory[] }>('kb/categories', { data: [] }).pipe(map((r) => r.data));
+  }
+
+  /** Published help articles, by category and/or search. Searches are not cached. */
+  kbArticles(opts: { category?: string; search?: string; limit?: number; match?: 'all' | 'any' } = {}): Observable<KbArticleSummary[]> {
+    const params: Record<string, string> = {};
+    if (opts.category) params['category'] = opts.category;
+    if (opts.search?.trim()) params['search'] = opts.search.trim();
+    if (opts.limit) params['limit'] = String(opts.limit);
+    if (opts.match) params['match'] = opts.match;
+    if (params['search']) {
+      return this.http.get<{ data: KbArticleSummary[] }>(`${this.base}/kb/articles`, { params }).pipe(
+        map((r) => r.data),
+        catchError(() => of([])),
+      );
+    }
+    const qs = new URLSearchParams(params).toString();
+    return this.get<{ data: KbArticleSummary[] }>(`kb/articles${qs ? `?${qs}` : ''}`, { data: [] }).pipe(map((r) => r.data));
+  }
+
+  /** Emits null when the article is not published (404) or unreachable. */
+  kbArticle(slug: string): Observable<KbArticle | null> {
+    return this.get<KbArticle | null>(`kb/articles/${encodeURIComponent(slug)}`, null);
   }
 
   /** The domain price list. */

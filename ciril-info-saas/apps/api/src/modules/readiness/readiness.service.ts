@@ -39,6 +39,7 @@ export class ReadinessService {
         this.db.faq.count({ where: { isSample: true } }),
         this.db.portfolioProject.count({ where: { isSample: true } }),
         this.db.tldPrice.count({ where: { isSample: true } }),
+        this.db.kbArticle.count({ where: { isSample: true } }),
       ]),
       this.db.systemSetting.findMany({ where: { key: { in: LEGAL_SLUGS.map(legalKey) } } }),
       this.db.user.findMany({ where: { status: 'ACTIVE', platformRoleId: { not: null } }, select: { mfaEnabled: true } }),

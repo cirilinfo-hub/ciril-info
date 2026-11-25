@@ -20,6 +20,9 @@ export const PUBLIC_ROUTES: Routes = [
       { path: 'pricing', title: `Pricing — ${SUFFIX}`, loadComponent: () => import('./pricing/pricing').then((m) => m.Pricing) },
       { path: 'our-work', title: `Our Work — ${SUFFIX}`, loadComponent: () => import('./our-work/our-work').then((m) => m.OurWork) },
       { path: 'contact', title: `Contact — ${SUFFIX}`, loadComponent: () => import('./contact/contact').then((m) => m.Contact) },
+      { path: 'help', title: `Help Centre — ${SUFFIX}`, loadComponent: () => import('./help/help').then((m) => m.Help) },
+      // The page sets its own title from the article.
+      { path: 'help/:slug', loadComponent: () => import('./help/help-article').then((m) => m.HelpArticle) },
       // Legal pages: one component, the slug comes from route data.
       ...(['privacy-policy', 'terms-and-conditions', 'refund-policy', 'cancellation-policy', 'sla'] as const).map((slug) => ({
         path: slug,
