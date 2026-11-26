@@ -5,6 +5,7 @@ import { Icon } from '../../../design-system/icon/icon';
 import { ClaimsStrip } from '../shared/claims-strip';
 import { CtaBand } from '../shared/cta-band';
 import { FaqSection } from '../shared/faq-section';
+import { FreeAppsSection } from '../shared/free-apps-section';
 import { PageHero } from '../shared/page-hero';
 import { fromPrice } from '../shared/plan-pricing';
 import { PlansExplorer } from '../shared/plans-explorer';
@@ -16,7 +17,7 @@ import { TestimonialsSection } from '../shared/testimonials-section';
 /** Hosting overview: plans for the hosting products, and a guide to which type fits. */
 @Component({
   selector: 'ci-hosting',
-  imports: [RouterLink, Icon, Reveal, PageHero, SectionHead, PlansExplorer, ClaimsStrip, TestimonialsSection, FaqSection, CtaBand],
+  imports: [RouterLink, Icon, Reveal, PageHero, SectionHead, PlansExplorer, ClaimsStrip, FreeAppsSection, TestimonialsSection, FaqSection, CtaBand],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <ci-page-hero
@@ -56,6 +57,8 @@ import { TestimonialsSection } from '../shared/testimonials-section';
         <section class="cx-section"><div class="cx-container"><div class="ci-skeleton" style="height: 420px" aria-hidden="true"></div></div></section>
       }
     </div>
+
+    <ci-free-apps-section />
 
     @if (hosting().length > 1) {
       <section class="cx-section cx-section--subtle" aria-labelledby="cmp-types-h">

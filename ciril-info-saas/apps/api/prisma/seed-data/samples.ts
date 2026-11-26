@@ -146,6 +146,12 @@ export const SAMPLE_SITE_CLAIMS = {
   supportResponseTime: null,
   sslWarranty: 'Up to $1.75M warranty on paid certificates',
   domainTransferTime: '5–7 days',
+  freeApps: [
+    { name: 'WordPress', description: 'Websites and blogs' },
+    { name: 'WooCommerce', description: 'An online shop on WordPress' },
+    { name: 'Joomla', description: null },
+  ],
+  freeAppsNote: 'Sample list for development. Install them from your control panel.',
   stats: [],
 };
 
