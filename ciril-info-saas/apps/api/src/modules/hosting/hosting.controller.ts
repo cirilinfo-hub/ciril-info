@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { AuthUser, RequestMeta, TenantContext } from '../auth/auth.types.js';
@@ -23,6 +23,11 @@ export class HostingController {
 
   @Get(':id') @RequireTenant('services:read')
   get(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string) { return this.svc.get(ctx, id); }
+
+  /** A new control panel password, shown once (FASTPANEL). Never cached; a few per hour at most. */
+  @Post(':id/panel-login') @HttpCode(200) @Throttle({ default: { limit: 5, ttl: 3_600_000 } }) @RequireTenant('services:manage')
+  @Header('Cache-Control', 'no-store')
+  panelLogin(@CurrentTenant() ctx: TenantContext, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.svc.panelLogin(ctx, id, meta); }
 }
 
 /** Admin portal: every hosting account. */

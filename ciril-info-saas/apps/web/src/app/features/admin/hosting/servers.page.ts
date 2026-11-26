@@ -15,7 +15,7 @@ export interface HostingServerRow {
   name: string;
   hostname: string;
   ipAddress: string;
-  panel: 'CPANEL' | 'PLESK';
+  panel: 'CPANEL' | 'PLESK' | 'FASTPANEL';
   port: number | null;
   username: string | null;
   tls: 'verify' | 'skip' | 'off';
@@ -52,7 +52,7 @@ const STATUS: Record<HostingServerRow['status'], { label: string; cls: string }>
     .bad { color: var(--color-text-danger, #b42318); }
   `,
   template: `
-    <ci-page-head title="Hosting servers" sub="The cPanel and Plesk servers new hosting accounts are placed on. Each new account goes to the active server with the most room.">
+    <ci-page-head title="Hosting servers" sub="The cPanel, Plesk and FASTPANEL servers new hosting accounts are placed on. Each new account goes to the active server with the most room.">
       @if (canWrite()) { <button type="button" class="cf-btn cf-btn-primary" (click)="openNew()"><ci-icon name="plus" [size]="16" />Add server</button> }
     </ci-page-head>
     @if (!inUse() && loaded()) { <div class="cf-alert cf-alert-info" data-testid="not-in-use"><ci-icon name="info" /><span>These servers are used when HOSTING_PROVIDER=servers is set on the server. Right now hosting uses another setting, so this list is not used yet.</span></div> }
@@ -66,7 +66,7 @@ const STATUS: Record<HostingServerRow['status'], { label: string; cls: string }>
           @for (s of rows(); track s.id) {
             <tr>
               <td>{{ s.name }}<small>{{ s.hostname }} · {{ s.ipAddress }}@if (s.location) { · {{ s.location }} }</small></td>
-              <td>{{ s.panel === 'CPANEL' ? 'cPanel/WHM' : 'Plesk' }}@if (!s.credentialsSet) { <small class="bad">No credentials saved</small> }</td>
+              <td>{{ panelName[s.panel] }}@if (!s.credentialsSet) { <small class="bad">No credentials saved</small> }</td>
               <td class="num">{{ s.accounts }} / {{ s.maxAccounts }}</td>
               <td><span class="cf-badge" [class]="'cf-badge ' + status(s).cls">{{ status(s).label }}</span></td>
               <td>@if (s.lastCheck) { <span [class.ok]="s.lastCheck.startsWith('Connected')" [class.bad]="!s.lastCheck.startsWith('Connected')" data-testid="last-check">{{ s.lastCheck }}</span><small>{{ s.lastCheckedAt | date: 'd MMM y, h:mm a' }}</small> } @else { Not tested }</td>
@@ -92,7 +92,7 @@ const STATUS: Record<HostingServerRow['status'], { label: string; cls: string }>
             </ci-field>
             <ci-field label="Panel" for="sv-panel" [control]="form.controls.panel" [required]="true">
               <select id="sv-panel" class="cf-input" formControlName="panel" [attr.aria-describedby]="describedBy('sv-panel', form.controls.panel)">
-                <option value="CPANEL">cPanel/WHM</option><option value="PLESK">Plesk</option>
+                <option value="CPANEL">cPanel/WHM</option><option value="PLESK">Plesk</option><option value="FASTPANEL">FASTPANEL</option>
               </select>
             </ci-field>
           </div>
@@ -114,7 +114,7 @@ const STATUS: Record<HostingServerRow['status'], { label: string; cls: string }>
               <input id="sv-max" class="cf-input" inputmode="numeric" formControlName="maxAccounts" [attr.aria-describedby]="describedBy('sv-max', form.controls.maxAccounts)" />
             </ci-field>
           </div>
-          <ci-field [label]="form.controls.panel.value === 'CPANEL' ? 'WHM API token' : 'Plesk API key'" for="sv-secret" [control]="form.controls.secret" [required]="!editing()" [optional]="!!editing()" [hint]="editing() ? 'Leave empty to keep the saved one.' : 'Stored encrypted. Never shown again.'">
+          <ci-field [label]="secretLabel[form.controls.panel.value]" for="sv-secret" [control]="form.controls.secret" [required]="!editing()" [optional]="!!editing()" [hint]="editing() ? 'Leave empty to keep the saved one.' : 'Stored encrypted. Never shown again.'">
             <input id="sv-secret" class="cf-input" type="password" autocomplete="new-password" formControlName="secret" [attr.aria-describedby]="describedBy('sv-secret', form.controls.secret, true)" />
           </ci-field>
           <div class="two">
@@ -147,6 +147,8 @@ export class AdminServersPage implements OnInit {
   protected readonly describedBy = describedBy;
   protected readonly canWrite = computed(() => this.auth.can('settings:write'));
   protected readonly canTest = computed(() => this.auth.can('hosting:write'));
+  protected readonly panelName: Record<HostingServerRow['panel'], string> = { CPANEL: 'cPanel/WHM', PLESK: 'Plesk', FASTPANEL: 'FASTPANEL' };
+  protected readonly secretLabel: Record<HostingServerRow['panel'], string> = { CPANEL: 'WHM API token', PLESK: 'Plesk API key', FASTPANEL: 'FASTPANEL API token' };
   protected readonly rows = signal<HostingServerRow[]>([]);
   protected readonly inUse = signal(false);
   protected readonly loaded = signal(false);
@@ -157,7 +159,7 @@ export class AdminServersPage implements OnInit {
   protected readonly editing = signal<HostingServerRow | null>(null);
   protected readonly form = inject(NonNullableFormBuilder).group({
     name: ['', [Validators.required, Validators.maxLength(80)]],
-    panel: ['CPANEL' as 'CPANEL' | 'PLESK', [Validators.required]],
+    panel: ['CPANEL' as HostingServerRow['panel'], [Validators.required]],
     hostname: ['', [Validators.required, Validators.pattern(/^[A-Za-z0-9.-]{3,253}$/)]],
     ipAddress: ['', [Validators.required, Validators.pattern(/^(\d{1,3}\.){3}\d{1,3}$/)]],
     username: [''],

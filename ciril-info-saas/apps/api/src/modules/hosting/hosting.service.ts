@@ -1,16 +1,17 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PlatformPrisma, TenantPrisma } from '../../database/prisma-clients.js';
 import { HostingGateway } from './hosting-gateway.js';
 import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
 import { HOSTING_PRODUCT_TYPES, normaliseDomain } from './hosting-rules.js';
 import type { SetUpHostingDto } from './hosting.dto.js';
+import { type PanelLogin, ProvisioningError } from './providers/hosting-provider.js';
 
 const accountSelect = {
   id: true, primaryDomain: true, status: true, provisionedAt: true, suspendedAt: true, suspendReason: true, createdAt: true, subscriptionId: true,
   plan: { select: { id: true, name: true } },
 } as const;
 
-/** Customer-portal hosting: see your accounts and set up the ones you have paid for. Panel details never reach the browser. */
+/** Customer-portal hosting: see your accounts and set up the ones you have paid for. Server details never reach the browser; only the customer's own panel login does, on request (panelLogin). */
 @Injectable()
 export class HostingService {
   constructor(
@@ -42,6 +43,36 @@ export class HostingService {
       if (!a) throw new NotFoundException({ code: 'HOSTING_NOT_FOUND', message: 'Hosting account not found.' });
       return a;
     });
+  }
+
+  /**
+   * A fresh login for the account's control panel, shown once. Only for panels that do not email customers their login
+   * (FASTPANEL); the old password stops working. The password is never stored or logged here.
+   */
+  async panelLogin(ctx: TenantContext, id: string, meta: RequestMeta): Promise<PanelLogin> {
+    const account = await this.db.run(ctx, (tx) => tx.hostingAccount.findUnique({ where: { id }, select: { id: true, primaryDomain: true, status: true, panelUsername: true } }));
+    if (!account) throw new NotFoundException({ code: 'HOSTING_NOT_FOUND', message: 'Hosting account not found.' });
+    if (account.status !== 'ACTIVE' || !account.panelUsername) {
+      throw new ConflictException({ code: 'HOSTING_NOT_ACTIVE', message: account.status === 'SUSPENDED' ? 'This hosting is suspended, so its control panel cannot be opened.' : 'This hosting is not set up yet.' });
+    }
+    const provider = this.gateway.provider;
+    if (!provider.resetPanelLogin) {
+      throw new ConflictException({ code: 'PANEL_LOGIN_BY_EMAIL', message: 'Your control panel login was emailed to you when your hosting was set up. Use “Forgot password” on the panel if you need a new one.' });
+    }
+    let login: PanelLogin;
+    try {
+      login = await provider.resetPanelLogin({ accountId: account.id, panelUsername: account.panelUsername, domain: account.primaryDomain });
+    } catch (e) {
+      if (!(e instanceof ProvisioningError)) throw e;
+      if (e.message.includes('emails customers')) throw new ConflictException({ code: 'PANEL_LOGIN_BY_EMAIL', message: 'Your control panel login was emailed to you when your hosting was set up.' });
+      throw new ServiceUnavailableException({ code: 'PANEL_UNAVAILABLE', message: 'The control panel could not be reached just now. Please try again in a few minutes, or contact support.' });
+    }
+    await this.db.run(ctx, (tx) =>
+      tx.auditLog.create({
+        data: { action: 'hosting.panel_login_reset', actorId: ctx.userId, tenantId: ctx.tenantId, entityType: 'hosting_account', entityId: account.id, metadata: { domain: account.primaryDomain }, ipAddress: meta.ip ?? null, requestId: meta.requestId },
+      }),
+    );
+    return login;
   }
 
   /** Creates the account record and queues its set-up. The worker does the rest, so this answers straight away. */

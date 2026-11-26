@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
-  ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUrl, Length, Matches, Max, MaxLength, Min, ValidateNested,
+  ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUrl, Length, Matches, Max, MaxLength, Min, ValidateIf, ValidateNested,
 } from 'class-validator';
 import { ListQueryDto } from '../../common/http/pagination.js';
 
@@ -106,7 +106,9 @@ export class PlanPatchDto {
   /** The package (WHM) or service plan (Plesk) name on the hosting panel. Must match the panel exactly. */
   @IsOptional() @Transform(blankToNull) @IsString() @MaxLength(120) panelPackage?: string | null;
   /** With several servers: only servers with this panel take the plan. Null: any server. */
-  @IsOptional() @Transform(blankToNull) @IsIn(['CPANEL', 'PLESK']) hostingPanel?: 'CPANEL' | 'PLESK' | null;
+  @IsOptional() @Transform(blankToNull) @IsIn(['CPANEL', 'PLESK', 'FASTPANEL']) hostingPanel?: 'CPANEL' | 'PLESK' | 'FASTPANEL' | null;
+  /** Disk space in GB (stored as the plan's disk_gb limit). FASTPANEL sets it as the account's disk quota. Null clears it. */
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsNumber({ maxDecimalPlaces: 2, allowNaN: false, allowInfinity: false }) @Min(0.1) @Max(100_000) diskGb?: number | null;
 }
 export class PlanDto extends PlanPatchDto {
   @ApiProperty() @Transform(trim) @IsString() @Matches(SLUG, slugMsg) @MaxLength(120) slug!: string;

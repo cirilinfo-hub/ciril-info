@@ -49,4 +49,14 @@ export class HostingApi {
   setUp(subscriptionId: string, domain: string) {
     return firstValueFrom(this.http.post<HostingAccount>(this.base, { subscriptionId, domain }));
   }
+  /** A new control panel password, shown once. The previous one stops working. */
+  panelLogin(id: string) {
+    return firstValueFrom(this.http.post<PanelLogin>(`${this.base}/${id}/panel-login`, {}));
+  }
+}
+
+export interface PanelLogin {
+  url: string;
+  username: string;
+  password: string;
 }

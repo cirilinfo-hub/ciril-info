@@ -2,7 +2,7 @@
  * The boundary between our hosting code and a hosting control panel (cPanel/WHM, Plesk). Everything panel-specific
  * lives behind this, so the queue, retries, notices and screens do not change when a real panel is connected.
  */
-export type HostingProviderId = 'MOCK' | 'MANUAL' | 'CPANEL' | 'PLESK' | 'SERVERS';
+export type HostingProviderId = 'MOCK' | 'MANUAL' | 'CPANEL' | 'PLESK' | 'FASTPANEL' | 'SERVERS';
 
 /** A failure with a verdict: a retryable one (timeout, panel busy) is tried again later; any other goes to staff. */
 export class ProvisioningError extends Error {
@@ -25,6 +25,11 @@ export interface CreateAccountRequest {
   username: string;
   /** The panel's package name, from the plan. */
   packageName: string | null;
+  /**
+   * The plan's disk space in MB (its "disk_gb" limit), for panels whose packages carry no disk size (FASTPANEL sets it on
+   * the user). Null: no limit given. cPanel and Plesk ignore it: their package holds the disk size.
+   */
+  diskQuotaMb?: number | null;
   contactEmail: string;
   /** The same key on a retry must never create a second account. */
   idempotencyKey: string;
@@ -46,8 +51,20 @@ export interface HostingProvider {
   // The domain is passed too: some panels (Plesk) name an account by its domain rather than its username.
   suspend(req: { accountId?: string; panelUsername: string; domain: string; reason: string }): Promise<void>;
   unsuspend(req: { accountId?: string; panelUsername: string; domain: string }): Promise<void>;
-  changePackage(req: { accountId?: string; panelUsername: string; domain: string; packageName: string }): Promise<void>;
+  changePackage(req: { accountId?: string; panelUsername: string; domain: string; packageName: string; diskQuotaMb?: number | null }): Promise<void>;
   terminate(req: { accountId?: string; panelUsername: string; domain: string }): Promise<void>;
   /** A harmless call that proves the panel answers and accepts our credentials. Returns what the panel says it is. */
   ping?(): Promise<string>;
+  /**
+   * Sets a new random password for the customer's panel login and returns it, with where to sign in. Only for panels that
+   * do not email customers their login themselves (FASTPANEL); cPanel and Plesk send their own welcome email instead.
+   */
+  resetPanelLogin?(req: { accountId?: string; panelUsername: string; domain: string }): Promise<PanelLogin>;
+}
+
+/** A customer's control panel login, shown to them once. */
+export interface PanelLogin {
+  url: string;
+  username: string;
+  password: string;
 }

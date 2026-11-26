@@ -27,7 +27,7 @@ export class ServerPatchDto {
   @IsOptional() @IsArray() @ArrayMaxSize(13) @IsString({ each: true }) @MaxLength(253, { each: true }) nameservers?: string[];
   @IsOptional() @IsIn(['ACTIVE', 'MAINTENANCE', 'FULL', 'RETIRED']) status?: 'ACTIVE' | 'MAINTENANCE' | 'FULL' | 'RETIRED';
   @IsOptional() @Transform(trim) @IsString() @MaxLength(80) location?: string | null;
-  /** WHM API token or Plesk API key. Write-only: never returned. Send it only to replace the saved one. */
+  /** WHM API token, Plesk API key or FASTPANEL API token. Write-only: never returned. Send it only to replace the saved one. */
   @ApiPropertyOptional() @IsOptional() @IsString() @Length(8, 4096) secret?: string;
 }
 
@@ -35,7 +35,7 @@ export class ServerDto extends ServerPatchDto {
   @ApiProperty() @Transform(trim) @IsString() @Length(1, 80) declare name: string;
   @ApiProperty() @Transform(lower) @Matches(HOST, { message: 'Enter the server name, for example server1.yourhost.com.' }) declare hostname: string;
   @ApiProperty() @Transform(trim) @IsIP(4, { message: 'Enter the server’s shared IPv4 address.' }) declare ipAddress: string;
-  @ApiProperty({ enum: ['CPANEL', 'PLESK'] }) @IsIn(['CPANEL', 'PLESK']) panel!: 'CPANEL' | 'PLESK';
+  @ApiProperty({ enum: ['CPANEL', 'PLESK', 'FASTPANEL'] }) @IsIn(['CPANEL', 'PLESK', 'FASTPANEL']) panel!: 'CPANEL' | 'PLESK' | 'FASTPANEL';
   @ApiProperty() @IsString() @Length(8, 4096) declare secret: string;
 }
 

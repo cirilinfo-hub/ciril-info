@@ -26,7 +26,7 @@ type Account = {
   primaryDomain: string;
   panelUsername: string | null;
   status: string;
-  plan: { id: string; panelPackage: string | null };
+  plan: { id: string; panelPackage: string | null; limits: unknown };
   tenant: { customerAccount: { billingEmail: string } | null };
 };
 
@@ -56,6 +56,12 @@ const VERB: Record<ProvisioningAction, string> = {
 
 /** cPanel's own rule for a username, which Plesk also accepts: a letter first, then letters and digits, 16 at most. */
 export const PANEL_USERNAME = /^[a-z][a-z0-9]{0,15}$/;
+
+/** A plan's disk size in MB, from its "disk_gb" limit; null when it has none (unlimited, or set by the panel's package). */
+export function diskMb(limits: unknown): number | null {
+  const gb = (limits as { disk_gb?: unknown } | null)?.disk_gb;
+  return typeof gb === 'number' && Number.isFinite(gb) && gb > 0 ? Math.round(gb * 1024) : null;
+}
 
 /**
  * The provisioning queue. Work is a row in provisioning_jobs. Two modes:
@@ -124,7 +130,7 @@ export class HostingJobsService {
     return this.db.hostingAccount.findUnique({
       where: { id },
       select: {
-        id: true, tenantId: true, primaryDomain: true, panelUsername: true, status: true, plan: { select: { id: true, panelPackage: true } },
+        id: true, tenantId: true, primaryDomain: true, panelUsername: true, status: true, plan: { select: { id: true, panelPackage: true, limits: true } },
         tenant: { select: { customerAccount: { select: { billingEmail: true } } } },
       },
     });
@@ -158,7 +164,7 @@ export class HostingJobsService {
     switch (job.action) {
       case 'CREATE': {
         const created = await p.createAccount({
-          accountId: account.id, domain: account.primaryDomain, username: account.panelUsername ?? panelUsername(account.primaryDomain, account.id), packageName: account.plan.panelPackage,
+          accountId: account.id, domain: account.primaryDomain, username: account.panelUsername ?? panelUsername(account.primaryDomain, account.id), packageName: account.plan.panelPackage, diskQuotaMb: diskMb(account.plan.limits),
           contactEmail: account.tenant.customerAccount?.billingEmail ?? 'unknown@example.invalid', idempotencyKey: job.idempotency_key, attempt: job.attempts,
         });
         return { panelUsername: created.panelUsername, serverName: created.serverName ?? null };
@@ -177,7 +183,7 @@ export class HostingJobsService {
         const plan = await this.planFor(job.payload?.planId);
         if (!account.panelUsername) return { note: 'applied before creation' };
         if (!plan.panelPackage) throw new ProvisioningError('The new plan has no panel package set. An admin needs to set one.', false);
-        await p.changePackage({ accountId: account.id, panelUsername: account.panelUsername, domain: account.primaryDomain, packageName: plan.panelPackage });
+        await p.changePackage({ accountId: account.id, panelUsername: account.panelUsername, domain: account.primaryDomain, packageName: plan.panelPackage, diskQuotaMb: diskMb(plan.limits) });
         return { note: `package ${plan.panelPackage}` };
       }
       case 'TERMINATE': {
@@ -188,7 +194,7 @@ export class HostingJobsService {
   }
 
   private async planFor(planId: string | undefined) {
-    const plan = planId ? await this.db.plan.findUnique({ where: { id: planId }, select: { id: true, panelPackage: true } }) : null;
+    const plan = planId ? await this.db.plan.findUnique({ where: { id: planId }, select: { id: true, panelPackage: true, limits: true } }) : null;
     if (!plan) throw new ProvisioningError('The new plan no longer exists.', false);
     return plan;
   }
