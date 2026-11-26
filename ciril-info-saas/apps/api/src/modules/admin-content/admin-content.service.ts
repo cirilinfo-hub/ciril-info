@@ -16,6 +16,19 @@ import type {
 import type { ListQueryDto } from '../../common/http/pagination.js';
 
 const num = (d: { toString(): string } | null | undefined) => (d == null ? null : Number(d.toString()));
+
+/** A plan's disk space in GB, from its limits; null when it has none. */
+export function diskGbOf(limits: unknown): number | null {
+  const gb = (limits as { disk_gb?: unknown } | null)?.disk_gb;
+  return typeof gb === 'number' && Number.isFinite(gb) ? gb : null;
+}
+
+/** The plan's limits with disk_gb set (or removed for null), keeping its other limits. */
+export function withDiskGb(limits: unknown, diskGb: number | null): Prisma.InputJsonObject {
+  const rest = { ...((limits && typeof limits === 'object' && !Array.isArray(limits) ? limits : {}) as Record<string, Prisma.InputJsonValue>) };
+  delete rest['disk_gb'];
+  return diskGb == null ? rest : { ...rest, disk_gb: diskGb };
+}
 const COMPANY_KEY = 'company.profile';
 
 const optText = (max: number) => z.string().trim().max(max).default('');
@@ -240,6 +253,8 @@ export class AdminContentService {
         plans: p.plans.map((pl) => ({
           id: pl.id, slug: pl.slug, name: pl.name, description: pl.description, isFeatured: pl.isFeatured, status: pl.status,
           sortOrder: pl.sortOrder, isSample: pl.isSample,
+          // The editor fills its form from these: leaving them out would blank them on the next save.
+          panelPackage: pl.panelPackage, hostingPanel: pl.hostingPanel, diskGb: diskGbOf(pl.limits),
           features: pl.features.map((f) => ({ label: f.label, value: f.value, highlight: f.highlight })),
           prices: pl.pricingVersions.map((v) => ({
             id: v.id, billingCycle: v.billingCycle, currency: v.currency, price: num(v.price)!, renewalPrice: num(v.renewalPrice)!,
@@ -269,7 +284,9 @@ export class AdminContentService {
     if (dto.status === 'PUBLISHED') {
       throw new UnprocessableEntityException({ code: 'PRICE_REQUIRED', message: 'Add a price first, then publish the plan.' });
     }
-    const row = await this.run(() => this.db.plan.create({ data: { ...dto, productId } }), 'Plan');
+    const { diskGb, ...fields } = dto;
+    const limits = diskGb === undefined ? undefined : withDiskGb({}, diskGb);
+    const row = await this.run(() => this.db.plan.create({ data: { ...fields, productId, ...(limits ? { limits } : {}) } }), 'Plan');
     await this.log(user, meta, 'catalog.plan.create', 'plan', row.id, { slug: row.slug });
     return { id: row.id };
   }
@@ -285,8 +302,11 @@ export class AdminContentService {
       const hasPrice = plan.pricingVersions.some((v) => v.effectiveFrom <= now && (!v.effectiveTo || v.effectiveTo > now));
       if (!hasPrice) throw new UnprocessableEntityException({ code: 'PRICE_REQUIRED', message: 'Add a current price before publishing this plan.' });
     }
-    await this.db.plan.update({ where: { id }, data: dto });
-    await this.log(user, meta, 'catalog.plan.update', 'plan', id, { fields: Object.keys(dto), status: dto.status });
+    const { diskGb, ...fields } = dto;
+    // Other limits a plan may hold (websites...) are kept; only disk_gb is set or cleared here.
+    const limits = diskGb === undefined ? undefined : withDiskGb(plan.limits, diskGb);
+    await this.db.plan.update({ where: { id }, data: { ...fields, ...(limits ? { limits } : {}) } });
+    await this.log(user, meta, 'catalog.plan.update', 'plan', id, { fields: Object.keys(dto), status: dto.status, ...(diskGb !== undefined ? { diskGb } : {}) });
   }
 
   async setFeatures(user: AuthUser, planId: string, features: { label: string; value?: string | null; highlight?: boolean }[], meta: RequestMeta) {

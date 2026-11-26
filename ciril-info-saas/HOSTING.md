@@ -89,18 +89,55 @@ username, emailed by Plesk so the customer can sign in and set a password) ownin
 DNS editing for customers is built for cPanel only: with Plesk, set `DNS_PROVIDER=none` (DNS is managed in Plesk).
 Tested against a pretend Plesk only.
 
-## Several servers (cPanel and Plesk side by side)
+## FASTPANEL
+
+FASTPANEL is free and works through the **several servers** setup below (`HOSTING_PROVIDER=servers`): add the FASTPANEL
+server in **Admin > Hosting servers** with the panel set to FASTPANEL. Mapped and tested against a real FASTPANEL 8.0 on
+Ubuntu 24.04 (create, retry, suspend, restore, plan change, new panel login, removal).
+
+**Keep it on its own server.** FASTPANEL serves customers' websites on ports 80 and 443, as this app does; never install it
+on the app's server. On Hostinger, choosing a VPS's "with FASTPANEL" OS template **erases that VPS**.
+
+On the FASTPANEL server, once:
+
+1. **Turn limits on**: FASTPANEL > Settings, switch on limits. Without it no plan can be applied (the set-up goes to staff
+   with "Limits are switched off").
+2. **Install the Quota application** (FASTPANEL > Applications), so disk sizes are enforced. Until then accounts are made
+   without a disk limit, and **Test connection** says "DISK QUOTAS OFF".
+3. **Make a limit template per plan** (FASTPANEL > Settings > Limit templates): websites, databases, mail domains,
+   mailboxes, FTP accounts. Name it exactly like the plan's **Panel package** in Products & Pricing, e.g. `Starter`.
+4. **Make the API token** as root, allowed only from this app's server:
+   ```bash
+   mogwai users tokens add --name cirilinfo --scopes full --constraint <this app server's IP> --expire_at 2030-12-31
+   ```
+   Copy the `msg` value: it is the token, shown once. Paste it as the server's API token in Admin > Hosting servers.
+   The token acts as the panel's admin user; keep the IP constraint.
+5. Port **8888** must be reachable from the app's server. A fresh panel has a self-signed certificate: set the server's TLS
+   check to **skip** until the panel has a real certificate (FASTPANEL > Settings > panel certificate), then **verify**.
+
+How it maps:
+
+- Each hosting account is a FASTPANEL user named like the panel username, owning one website for the domain (PHP 8.3,
+  PHP-FPM) on the server's shared IP.
+- The plan's **Panel package** is the limit template's name. Its **Disk space (GB)** becomes the user's disk quota.
+- Suspending disables the FASTPANEL user (websites, mail, FTP and SSH stop); restoring enables it. Removing deletes the
+  user with its websites, mail, databases and files.
+- FASTPANEL does not email customers their login. In the client area, **Hosting > Control panel login** makes a new password
+  and shows it once (the old one stops working; at most 5 an hour; recorded in the audit log, the password never is).
+- FASTPANEL administrators (`ROLE_SUPER_ADMIN`, resellers) are never changed or removed by the app.
+
+## Several servers (cPanel, Plesk and FASTPANEL side by side)
 
 With `HOSTING_PROVIDER=servers`, the servers are listed in **Admin > Hosting servers** instead of the `.env` file:
 
-1. A Super Admin adds each server: a name, its address, its shared IPv4, the panel (cPanel/WHM or Plesk), the WHM user
+1. A Super Admin adds each server: a name, its address, its shared IPv4, the panel (cPanel/WHM, Plesk or FASTPANEL), the WHM user
    (cPanel), the API token or key, and the most accounts it should hold. The credentials are stored encrypted and never
    shown again; leave them empty when editing to keep the saved ones.
 2. Press **Test connection** on each server. The launch checklist stays on "to do" until every active server has
    passed once.
 3. A new hosting account goes to the active server with the most room for its size (accounts held compared with its
    limit; a tie goes to the one with fewer accounts). A full server takes no more. If a plan's package exists on only one
-   kind of panel, set the plan's **Server type** to cPanel or Plesk.
+   kind of panel, set the plan's **Server type** to cPanel, Plesk or FASTPANEL.
 4. The server is recorded on the account before the panel is called, so a retry goes to the same server, and every
    later action (suspend, restore, plan change, removal) goes to the server the account lives on.
 5. Set a server to **Maintenance**, **Full** or **Retired** to stop new accounts going there; its existing accounts keep

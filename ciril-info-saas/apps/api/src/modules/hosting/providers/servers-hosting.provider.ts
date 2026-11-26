@@ -2,6 +2,7 @@ import type { PlatformPrisma } from '../../../database/prisma-clients.js';
 import type { SecretBox } from '../../../common/security/crypto.js';
 import type { HostingPanel } from '../../../generated/prisma/client.js';
 import { CpanelHostingProvider } from './cpanel-hosting.provider.js';
+import { FastpanelHostingProvider } from './fastpanel-hosting.provider.js';
 import { type CreateAccountRequest, type CreateAccountResult, type HostingProvider, ProvisioningError } from './hosting-provider.js';
 import { PleskHostingProvider } from './plesk-hosting.provider.js';
 
@@ -28,8 +29,13 @@ export function providerForServer(s: ServerRow, box: SecretBox): HostingProvider
   const tls = (['verify', 'skip', 'off'].includes(s.tls) ? s.tls : 'verify') as 'verify' | 'skip' | 'off';
   if (s.panel === 'CPANEL') return new CpanelHostingProvider({ host: s.hostname, port: s.port ?? 2087, user: s.username || 'root', token: secret, tls });
   if (s.panel === 'PLESK') return new PleskHostingProvider({ host: s.hostname, port: s.port ?? 8443, apiKey: secret, tls, ip: s.ipAddress });
+  if (s.panel === 'FASTPANEL') return new FastpanelHostingProvider({ host: s.hostname, port: s.port ?? 8888, token: secret, tls, ip: s.ipAddress });
   throw new ProvisioningError(`The server ${s.name} uses a panel we cannot drive.`, false);
 }
+
+/** Panels we can drive (MOCK is for tests only). */
+const DRIVABLE: HostingPanel[] = ['CPANEL', 'PLESK', 'FASTPANEL'];
+const PANEL_NAME: Record<HostingPanel, string> = { CPANEL: 'cPanel', PLESK: 'Plesk', FASTPANEL: 'FASTPANEL', MOCK: 'test' };
 
 const serverSelect = { id: true, name: true, hostname: true, ipAddress: true, panel: true, port: true, username: true, tls: true, credentialsEnc: true, updatedAt: true, maxAccounts: true } as const;
 
@@ -60,11 +66,16 @@ export class ServersHostingProvider implements HostingProvider {
   async unsuspend(req: { accountId?: string; panelUsername: string; domain: string }) {
     await this.adapter(await this.serverFor(req.accountId, false)).unsuspend(req);
   }
-  async changePackage(req: { accountId?: string; panelUsername: string; domain: string; packageName: string }) {
+  async changePackage(req: { accountId?: string; panelUsername: string; domain: string; packageName: string; diskQuotaMb?: number | null }) {
     await this.adapter(await this.serverFor(req.accountId, false)).changePackage(req);
   }
   async terminate(req: { accountId?: string; panelUsername: string; domain: string }) {
     await this.adapter(await this.serverFor(req.accountId, false)).terminate(req);
+  }
+  async resetPanelLogin(req: { accountId?: string; panelUsername: string; domain: string }) {
+    const adapter = this.adapter(await this.serverFor(req.accountId, false));
+    if (!adapter.resetPanelLogin) throw new ProvisioningError('This server’s panel emails customers their own login, so it cannot be shown here.', false);
+    return adapter.resetPanelLogin(req);
   }
 
   /** The account's server; for a new account with none yet, the one with the most room, saved on the account first. */
@@ -85,7 +96,7 @@ export class ServersHostingProvider implements HostingProvider {
 
   private async pick(panel: HostingPanel | null): Promise<string> {
     const servers = await this.db.hostingServer.findMany({
-      where: { status: 'ACTIVE', panel: panel ? panel : { in: ['CPANEL', 'PLESK'] }, credentialsEnc: { not: null } },
+      where: { status: 'ACTIVE', panel: panel ? panel : { in: DRIVABLE }, credentialsEnc: { not: null } },
       select: { id: true, name: true, maxAccounts: true, _count: { select: { accounts: { where: { status: { in: ['PENDING', 'PROVISIONING', 'ACTIVE', 'SUSPENDED'] } } } } } },
     });
     const withRoom = servers
@@ -95,8 +106,8 @@ export class ServersHostingProvider implements HostingProvider {
     if (!withRoom.length) {
       throw new ProvisioningError(
         servers.length
-          ? `Every active${panel ? ` ${panel === 'CPANEL' ? 'cPanel' : 'Plesk'}` : ''} server is full. Add a server or raise a server's account limit in Admin > Hosting servers, then retry.`
-          : `There is no active${panel ? ` ${panel === 'CPANEL' ? 'cPanel' : 'Plesk'}` : ''} server with API credentials. Add one in Admin > Hosting servers, then retry.`,
+          ? `Every active${panel ? ` ${PANEL_NAME[panel]}` : ''} server is full. Add a server or raise a server's account limit in Admin > Hosting servers, then retry.`
+          : `There is no active${panel ? ` ${PANEL_NAME[panel]}` : ''} server with API credentials. Add one in Admin > Hosting servers, then retry.`,
         false,
       );
     }

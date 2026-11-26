@@ -72,7 +72,9 @@ export interface AdminPlan {
   /** The package (WHM) or service plan (Plesk) name on the hosting panel. */
   panelPackage?: string | null;
   /** With several servers: only this kind of server takes the plan. */
-  hostingPanel?: 'CPANEL' | 'PLESK' | null;
+  hostingPanel?: 'CPANEL' | 'PLESK' | 'FASTPANEL' | null;
+  /** Disk space in GB (the plan's disk_gb limit). */
+  diskGb?: number | null;
   features: { label: string; value: string | null; highlight: boolean }[];
   prices: AdminPrice[];
 }
