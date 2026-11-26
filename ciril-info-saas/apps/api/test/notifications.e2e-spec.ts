@@ -21,8 +21,10 @@ describe('Notifications (e2e)', () => {
     alice = await customer(app, db, 'note-a');
     bob = await customer(app, db, 'note-b');
     emails.push(alice.email, bob.email);
-    for (const title of ['First notice', 'Second notice', 'Third notice']) {
-      const n = await db.notification.create({ data: { userId: alice.userId, tenantId: alice.tenantId, type: 'test', title, link: '/support' } });
+    // Explicit, spaced times: made back to back they can share a millisecond, and then "newest first" has no fixed order.
+    const start = Date.now() - 60_000;
+    for (const [i, title] of ['First notice', 'Second notice', 'Third notice'].entries()) {
+      const n = await db.notification.create({ data: { userId: alice.userId, tenantId: alice.tenantId, type: 'test', title, link: '/support', createdAt: new Date(start + i * 1000) } });
       ids.push(n.id);
     }
     await db.notification.create({ data: { userId: bob.userId, tenantId: bob.tenantId, type: 'test', title: 'Bob only' } });
