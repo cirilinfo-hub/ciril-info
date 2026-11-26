@@ -38,6 +38,7 @@ export const PLATFORM_PERMISSIONS = {
   'content:write': 'Edit and publish website content',
   'inquiries:read': 'View website contact inquiries',
   'inquiries:write': 'Update contact inquiry status',
+  'kb:write': 'Write, edit and publish help centre (knowledge base) articles',
 } as const;
 
 export const TENANT_PERMISSIONS = {
@@ -91,7 +92,7 @@ export const PLATFORM_ROLES: readonly RoleDef<PlatformPermission>[] = [
     permissions: [
       'dashboard:read', 'tenants:read', 'customers:read', 'products:read', 'hosting:read',
       'domains:read', 'subscriptions:read', 'billing:read', 'support:read', 'support:write',
-      'inquiries:read', 'inquiries:write',
+      'inquiries:read', 'inquiries:write', 'kb:write',
     ],
   },
 ];

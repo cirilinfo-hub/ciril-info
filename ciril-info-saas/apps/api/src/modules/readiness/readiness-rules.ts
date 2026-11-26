@@ -48,7 +48,7 @@ export function evaluateReadiness(f: ReadinessFacts): Check[] {
     else if (p.provider === 'razorpay') {
       const missing = [!p.keyIdSet && 'the key id', !p.keySecretSet && 'the key secret', !p.webhookSecretSet && 'the webhook secret'].filter(Boolean) as string[];
       if (missing.length) add({ key: 'payments', group: 'Connections', label: 'Payments', status: 'todo', detail: `Razorpay is selected but ${list(missing)} ${missing.length === 1 ? 'is' : 'are'} not set in the server settings.` });
-      else if (f.production && !p.liveKey) add({ key: 'payments', group: 'Connections', label: 'Payments', status: 'todo', detail: 'Production is using a Razorpay test key. Use the live key (rzp_live_...) so real payments work.' });
+      else if (f.production && !p.liveKey) add({ key: 'payments', group: 'Connections', label: 'Payments', status: 'todo', detail: 'Production is using a Razorpay test key: no real money moves. Put in the live key (rzp_live_...) and remove RAZORPAY_TEST_KEYS_IN_PRODUCTION from the server settings so real payments work.' });
       else if (!f.production) add({ key: 'payments', group: 'Connections', label: 'Payments', status: 'info', detail: p.liveKey ? 'A live Razorpay key is set outside production. Use a test key while developing.' : 'Razorpay test mode: the real checkout opens but no real money moves.' });
       else add({ key: 'payments', group: 'Connections', label: 'Payments', status: 'ok', detail: 'Razorpay is connected with a live key.' });
     } else add({ key: 'payments', group: 'Connections', label: 'Payments', status: 'todo', detail: `The payment provider "${p.provider}" is not available.` });

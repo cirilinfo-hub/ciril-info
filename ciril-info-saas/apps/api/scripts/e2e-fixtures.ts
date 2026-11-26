@@ -52,6 +52,9 @@ async function cleanupPublic() {
   await db.portfolioProject.deleteMany({ where: { slug: { startsWith: 'pw-' } } });
   await db.testimonial.deleteMany({ where: { quote: { startsWith: 'PW ' } } });
   await db.faq.deleteMany({ where: { question: { startsWith: 'PW ' } } });
+  // Help centre articles and categories written by the browser tests.
+  await db.kbArticle.deleteMany({ where: { slug: { startsWith: 'pw-' } } });
+  await db.kbCategory.deleteMany({ where: { slug: { startsWith: 'pw-' } } });
   await db.systemSetting.deleteMany({ where: { key: 'legal.refund-policy', value: { path: ['title'], equals: 'PW Refund Policy' } } });
   await db.contactInquiry.deleteMany({ where: { email: { startsWith: 'pw-', endsWith: '@example.test' } } });
   // Staff notices left by the test tickets and enquiries.

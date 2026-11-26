@@ -12,8 +12,9 @@ apps/api/src/generated/
 !.env.example
 *.pem
 *.key
-# Local data
-storage/
+# Local data (uploaded files; NOT apps/api/src/common/storage, which is source code)
+/storage/
+apps/api/storage/
 backups/
 playwright-report/
 # Local test-run logs

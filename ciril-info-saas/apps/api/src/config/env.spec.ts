@@ -114,6 +114,16 @@ describe('validateEnv: payment provider', () => {
     expect(() => validateEnv({ ...base, NODE_ENV: 'production', PAYMENT_PROVIDER: 'razorpay', HOSTING_PROVIDER: 'cpanel', REGISTRAR_PROVIDER: 'x', EMAIL_PROVIDER: 'resend', RAZORPAY_KEY_ID: 'rzp_test_a', ...keys })).toThrow(/production needs a live key/);
   });
 
+  it('allows a test key in production only with the pre-launch switch, and never mixes it with a live key', () => {
+    const keys = { RAZORPAY_KEY_SECRET: 's', RAZORPAY_WEBHOOK_SECRET: 'w' };
+    const prod = { ...base, NODE_ENV: 'production', PAYMENT_PROVIDER: 'razorpay', HOSTING_PROVIDER: 'manual', DNS_PROVIDER: 'none', REGISTRAR_PROVIDER: 'rdap', EMAIL_PROVIDER: 'resend' };
+    expect(() => validateEnv({ ...prod, RAZORPAY_KEY_ID: 'rzp_test_a', ...keys })).toThrow(/RAZORPAY_TEST_KEYS_IN_PRODUCTION=true allows a test key/);
+    expect(validateEnv({ ...prod, RAZORPAY_KEY_ID: 'rzp_test_a', ...keys, RAZORPAY_TEST_KEYS_IN_PRODUCTION: 'true' }).RAZORPAY_TEST_KEYS_IN_PRODUCTION).toBe(true);
+    expect(() => validateEnv({ ...prod, RAZORPAY_KEY_ID: 'rzp_live_a', ...keys, RAZORPAY_TEST_KEYS_IN_PRODUCTION: 'true' })).toThrow(/remove this setting now that the live key is in/);
+    expect(validateEnv({ ...prod, RAZORPAY_KEY_ID: 'rzp_live_a', ...keys }).RAZORPAY_TEST_KEYS_IN_PRODUCTION).toBe(false);
+    expect(() => validateEnv({ ...base, NODE_ENV: 'development', RAZORPAY_TEST_KEYS_IN_PRODUCTION: 'true' })).toThrow(/only applies with PAYMENT_PROVIDER=razorpay/);
+  });
+
   it('refuses Stripe until it is built', () => {
     expect(() => validateEnv({ ...dev, PAYMENT_PROVIDER: 'stripe' })).toThrow(/Stripe runs alongside/);
   });

@@ -33,6 +33,7 @@ x-app-env: &app-env
   RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
   RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
   RAZORPAY_SAVED_CARDS: ${RAZORPAY_SAVED_CARDS:-false}
+  RAZORPAY_TEST_KEYS_IN_PRODUCTION: ${RAZORPAY_TEST_KEYS_IN_PRODUCTION:-false}
   CARD_AUTOPAY_MAX_AMOUNT: ${CARD_AUTOPAY_MAX_AMOUNT:-15000}
   STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
   STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
@@ -174,6 +175,9 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    # nginx.conf allows 2048 connections per worker; the default limit of 1024 open files would cap it.
+    ulimits:
+      nofile: { soft: 65535, hard: 65535 }
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/www/certbot:/var/www/certbot:ro

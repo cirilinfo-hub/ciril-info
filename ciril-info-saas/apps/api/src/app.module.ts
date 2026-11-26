@@ -16,6 +16,7 @@ import { DomainsModule } from './modules/domains/domains.module.js';
 import { ReadinessModule } from './modules/readiness/readiness.service.js';
 import { HostingModule } from './modules/hosting/hosting.module.js';
 import { HealthModule } from './modules/health/health.module.js';
+import { KbModule } from './modules/kb/kb.module.js';
 import { MailModule } from './modules/mail/mail.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { PublicModule } from './modules/public/public.module.js';
@@ -82,6 +83,7 @@ import { UsersModule } from './modules/users/users.module.js';
     HealthModule,
     PublicModule,
     AdminContentModule,
+    KbModule,
     UploadsModule,
     TenantsModule,
     BillingModule,

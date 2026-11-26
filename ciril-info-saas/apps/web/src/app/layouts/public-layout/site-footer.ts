@@ -79,7 +79,8 @@ import { FOOTER_HOSTING, FOOTER_LEGAL, FOOTER_SERVICES, MAIN_NAV } from './site-
 })
 export class SiteFooter {
   protected readonly year = new Date().getFullYear();
-  protected readonly quick = MAIN_NAV;
+  /** The main menu plus the help centre (not in the header menu, which follows the design). */
+  protected readonly quick = [...MAIN_NAV.slice(0, -1), { label: 'Help Centre', path: '/help' }, MAIN_NAV[MAIN_NAV.length - 1]!];
   protected readonly services = FOOTER_SERVICES;
   protected readonly hosting = FOOTER_HOSTING;
   private readonly site = toSignal(inject(PublicApi).site());

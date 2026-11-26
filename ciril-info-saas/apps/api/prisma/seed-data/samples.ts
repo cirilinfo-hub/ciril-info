@@ -160,3 +160,65 @@ export const SAMPLE_PROJECTS: { slug: string; title: string; clientName: string;
   { slug: "kora-skincare", title: "Brand launch concept", clientName: "Kora Skincare", category: "Branding & Promotions", summary: "A visual identity and launch promotion for a new product line.", description: "A sample launch: identity direction, social creative and a promotional landing page working together.", scope: ["Visual identity direction", "Social creative set", "Launch landing page", "Campaign plan"], tags: ["Brand identity", "Social media", "Landing page", "Paid ads"] },
   { slug: "atlas-events", title: "Event promotion concept", clientName: "Atlas Events", category: "Branding & Promotions", summary: "A multi-channel promotion plan for a conference.", description: "A concept showing how paid, social and email activity could be coordinated to drive registrations for an event.", scope: ["Campaign strategy", "Ad creative", "Registration landing page", "Campaign reporting"], tags: ["Paid advertising", "Lead generation", "Email", "Analytics"] },
 ];
+
+/** Development-only help centre samples (flagged is_sample, labelled on the site, removed by db:purge-samples). */
+export const SAMPLE_KB: { category: { slug: string; name: string; description: string }; articles: { slug: string; title: string; summary: string; body: string }[] }[] = [
+  {
+    category: { slug: 'sample-getting-started', name: 'Getting started', description: 'Your account, your organisation and your team.' },
+    articles: [
+      {
+        slug: 'sample-invite-your-team',
+        title: 'Invite your team to your account',
+        summary: 'Add colleagues to your organisation so they can see services, pay invoices or open tickets.',
+        body: [
+          'Everyone in your organisation signs in with their own email address and password, so you never need to share a login.',
+          '',
+          '## Send an invitation',
+          '1. Sign in to the client area.',
+          '2. Open Team.',
+          '3. Enter your colleague\'s email address, choose their role and send the invitation.',
+          '',
+          '## Roles',
+          '- Owner: full access to the organisation.',
+          '- Admin: manages services, billing and the team.',
+          '- Member: views services and opens support tickets.',
+        ].join('\n'),
+      },
+    ],
+  },
+  {
+    category: { slug: 'sample-billing', name: 'Billing and payments', description: 'Invoices, payments and renewals.' },
+    articles: [
+      {
+        slug: 'sample-pay-an-invoice',
+        title: 'Pay an invoice',
+        summary: 'Pay online from the client area, or by bank transfer when bank details are shown on the invoice.',
+        body: [
+          'Your invoices are listed under Invoices in the client area.',
+          '',
+          '## Pay online',
+          '1. Open Invoices and choose the unpaid invoice.',
+          '2. Choose Pay and complete the payment in the secure payment window.',
+          '3. The invoice shows Paid as soon as the payment is confirmed, and your service starts or renews.',
+          '',
+          '## Pay by bank transfer',
+          'If bank details are shown on the invoice, you can pay by transfer or UPI. Include the invoice number as the reference. The invoice is marked paid once the payment is recorded.',
+        ].join('\n'),
+      },
+      {
+        slug: 'sample-attach-files-to-a-ticket',
+        title: 'Attach files to a support ticket',
+        summary: 'Which files you can attach to a ticket, and how large they can be.',
+        body: [
+          'Screenshots and logs help us solve a problem faster.',
+          '',
+          '- Up to 5 files on each message, 5 MB each, and 20 per ticket.',
+          '- Allowed: PNG, JPEG and WebP images, PDF, and .txt, .log or .csv files.',
+          '- Archives, scripts and programs are refused.',
+          '',
+          'Never attach passwords or card numbers.',
+        ].join('\n'),
+      },
+    ],
+  },
+];
