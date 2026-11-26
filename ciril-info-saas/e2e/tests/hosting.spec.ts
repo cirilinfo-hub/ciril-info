@@ -69,7 +69,19 @@ test.describe('Hosting', () => {
     await expect(row).toBeVisible();
     await expect(row.locator('.cf-badge', { hasText: 'Active' })).toBeVisible({ timeout: 60_000 });
     await expect(page.getByText('Ready to set up')).toHaveCount(0);
-    await expect(row).not.toContainText(/pkg|mock-server|panel/i); // no panel details for the customer
+    // No package or server details for the customer (the action cell holds the "Control panel login" button, nothing else).
+    for (const cell of await row.getByRole('cell').all()) {
+      if (await cell.getByRole('button').count()) continue;
+      await expect(cell).not.toContainText(/pkg|mock-server|panel/i);
+    }
+
+    // --- Control panel login: this test panel emails its own logins, so the customer is told that instead of a password
+    await row.getByRole('button', { name: 'Control panel login' }).click();
+    const loginDialog = page.getByRole('dialog', { name: new RegExp(`Control panel login for ${domain}`) });
+    await loginDialog.getByRole('button', { name: 'Make new password' }).click();
+    await expect(loginDialog.getByRole('alert')).toContainText('emailed to you');
+    await loginDialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(loginDialog).toBeHidden();
 
     // --- Staff see it, suspend it with a reason, and restore it
     const staffEmail = uniqueEmail('hostadmin');
