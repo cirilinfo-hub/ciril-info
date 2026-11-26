@@ -59,6 +59,15 @@ const orNull = (s: string): string | null => s.trim() || null;
           </div>
         </fieldset>
         <fieldset>
+          <legend>Hosting: free applications</legend>
+          <ci-field label="Applications" for="k-apps" [optional]="true" hint="Up to 60, one per line as “Name | short description” (the description is optional), for example: WordPress | Websites and blogs. List only what your hosting server’s installer really offers.">
+            <textarea id="k-apps" class="cf-input" rows="8" formControlName="freeApps" aria-describedby="k-apps-hint"></textarea>
+          </ci-field>
+          <ci-field label="Note above the list" for="k-apps-note" [optional]="true" hint="For example: Install any of them in one click from your control panel.">
+            <input id="k-apps-note" class="cf-input" formControlName="freeAppsNote" aria-describedby="k-apps-note-hint" />
+          </ci-field>
+        </fieldset>
+        <fieldset>
           <legend>Home page figures</legend>
           <ci-field label="Headline figures" for="k-stats" [optional]="true" hint="Up to 4, one per line as “value | label”, for example: 250+ | Projects delivered. Use real, checkable numbers only.">
             <textarea id="k-stats" class="cf-input" rows="4" formControlName="stats" aria-describedby="k-stats-hint"></textarea>
@@ -89,6 +98,8 @@ export class ClaimsPage extends AdminPage implements OnInit {
     supportResponseTime: [''],
     sslWarranty: [''],
     domainTransferTime: [''],
+    freeApps: [''],
+    freeAppsNote: [''],
     stats: [''],
   });
 
@@ -108,6 +119,8 @@ export class ClaimsPage extends AdminPage implements OnInit {
       freeMigrationSites: c.freeMigrationSites?.toString() ?? '', freeMigrationPlanSlugs: c.freeMigrationPlanSlugs.join('\n'),
       dataCentres: c.dataCentres.join('\n'), supportHours: c.supportHours ?? '', supportResponseTime: c.supportResponseTime ?? '',
       sslWarranty: c.sslWarranty ?? '', domainTransferTime: c.domainTransferTime ?? '',
+      freeApps: c.freeApps.map((a) => (a.description ? `${a.name} | ${a.description}` : a.name)).join('\n'),
+      freeAppsNote: c.freeAppsNote ?? '',
       stats: c.stats.map((s) => `${s.value} | ${s.label}`).join('\n'),
     });
   }
@@ -124,10 +137,19 @@ export class ClaimsPage extends AdminPage implements OnInit {
       this.error.set('Write each figure as “value | label”, for example “250+ | Projects delivered”.');
       return;
     }
+    const freeApps = lines(v.freeApps).map((l) => {
+      const [name, ...rest] = l.split('|');
+      return { name: (name ?? '').trim(), description: rest.join('|').trim() || null };
+    });
+    if (freeApps.some((a) => !a.name)) {
+      this.error.set('Write each application as “Name | short description”, for example “WordPress | Websites and blogs”.');
+      return;
+    }
     const body: SiteClaims = {
       uptimePercent: toNum(v.uptimePercent), moneyBackDays: toNum(v.moneyBackDays), freeMigrationSites: toNum(v.freeMigrationSites),
       freeMigrationPlanSlugs: lines(v.freeMigrationPlanSlugs), dataCentres: lines(v.dataCentres), supportHours: orNull(v.supportHours),
-      supportResponseTime: orNull(v.supportResponseTime), sslWarranty: orNull(v.sslWarranty), domainTransferTime: orNull(v.domainTransferTime), stats,
+      supportResponseTime: orNull(v.supportResponseTime), sslWarranty: orNull(v.sslWarranty), domainTransferTime: orNull(v.domainTransferTime),
+      freeApps, freeAppsNote: orNull(v.freeAppsNote), stats,
     };
     const ok = await this.run(async () => {
       this.fill(await this.api.saveClaims(body));

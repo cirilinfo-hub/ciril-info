@@ -110,6 +110,8 @@ export interface SiteClaims {
   supportResponseTime: string | null;
   sslWarranty: string | null;
   domainTransferTime: string | null;
+  freeApps: { name: string; description: string | null }[];
+  freeAppsNote: string | null;
   stats: { value: string; label: string }[];
 }
 export interface LegalSummary {

@@ -34,6 +34,16 @@ export const siteClaimsSchema = z
     sslWarranty: text.nullable().default(null),
     /** Domain transfer completion time, e.g. "5–7 days". */
     domainTransferTime: text.nullable().default(null),
+    /**
+     * Applications customers can install at no extra cost on hosting plans, shown on the hosting pages.
+     * List only what the hosting server's installer really offers. Empty = the section is hidden.
+     */
+    freeApps: z
+      .array(z.object({ name: z.string().trim().min(1).max(60), description: z.string().trim().min(1).max(160).nullable().default(null) }))
+      .max(60)
+      .default([]),
+    /** One line above the list, e.g. "Install any of them in one click from your control panel." */
+    freeAppsNote: z.string().trim().min(1).max(200).nullable().default(null),
     /** Headline stats band on the home page. Use real, verifiable figures only. */
     stats: z
       .array(z.object({ value: z.string().trim().min(1).max(16), label: z.string().trim().min(1).max(60) }))

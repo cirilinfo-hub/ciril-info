@@ -12,8 +12,22 @@ describe('site claims', () => {
       supportResponseTime: null,
       sslWarranty: null,
       domainTransferTime: null,
+      freeApps: [],
+      freeAppsNote: null,
       stats: [],
     });
+  });
+
+  it('keeps free applications as entered, with an optional description', () => {
+    const c = siteClaimsSchema.parse({ freeApps: [{ name: ' WordPress ', description: 'Websites and blogs' }, { name: 'Joomla' }], freeAppsNote: 'One click from your control panel.' });
+    expect(c.freeApps).toEqual([{ name: 'WordPress', description: 'Websites and blogs' }, { name: 'Joomla', description: null }]);
+    expect(c.freeAppsNote).toBe('One click from your control panel.');
+    expect(siteClaimsSchema.safeParse({ freeApps: [{ name: '' }] }).success).toBe(false);
+    expect(siteClaimsSchema.safeParse({ freeApps: Array.from({ length: 61 }, (_, i) => ({ name: `App ${i}` })) }).success).toBe(false);
+  });
+
+  it('still reads claims saved before free applications existed', () => {
+    expect(readSiteClaims({ uptimePercent: 99.9 }).freeApps).toEqual([]);
   });
 
   it('accepts values an admin enters', () => {

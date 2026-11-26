@@ -6,6 +6,7 @@ import { Icon } from '../../../design-system/icon/icon';
 import { ClaimsStrip } from '../shared/claims-strip';
 import { CtaBand } from '../shared/cta-band';
 import { FaqSection } from '../shared/faq-section';
+import { FreeAppsSection } from '../shared/free-apps-section';
 import { PageHero } from '../shared/page-hero';
 import { fromPrice } from '../shared/plan-pricing';
 import { PlansExplorer } from '../shared/plans-explorer';
@@ -17,7 +18,7 @@ import { TestimonialsSection } from '../shared/testimonials-section';
 /** One hosting/domain/email product with its published plans (design: /hosting/:slug). */
 @Component({
   selector: 'ci-hosting-product',
-  imports: [RouterLink, Icon, Reveal, PageHero, SectionHead, PlansExplorer, ClaimsStrip, TestimonialsSection, FaqSection, CtaBand],
+  imports: [RouterLink, Icon, Reveal, PageHero, SectionHead, PlansExplorer, ClaimsStrip, FreeAppsSection, TestimonialsSection, FaqSection, CtaBand],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (loaded()) {
@@ -35,6 +36,7 @@ import { TestimonialsSection } from '../shared/testimonials-section';
         </ci-page-hero>
         <div id="plans"><ci-plans-explorer [products]="[p]" /></div>
         <ci-claims-strip />
+        @if (p.category === 'hosting') { <ci-free-apps-section /> }
 
         @if (others().length) {
           <section class="cx-section cx-section--subtle" aria-labelledby="rel-h">
