@@ -41,7 +41,7 @@ test.describe('Plan change at renewal', () => {
 
     const dialog = page.getByRole('dialog', { name: 'Change plan' });
     await expect(dialog.getByText('Nothing is charged now.')).toBeVisible();
-    await expect(dialog.getByText('Current plan')).toBeVisible();
+    await expect(dialog.getByText('Current plan', { exact: true })).toBeVisible(); // the badge, not "Your current plan stays…"
     await expect(dialog.getByText('₹2,400.00')).toBeVisible(); // PW Pro's yearly renewal price
     await dialog.getByRole('button', { name: 'Switch to PW Pro' }).click();
 

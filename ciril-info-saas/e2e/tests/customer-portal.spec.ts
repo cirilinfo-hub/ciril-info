@@ -84,6 +84,7 @@ test.describe('Customer portal', () => {
 
     // Escape closes dialogs and returns focus
     await page.getByRole('button', { name: 'Invite Member' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible(); // it renders on the next tick; Escape before that reaches nothing
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toBeHidden();
     await expect(page.getByRole('button', { name: 'Invite Member' })).toBeFocused();

@@ -111,8 +111,12 @@ test.describe('Our Work', () => {
 test.describe('Pricing and hosting come from the published catalogue', () => {
   test('plan cards show intro, list, saving and renewal prices and switch billing period', async ({ page }) => {
     await page.goto('/pricing');
-    await page.getByRole('tab', { name: 'PW Hosting' }).click();
     const starter = page.getByRole('article', { name: 'PW Starter plan' });
+    // Product tabs appear only when more than one product is published (a dev database with samples);
+    // with PW Hosting alone (CI), its plans are shown straight away.
+    const tab = page.getByRole('tab', { name: 'PW Hosting' });
+    await expect(tab.or(starter).first()).toBeVisible();
+    if (await tab.count()) await tab.click();
     // Yearly is the default: 960 / 12 = ₹80 a month, was ₹100, 20% off, renews at 1440 / 12 = ₹120.
     await expect(starter.locator('.hx-plan-amount strong')).toHaveText('₹80');
     await expect(starter.getByText('Save 20%')).toBeVisible();
