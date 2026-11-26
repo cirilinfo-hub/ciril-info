@@ -916,7 +916,7 @@ model DomainNameserverChange {
   failureReason String?                @map("failure_reason") @db.VarChar(255)
   requestedAt   DateTime               @default(now()) @map("requested_at") @db.Timestamptz(3)
   completedAt   DateTime?              @map("completed_at") @db.Timestamptz(3)
-  updatedAt     DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedAt     DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   domain Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
@@ -936,7 +936,7 @@ model DomainContactChange {
   failureReason String?             @map("failure_reason") @db.VarChar(255)
   requestedAt   DateTime            @default(now()) @map("requested_at") @db.Timestamptz(3)
   completedAt   DateTime?           @map("completed_at") @db.Timestamptz(3)
-  updatedAt     DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedAt     DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   domain Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
@@ -1373,7 +1373,7 @@ model SavedCard {
   createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   confirmedAt        DateTime?       @map("confirmed_at") @db.Timestamptz(3)
   removedAt          DateTime?       @map("removed_at") @db.Timestamptz(3)
-  updatedAt          DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedAt          DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   payments Payment[]
@@ -1404,7 +1404,7 @@ model PaymentDispute {
   respondBy         DateTime?       @map("respond_by") @db.Timestamptz(3)
   openedAt          DateTime        @default(now()) @map("opened_at") @db.Timestamptz(3)
   resolvedAt        DateTime?       @map("resolved_at") @db.Timestamptz(3)
-  updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  updatedAt         DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
