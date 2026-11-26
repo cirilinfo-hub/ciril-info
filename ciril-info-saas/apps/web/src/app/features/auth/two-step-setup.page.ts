@@ -91,7 +91,9 @@ export class TwoStepSetupPage implements OnInit {
     try {
       const r = await firstValueFrom(this.http.post<{ secret: string; otpauthUrl: string }>(`${this.auth.api}/auth/mfa/setup`, {}));
       this.secret.set(r.secret.replace(/(.{4})/g, '$1 ').trim());
-      const { toDataURL } = await import('qrcode');
+      // qrcode is CommonJS: the production build exposes it only as `default`, the dev server also as named exports.
+      const qrcode = await import('qrcode');
+      const toDataURL = qrcode.toDataURL ?? (qrcode as unknown as { default: typeof qrcode }).default.toDataURL;
       this.qr.set(await toDataURL(r.otpauthUrl, { margin: 1, width: 400, color: { dark: '#1C1A33', light: '#FFFFFF' } }));
     } catch (e) {
       this.error.set(toApiError(e).message);

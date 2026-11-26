@@ -77,6 +77,12 @@ export const envSchema = z
     /** The secret you type in Razorpay's webhook settings. It signs every webhook they send us. */
     RAZORPAY_WEBHOOK_SECRET: z.string().trim().default(''),
     RAZORPAY_API_BASE: z.url().default('https://api.razorpay.com/v1'),
+    /**
+     * Pre-launch only: let production run with a Razorpay TEST key (rzp_test_...), so the site can be up for Razorpay's
+     * own review before they issue live keys. No real money moves; the launch checklist shows it as a to-do. Remove it
+     * when the live key goes in (a live key is refused while this is on, so the two cannot be mixed up silently).
+     */
+    RAZORPAY_TEST_KEYS_IN_PRODUCTION: bool,
     /** Stripe, alongside the main provider, for international cards. Set the secret key to switch it on. In the server's .env only. */
     STRIPE_SECRET_KEY: z.string().trim().default(''),
     /** The signing secret of the Stripe webhook endpoint (whsec_...). */
@@ -151,12 +157,20 @@ export const envSchema = z
         if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: 'required when PAYMENT_PROVIDER=razorpay' });
       }
       // A live key in a development environment (or a test key in production) is a classic costly mix-up.
-      if (env.RAZORPAY_KEY_ID && env.NODE_ENV === 'production' && !env.RAZORPAY_KEY_ID.startsWith('rzp_live_')) {
-        ctx.addIssue({ code: 'custom', path: ['RAZORPAY_KEY_ID'], message: 'production needs a live key (rzp_live_...)' });
+      if (env.RAZORPAY_KEY_ID && env.NODE_ENV === 'production') {
+        const live = env.RAZORPAY_KEY_ID.startsWith('rzp_live_');
+        if (env.RAZORPAY_TEST_KEYS_IN_PRODUCTION && !env.RAZORPAY_KEY_ID.startsWith('rzp_test_')) {
+          ctx.addIssue({ code: 'custom', path: ['RAZORPAY_TEST_KEYS_IN_PRODUCTION'], message: live ? 'remove this setting now that the live key is in' : 'allows only a test key (rzp_test_...)' });
+        } else if (!env.RAZORPAY_TEST_KEYS_IN_PRODUCTION && !live) {
+          ctx.addIssue({ code: 'custom', path: ['RAZORPAY_KEY_ID'], message: 'production needs a live key (rzp_live_...); before launch, RAZORPAY_TEST_KEYS_IN_PRODUCTION=true allows a test key' });
+        }
       }
       if (env.RAZORPAY_KEY_ID && env.NODE_ENV !== 'production' && env.RAZORPAY_KEY_ID.startsWith('rzp_live_')) {
         ctx.addIssue({ code: 'custom', path: ['RAZORPAY_KEY_ID'], message: 'a live key must not be used outside production; use rzp_test_...' });
       }
+    }
+    if (env.RAZORPAY_TEST_KEYS_IN_PRODUCTION && env.PAYMENT_PROVIDER !== 'razorpay') {
+      ctx.addIssue({ code: 'custom', path: ['RAZORPAY_TEST_KEYS_IN_PRODUCTION'], message: 'only applies with PAYMENT_PROVIDER=razorpay' });
     }
     if (env.HOSTING_PROVIDER === 'cpanel' || env.DNS_PROVIDER === 'cpanel') {
       for (const key of ['CPANEL_HOST', 'CPANEL_USER', 'CPANEL_API_TOKEN'] as const) {
