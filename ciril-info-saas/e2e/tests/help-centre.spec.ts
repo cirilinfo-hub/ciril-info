@@ -80,7 +80,7 @@ test.describe('Help centre', () => {
 
     await row.getByRole('button', { name: 'Publish' }).click();
     await expect(page.getByText('Article published.')).toBeVisible();
-    await expect(row.getByText('Published')).toBeVisible();
+    await expect(row.getByText('Published', { exact: true })).toBeVisible(); // not the "Unpublish" button
 
     // --- Visitor: search the help centre and read the article
     await visitor.goto('/help');
