@@ -97,9 +97,9 @@ export class AdminDomainsApi {
       this.http.get<Paged<AdminRegistration>>(this.registrationsBase, { params: { page, pageSize: 20, ...(status ? { status } : {}), ...(search ? { search } : {}), ...(needsAction ? { needsAction: 'true' } : {}) } }),
     );
   }
-  /** Which registrar is connected, and whether it places paid orders by itself. */
+  /** Which registrar is connected, whether it places paid orders by itself, and whose prices can be fetched (or null). */
   registrar() {
-    return firstValueFrom(this.http.get<{ provider: string; automated: boolean }>(`${this.registrationsBase}/registrar`));
+    return firstValueFrom(this.http.get<{ provider: string; automated: boolean; pricing: string | null }>(`${this.registrationsBase}/registrar`));
   }
   retryRegistrar(id: string) {
     return firstValueFrom(this.http.post<{ outcome: { result: 'done' | 'started' | 'manual'; reason?: string }; domain: AdminRegistration }>(`${this.registrationsBase}/${id}/registrar-retry`, {}));
@@ -161,6 +161,10 @@ export class AdminDomainsApi {
   /** One markup over the chosen endings (or every ending matching `search`). */
   bulkPrice(body: TldMarkupInput & { basis: 'COST' | 'CURRENT' } & ({ ids: string[] } | { all: true; search?: string })) {
     return firstValueFrom(this.http.post<{ changed: number; skipped: TldSkipped[] }>(`${this.base}/bulk-price`, body));
+  }
+  /** What the connected registrar charges for these endings ("com, in, co.in"), as rows ready for the import. */
+  registrarCosts(tlds: string) {
+    return firstValueFrom(this.http.get<{ registrar: string; rows: TldImportRow[]; missing: TldSkipped[] }>(`${this.base}/registrar-costs`, { params: { tlds } }));
   }
   /** Purchase prices from the registrar's price sheet. */
   importCosts(body: { rows: TldImportRow[]; markup?: TldMarkupInput; repriceManual: boolean; activate: boolean }) {

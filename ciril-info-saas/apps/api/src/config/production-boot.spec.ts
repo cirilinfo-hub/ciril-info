@@ -49,18 +49,20 @@ describe('a production configuration that passes validation also starts', () => 
     expect(() => boot({ REGISTRAR_PROVIDER: 'rdap' })).not.toThrow();
   });
 
-  it('turns a registrar that is not built into a clear startup error, not a silent fallback', () => {
-    expect(() => boot({ REGISTRAR_PROVIDER: 'resellerclub' })).toThrow(/is not available/);
+  it('turns a registrar that is not built (or was removed, like GoDaddy) into a clear startup error, not a silent fallback', () => {
+    expect(() => boot({ REGISTRAR_PROVIDER: 'godaddy' })).toThrow(/is not available/);
   });
 
-  it('with GoDaddy placing orders, but never its test environment or a pretend server', () => {
-    const gd = { REGISTRAR_PROVIDER: 'godaddy', GODADDY_ENV: 'production', GODADDY_API_KEY: 'k', GODADDY_API_SECRET: 's' };
-    const p = boot(gd);
-    expect(p.registrar.id).toBe('GODADDY');
+  it('with ResellerClub placing orders, but never its test environment or a pretend server', () => {
+    const rc = { REGISTRAR_PROVIDER: 'resellerclub', RESELLERCLUB_ENV: 'live', RESELLERCLUB_RESELLER_ID: '123', RESELLERCLUB_API_KEY: 'k', RESELLERCLUB_CUSTOMER_ID: '456' };
+    const p = boot(rc);
+    expect(p.registrar.id).toBe('RESELLERCLUB');
     expect(p.registrar.automation).toBeDefined();
-    expect(() => validateEnv({ ...base, ...gd, GODADDY_ENV: 'ote' })).toThrow(/GODADDY_ENV/);
-    expect(() => validateEnv({ ...base, ...gd, GODADDY_API_BASE: 'http://127.0.0.1:1' })).toThrow(/GODADDY_API_BASE/);
-    expect(() => validateEnv({ ...base, ...gd, GODADDY_API_SECRET: '' })).toThrow(/GODADDY_API_SECRET/);
+    expect(p.registrar.pricing).toBeDefined();
+    expect(() => validateEnv({ ...base, ...rc, RESELLERCLUB_ENV: 'test' })).toThrow(/RESELLERCLUB_ENV/);
+    expect(() => validateEnv({ ...base, ...rc, RESELLERCLUB_API_BASE: 'http://127.0.0.1:1' })).toThrow(/RESELLERCLUB_API_BASE/);
+    expect(() => validateEnv({ ...base, ...rc, RESELLERCLUB_API_KEY: '' })).toThrow(/RESELLERCLUB_API_KEY/);
+    expect(() => validateEnv({ ...base, ...rc, RESELLERCLUB_CUSTOMER_ID: 'cirilinfo' })).toThrow(/RESELLERCLUB_CUSTOMER_ID/);
   });
 
   it('still starts in development with every mock', () => {

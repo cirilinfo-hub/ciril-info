@@ -11,6 +11,22 @@ export interface RegistrarProvider {
   /** Availability of fully qualified names such as "acme.com". */
   checkAvailability(domains: string[]): Promise<Record<string, Availability>>;
   readonly automation?: RegistrarAutomation;
+  /** Registrars that publish what they charge us: the purchase prices for the admin price list. */
+  readonly pricing?: RegistrarPricing;
+}
+
+/** What the registrar charges us for one year of an ending, in the registrar account's currency. */
+export interface RegistrarCost {
+  register: number;
+  renew: number;
+  transfer: number;
+}
+
+export interface RegistrarPricing {
+  /** Display name, for example "ResellerClub". */
+  readonly name: string;
+  /** One-year purchase prices for these endings ("com", "co.in"). Endings the registrar does not sell are listed in `missing`. */
+  costs(tlds: string[]): Promise<{ costs: Record<string, RegistrarCost>; missing: { tld: string; reason: string }[] }>;
 }
 
 /** The person or business a domain is registered to. The registrar publishes or keeps this as the legal owner. */

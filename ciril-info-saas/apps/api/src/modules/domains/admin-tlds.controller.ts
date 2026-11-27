@@ -3,7 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { ListQueryDto } from '../../common/http/pagination.js';
 import type { AuthUser, RequestMeta } from '../auth/auth.types.js';
 import { CurrentUser, ReqMeta, RequirePlatform } from '../auth/decorators.js';
-import { TldBulkDto, TldDto, TldImportDto, TldPatchDto } from './admin-tlds.dto.js';
+import { TldBulkDto, TldCostQueryDto, TldDto, TldImportDto, TldPatchDto } from './admin-tlds.dto.js';
 import { AdminTldsService } from './admin-tlds.service.js';
 
 const uuid = new ParseUUIDPipe({ version: '4' });
@@ -16,6 +16,10 @@ export class AdminTldsController {
 
   @Get() @RequirePlatform('domains:read')
   list(@Query() q: ListQueryDto) { return this.svc.list(q); }
+
+  /** What the connected registrar charges us for these endings, ready for the import. */
+  @Get('registrar-costs') @RequirePlatform('domains:write')
+  registrarCosts(@Query() q: TldCostQueryDto) { return this.svc.registrarCosts(q.tlds); }
 
   @Post() @HttpCode(201) @RequirePlatform('domains:write')
   create(@CurrentUser() u: AuthUser, @Body() dto: TldDto, @ReqMeta() meta: RequestMeta) { return this.svc.create(u, dto, meta); }

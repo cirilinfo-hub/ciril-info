@@ -118,19 +118,21 @@ export const envSchema = z
     PLESK_API_KEY: z.string().trim().default(''),
     PLESK_TLS: z.enum(['verify', 'skip', 'off']).default('verify'),
     PLESK_IP: z.string().trim().default(''),
-    /** mock (test mode), rdap (real searches, registrations by hand) or godaddy (searches and orders placed through GoDaddy). */
+    /** mock (test mode), rdap (real searches, registrations by hand) or resellerclub (searches and orders placed through ResellerClub). */
     REGISTRAR_PROVIDER: z.string().default('mock'),
-    /** GoDaddy API key and secret (developer.godaddy.com). Server .env only, never in chat, git or a screenshot. */
-    GODADDY_API_KEY: z.string().trim().default(''),
-    GODADDY_API_SECRET: z.string().trim().default(''),
-    /** ote: GoDaddy's test environment, nothing is really bought. production: real orders, paid from your GoDaddy account. */
-    GODADDY_ENV: z.enum(['ote', 'production']).default('ote'),
-    /** Tests only: a pretend GoDaddy server. */
-    GODADDY_API_BASE: z.string().trim().default(''),
-    /** Comma-separated nameservers for new registrations (for example your WHM server's). Empty: GoDaddy's own. */
-    GODADDY_NAMESERVERS: z.string().trim().default(''),
-    /** The most one name may cost per year at GoDaddy, in your GoDaddy account's currency. A dearer (premium) name goes to staff instead. */
-    GODADDY_MAX_YEARLY_COST: z.coerce.number().positive().default(50),
+    /** ResellerClub reseller id (auth-userid) and API key (control panel, Settings > API). Server .env only, never in chat, git or a screenshot. */
+    RESELLERCLUB_RESELLER_ID: z.string().trim().default(''),
+    RESELLERCLUB_API_KEY: z.string().trim().default(''),
+    /** The customer account in the ResellerClub panel that holds every domain sold here (its numeric customer id). */
+    RESELLERCLUB_CUSTOMER_ID: z.string().trim().default(''),
+    /** test: ResellerClub's test environment (test.httpapi.com), nothing is really bought. live: real orders, paid from the reseller account's funds. */
+    RESELLERCLUB_ENV: z.enum(['test', 'live']).default('test'),
+    /** Tests only: a pretend ResellerClub server. */
+    RESELLERCLUB_API_BASE: z.string().trim().default(''),
+    /** Comma-separated nameservers for new registrations, for example your hosting server's. Empty: the registrar account's defaults. */
+    REGISTRAR_NAMESERVERS: z.string().trim().default(''),
+    /** The most one ending may cost per year at the registrar, in the registrar account's currency (rupees). Dearer ones go to staff. */
+    REGISTRAR_MAX_YEARLY_COST: z.coerce.number().positive().default(5000),
 
     STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
     STORAGE_LOCAL_DIR: z.string().default('./storage'),
@@ -194,15 +196,18 @@ export const envSchema = z
       }
       if (env.NODE_ENV === 'production' && env.PLESK_TLS === 'off') ctx.addIssue({ code: 'custom', path: ['PLESK_TLS'], message: 'production must talk to Plesk over HTTPS' });
     }
-    if (env.REGISTRAR_PROVIDER === 'godaddy') {
-      for (const key of ['GODADDY_API_KEY', 'GODADDY_API_SECRET'] as const) {
-        if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: 'required when REGISTRAR_PROVIDER=godaddy' });
+    if (env.REGISTRAR_PROVIDER === 'resellerclub') {
+      for (const key of ['RESELLERCLUB_RESELLER_ID', 'RESELLERCLUB_API_KEY', 'RESELLERCLUB_CUSTOMER_ID'] as const) {
+        if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: 'required when REGISTRAR_PROVIDER=resellerclub' });
       }
-      if (env.NODE_ENV === 'production' && env.GODADDY_ENV !== 'production') {
-        ctx.addIssue({ code: 'custom', path: ['GODADDY_ENV'], message: 'production must use GoDaddy production (GODADDY_ENV=production); OTE buys nothing' });
+      if (env.RESELLERCLUB_CUSTOMER_ID && !/^\d+$/.test(env.RESELLERCLUB_CUSTOMER_ID)) {
+        ctx.addIssue({ code: 'custom', path: ['RESELLERCLUB_CUSTOMER_ID'], message: 'is the numeric customer id from the ResellerClub panel' });
       }
-      if (env.NODE_ENV === 'production' && env.GODADDY_API_BASE) {
-        ctx.addIssue({ code: 'custom', path: ['GODADDY_API_BASE'], message: 'is for tests only; leave it empty in production' });
+      if (env.NODE_ENV === 'production' && env.RESELLERCLUB_ENV !== 'live') {
+        ctx.addIssue({ code: 'custom', path: ['RESELLERCLUB_ENV'], message: 'production must use ResellerClub live (RESELLERCLUB_ENV=live); the test environment buys nothing' });
+      }
+      if (env.NODE_ENV === 'production' && env.RESELLERCLUB_API_BASE) {
+        ctx.addIssue({ code: 'custom', path: ['RESELLERCLUB_API_BASE'], message: 'is for tests only; leave it empty in production' });
       }
     }
     if (env.EMAIL_PROVIDER === 'smtp') {

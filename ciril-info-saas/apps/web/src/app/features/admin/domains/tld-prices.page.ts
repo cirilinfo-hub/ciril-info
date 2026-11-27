@@ -17,6 +17,8 @@ const AMOUNT = Validators.pattern(/^\d{1,8}(\.\d{1,2})?$/);
 const KINDS = ['Register', 'Renew', 'Transfer'] as const;
 const COST_KEYS = ['costRegister', 'costRenew', 'costTransfer'] as const;
 const PRICE_KEYS = ['registerPrice', 'renewPrice', 'transferPrice'] as const;
+/** Suggested endings to look up at the registrar; the admin edits the list. */
+const DEFAULT_FETCH = 'com, in, co.in, net, org';
 
 /**
  * The domain price list shown on the website's Domains page. Each ending has what the registrar charges us (purchase
@@ -46,6 +48,8 @@ const PRICE_KEYS = ['registerPrice', 'renewPrice', 'transferPrice'] as const;
     .preview strong { font-variant-numeric: tabular-nums; }
     .modes { display: flex; flex-wrap: wrap; gap: var(--space-4); }
     ul.skipped { margin: var(--space-2) 0 0; padding-left: 1.25rem; max-height: 10rem; overflow: auto; }
+    .fetch { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: flex-end; }
+    .fetch ci-field { flex: 1 1 280px; }
     textarea.sheet { font-family: var(--font-mono, ui-monospace, monospace); min-height: 10rem; }
   `,
   template: `
@@ -220,6 +224,15 @@ const PRICE_KEYS = ['registerPrice', 'renewPrice', 'transferPrice'] as const;
       <ci-dialog heading="Import purchase prices" description="Paste the endings and what the registrar charges, from its price sheet or a spreadsheet." icon="upload" size="lg" [dismissable]="false" (closed)="importOpen.set(false)">
         <form id="import-form" [formGroup]="importForm" (ngSubmit)="saveImport()" novalidate>
           @if (error(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ e }}</span></div> }
+          @if (registrarPricing(); as reg) {
+            <div class="fetch">
+              <ci-field [label]="'Fetch purchase prices from ' + reg" for="im-fetch" [control]="importForm.controls.fetchTlds" hint="The endings to look up, separated by commas. The price sheet below is filled in for you to check before importing.">
+                <input id="im-fetch" class="cf-input" autocomplete="off" spellcheck="false" formControlName="fetchTlds" [attr.aria-describedby]="describedBy('im-fetch', importForm.controls.fetchTlds, true)" />
+              </ci-field>
+              <button type="button" class="cf-btn cf-btn-secondary" [disabled]="fetching()" (click)="fetchCosts()"><ci-icon name="download" [size]="16" />{{ fetching() ? 'Fetching…' : 'Fetch prices' }}</button>
+            </div>
+            @if (fetchNote(); as n) { <p class="hint" aria-live="polite">{{ n }}</p> }
+          }
           <ci-field label="Price sheet" for="im-text" [control]="importForm.controls.text" [required]="true" hint="One ending per line: ending, register, renew, transfer (rupees per year). Copy four columns from a spreadsheet, or type: com, 850, 1050, 850">
             <textarea id="im-text" class="cf-input sheet" rows="8" spellcheck="false" formControlName="text" placeholder="com, 850, 1050, 850&#10;in, 550, 650, 550&#10;co.in, 450, 500, 450" [attr.aria-describedby]="describedBy('im-text', importForm.controls.text, true)"></textarea>
           </ci-field>
@@ -330,9 +343,14 @@ export class AdminTldPricesPage extends AdminPage implements OnInit {
     markupRound: ['NINE' as Rounding],
     repriceManual: [false],
     activate: [false],
+    fetchTlds: [DEFAULT_FETCH],
   });
   private readonly importText = toSignal(this.importForm.controls.text.valueChanges, { initialValue: '' });
   protected readonly parsed = computed(() => parseImport(this.importText()));
+  /** The connected registrar's name when it publishes its prices (ResellerClub), otherwise null. */
+  protected readonly registrarPricing = signal<string | null>(null);
+  protected readonly fetching = signal(false);
+  protected readonly fetchNote = signal<string | null>(null);
 
   private timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -343,7 +361,27 @@ export class AdminTldPricesPage extends AdminPage implements OnInit {
   }
 
   ngOnInit() {
+    if (this.canWrite()) void this.api.registrar().then((r) => this.registrarPricing.set(r.pricing), () => this.registrarPricing.set(null));
     return this.load();
+  }
+
+  /** Asks the registrar what it charges for the endings typed, and fills the price sheet with the answer. */
+  protected async fetchCosts() {
+    const tlds = this.importForm.controls.fetchTlds.value.trim();
+    if (!tlds) return;
+    this.fetching.set(true);
+    this.fetchNote.set(null);
+    this.error.set(null);
+    try {
+      const r = await this.api.registrarCosts(tlds);
+      if (r.rows.length) this.importForm.controls.text.setValue(r.rows.map((x) => `${x.tld}, ${x.costRegister}, ${x.costRenew}, ${x.costTransfer}`).join('\n'));
+      const missed = r.missing.length ? ` Not found: ${r.missing.map((m) => `.${m.tld} (${m.reason})`).join(', ')}.` : '';
+      this.fetchNote.set(`${r.rows.length} ${r.rows.length === 1 ? 'price' : 'prices'} fetched from ${r.registrar}.${missed}`);
+    } catch (e) {
+      this.error.set(toApiError(e).message);
+    } finally {
+      this.fetching.set(false);
+    }
   }
 
   private async load() {
@@ -493,7 +531,8 @@ export class AdminTldPricesPage extends AdminPage implements OnInit {
 
   protected openImport() {
     this.clearNotices();
-    this.importForm.reset({ text: '', useMarkup: true, markupType: 'PERCENT', markupValue: '', markupRound: 'NINE', repriceManual: false, activate: false });
+    this.fetchNote.set(null);
+    this.importForm.reset({ text: '', useMarkup: true, markupType: 'PERCENT', markupValue: '', markupRound: 'NINE', repriceManual: false, activate: false, fetchTlds: DEFAULT_FETCH });
     this.importOpen.set(true);
   }
 

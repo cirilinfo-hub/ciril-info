@@ -19,9 +19,9 @@ export class AdminRegistrationsController {
     private readonly gateway: RegistrarGateway,
   ) {}
 
-  /** Which registrar is connected, and whether paid orders are placed with it automatically. */
+  /** Which registrar is connected, whether paid orders are placed with it automatically, and whose purchase prices can be fetched (or null). */
   @Get('registrar') @RequirePlatform('domains:read')
-  registrar() { return { provider: this.gateway.provider.id, automated: this.automation.automated }; }
+  registrar() { return { provider: this.gateway.provider.id, automated: this.automation.automated, pricing: this.gateway.provider.pricing?.name ?? null }; }
 
   @Post(':id/registrar-retry') @HttpCode(200) @RequirePlatform('domains:write')
   retry(@CurrentUser() u: AuthUser, @Param('id', uuid) id: string, @ReqMeta() meta: RequestMeta) { return this.automation.retry(id, u, meta); }

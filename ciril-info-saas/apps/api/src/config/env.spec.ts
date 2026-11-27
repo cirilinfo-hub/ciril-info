@@ -24,7 +24,7 @@ const prodReal = {
   CPANEL_HOST: 'server.example.com',
   CPANEL_USER: 'root',
   CPANEL_API_TOKEN: 'token',
-  REGISTRAR_PROVIDER: 'resellerclub',
+  REGISTRAR_PROVIDER: 'namecheap',
   EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 're_test',
 };
 
@@ -93,7 +93,7 @@ describe('validateEnv: test-only switches', () => {
     expect(() =>
       validateEnv({
         ...base, NODE_ENV: 'production', PAYMENT_PROVIDER: 'razorpay', HOSTING_PROVIDER: 'cpanel',
-        REGISTRAR_PROVIDER: 'resellerclub', EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 're_test', THROTTLE_DISABLED: 'true',
+        REGISTRAR_PROVIDER: 'namecheap', EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 're_test', THROTTLE_DISABLED: 'true',
         RAZORPAY_KEY_ID: 'rzp_live_abc', RAZORPAY_KEY_SECRET: 's', RAZORPAY_WEBHOOK_SECRET: 'w',
       }),
     ).toThrow(/rate limiting cannot be disabled/);

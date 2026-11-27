@@ -5,6 +5,7 @@ import { TenantPrisma } from '../../database/prisma-clients.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
 import { checkNameservers } from './nameservers.js';
+import { registrarNameservers } from './registrar-gateway.js';
 
 /**
  * Customer portal: pointing a domain at other nameservers (for example a website builder's, or back to ours). The customer
@@ -19,7 +20,7 @@ export class DomainNameserversService {
     private readonly db: TenantPrisma,
     config: ConfigService<Env, true>,
   ) {
-    this.ours = config.get('GODADDY_NAMESERVERS', { infer: true }).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    this.ours = registrarNameservers(config);
   }
 
   /** Our own nameservers (your hosting server's), offered as a one-click choice. Empty when none are set. */
