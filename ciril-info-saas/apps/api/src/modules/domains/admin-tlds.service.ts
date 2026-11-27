@@ -1,10 +1,12 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PlatformPrisma } from '../../database/prisma-clients.js';
 import { page, skipTake } from '../../common/http/pagination.js';
 import type { ListQueryDto } from '../../common/http/pagination.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthUser, RequestMeta } from '../auth/auth.types.js';
 import type { TldBulkDto, TldDto, TldImportDto, TldPatchDto } from './admin-tlds.dto.js';
+import { RegistrarError } from './providers/registrar-provider.js';
+import { RegistrarGateway } from './registrar-gateway.js';
 import { type Markup, type MarkupType, type Rounding, applyMarkup, sellingPrices } from './tld-pricing.js';
 
 const select = {
@@ -68,7 +70,31 @@ export class AdminTldsService {
   constructor(
     private readonly db: PlatformPrisma,
     private readonly audit: AuditService,
+    private readonly registrar: RegistrarGateway,
   ) {}
+
+  /**
+   * The connected registrar's one-year purchase prices for these endings, as import rows (rupees, two decimals). Nothing is
+   * saved: the admin reviews them and imports them with a markup.
+   */
+  async registrarCosts(tlds: string[]) {
+    const pricing = this.registrar.provider.pricing;
+    if (!pricing) {
+      throw new ConflictException({ code: 'NO_REGISTRAR_PRICES', message: 'The connected registrar does not publish its prices. Paste them from its price sheet instead.' });
+    }
+    try {
+      const r = await pricing.costs(tlds);
+      const round = (n: number) => Math.round(n * 100) / 100;
+      return {
+        registrar: pricing.name,
+        rows: tlds.filter((t) => r.costs[t]).map((t) => ({ tld: t, costRegister: round(r.costs[t]!.register), costRenew: round(r.costs[t]!.renew), costTransfer: round(r.costs[t]!.transfer) })),
+        missing: r.missing,
+      };
+    } catch (e) {
+      if (e instanceof RegistrarError) throw new BadGatewayException({ code: e.code, message: e.message });
+      throw e;
+    }
+  }
 
   private findRow(id: string) {
     return this.db.tldPrice.findUnique({ where: { id }, select });

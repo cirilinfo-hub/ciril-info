@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { PlatformPrisma, TenantPrisma } from '../../database/prisma-clients.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { RequestMeta, TenantContext } from '../auth/auth.types.js';
-import { registrarPhone } from './providers/godaddy-registrar.provider.js';
+import { registrarPhone } from './providers/registrar-phone.js';
 import type { RegistrantContact } from './providers/registrar-provider.js';
 
 /** The fields of a domain contact a customer can change. */

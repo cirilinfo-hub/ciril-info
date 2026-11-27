@@ -22,7 +22,7 @@ export interface ReadinessFacts {
   payment: { provider: string; keyIdSet: boolean; keySecretSet: boolean; webhookSecretSet: boolean; liveKey: boolean; stripe?: { keySet: boolean; webhookSecretSet: boolean } };
   hosting: { provider: string; plesk?: { hostSet: boolean; keySet: boolean; ipSet: boolean; tls: string }; servers?: { active: number; unchecked: number } };
   dns: { provider: string };
-  registrar: { provider: string; godaddy?: { env: string; keySet: boolean; nameserversSet: boolean } };
+  registrar: { provider: string; resellerclub?: { env: string; keySet: boolean; nameserversSet: boolean } };
   cpanel: { hostSet: boolean; userSet: boolean; tokenSet: boolean; tls: string };
   email: { provider: string; configured?: boolean; smtpHost?: string };
   storage: { driver: string };
@@ -91,10 +91,10 @@ export function evaluateReadiness(f: ReadinessFacts): Check[] {
       ? { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'info', detail: 'Test mode: name searches give pretend answers, and your team does each registration, renewal and transfer by hand at your registrar.' }
       : f.registrar.provider === 'rdap'
         ? { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'info', detail: 'Names are checked against the public registry, so searches are real. No registrar is connected, so your team does each registration, renewal and transfer by hand at your registrar.' }
-        : f.registrar.provider === 'godaddy'
-          ? f.registrar.godaddy?.env === 'production'
-            ? { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'ok', detail: `GoDaddy is connected. Paid registrations, renewals and transfers are placed automatically and charged to your GoDaddy account, so keep its payment method funded.${f.registrar.godaddy.nameserversSet ? '' : ' New domains use GoDaddy\'s nameservers; set GODADDY_NAMESERVERS to point them at your hosting server.'}` }
-            : { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'todo', detail: 'GoDaddy\'s test environment (OTE) is connected: orders go through, but no real domain is bought. Set GODADDY_ENV=production with your production API key to go live.' }
+        : f.registrar.provider === 'resellerclub'
+          ? f.registrar.resellerclub?.env === 'live'
+            ? { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'ok', detail: `ResellerClub is connected. Paid registrations, renewals and transfers are placed automatically and paid from your reseller account’s funds, so keep it topped up.${f.registrar.resellerclub.nameserversSet ? '' : ' New domains use the ResellerClub customer account’s default nameservers; set REGISTRAR_NAMESERVERS to point them at your hosting server.'}` }
+            : { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'todo', detail: 'ResellerClub’s test environment is connected: orders go through, but no real domain is bought. Set RESELLERCLUB_ENV=live with your live API key to go live.' }
           : { key: 'registrar', group: 'Connections', label: 'Domain registrar', status: 'ok', detail: `Connected: ${f.registrar.provider}.` },
   );
   add(

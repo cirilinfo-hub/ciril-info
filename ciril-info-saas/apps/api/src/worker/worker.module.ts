@@ -23,6 +23,8 @@ import { HostingProvisionerRunner } from './hosting-provisioner.runner.js';
 import { StaffNotifier } from '../modules/notifications/staff-notifier.service.js';
 import { MailService } from '../modules/mail/mail.service.js';
 import { BillingLifecycleRunner } from './billing-lifecycle.runner.js';
+import { TldCostSyncService } from '../modules/domains/tld-cost-sync.service.js';
+import { TldCostSyncRunner } from './tld-cost-sync.runner.js';
 import { EventsProcessor } from './email.processor.js';
 import { EVENTS_QUEUE, OutboxRelayService } from './outbox-relay.service.js';
 
@@ -62,7 +64,7 @@ import { EVENTS_QUEUE, OutboxRelayService } from './outbox-relay.service.js';
     DatabaseModule,
   ],
   providers: [OutboxRelayService, EventsProcessor, AuditService, MailService, StaffNotifier, PaymentGateway, SavedCardsService, PaymentSettlementService, AutoPayService, BillingLifecycleService, BillingLifecycleRunner, HostingGateway, HostingJobsService, HostingEventsHandler, HostingProvisionerRunner, DomainEventsHandler,
-    RegistrarGateway, AdminRegistrationsService, RegistrarAutomationService,
+    RegistrarGateway, AdminRegistrationsService, RegistrarAutomationService, TldCostSyncService, TldCostSyncRunner,
     { provide: DOMAIN_SECRET_BOX, inject: [ConfigService], useFactory: (config: ConfigService<Env, true>) => new SecretBox(config.get('DATA_ENCRYPTION_KEY', { infer: true })) },
   ],
 })

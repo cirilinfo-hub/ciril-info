@@ -2,7 +2,7 @@ import { FakeFastpanel } from '../../../../test/support/fake-fastpanel.js';
 import { FastpanelHostingProvider } from './fastpanel-hosting.provider.js';
 import { ProvisioningError } from './hosting-provider.js';
 
-const PORT = 43931;
+const PORT = 43961; // its own port: 43931-43934 belong to the email tests, which run at the same time
 const cfg = { host: '127.0.0.1', port: PORT, token: 'unit-token', tls: 'off' as const, ip: '203.0.113.20', timeoutMs: 3000, pollMs: 5, settleMs: 500 };
 
 describe('FASTPANEL adapter', () => {

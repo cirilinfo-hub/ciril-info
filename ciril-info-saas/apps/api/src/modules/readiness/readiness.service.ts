@@ -59,7 +59,7 @@ export class ReadinessService {
       },
       hosting: { provider: this.env('HOSTING_PROVIDER'), servers: await this.servers(), plesk: { hostSet: !!this.env('PLESK_HOST'), keySet: !!this.env('PLESK_API_KEY'), ipSet: !!this.env('PLESK_IP'), tls: this.env('PLESK_TLS') } },
       dns: { provider: this.env('DNS_PROVIDER') },
-      registrar: { provider: this.env('REGISTRAR_PROVIDER'), godaddy: { env: this.env('GODADDY_ENV'), keySet: !!this.env('GODADDY_API_KEY') && !!this.env('GODADDY_API_SECRET'), nameserversSet: !!this.env('GODADDY_NAMESERVERS') } },
+      registrar: { provider: this.env('REGISTRAR_PROVIDER'), resellerclub: { env: this.env('RESELLERCLUB_ENV'), keySet: !!this.env('RESELLERCLUB_RESELLER_ID') && !!this.env('RESELLERCLUB_API_KEY'), nameserversSet: !!this.env('REGISTRAR_NAMESERVERS') } },
       cpanel: { hostSet: !!this.env('CPANEL_HOST'), userSet: !!this.env('CPANEL_USER'), tokenSet: !!this.env('CPANEL_API_TOKEN'), tls: this.env('CPANEL_TLS') },
       email: { provider: this.env('EMAIL_PROVIDER'), configured: this.env('EMAIL_PROVIDER') === 'resend' ? !!this.env('RESEND_API_KEY') : this.env('EMAIL_PROVIDER') === 'smtp' ? !!this.env('SMTP_USER') && !!this.env('SMTP_PASSWORD') : true, smtpHost: this.env('SMTP_HOST') },
       storage: { driver: this.env('STORAGE_DRIVER') },

@@ -9,6 +9,7 @@ const MARKUP = { message: 'Enter the markup as a number, up to two decimals.' };
 const MARKUP_TYPES = ['PERCENT', 'AMOUNT'] as const;
 const ROUNDINGS = ['NONE', 'RUPEE', 'NINE'] as const;
 export const MAX_IMPORT_ROWS = 500;
+export const MAX_COST_LOOKUP = 60;
 
 /** A price in rupees: 0 to ten million, two decimals at most. */
 const Money = () => (target: object, key: string) => {
@@ -92,4 +93,14 @@ export class TldImportDto {
   @IsOptional() @IsBoolean() repriceManual?: boolean;
   /** New endings go on sale straight away. Off: they are added switched off, to check first. */
   @IsOptional() @IsBoolean() activate?: boolean;
+}
+
+/** Endings to look up at the registrar: "com, in, .co.in" (commas or spaces), tidied and without repeats. */
+export class TldCostQueryDto {
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? [...new Set(value.split(/[\s,]+/).map((t) => t.trim().toLowerCase().replace(/^\./, '')).filter(Boolean))] : value,
+  )
+  @IsArray() @ArrayMinSize(1, { message: 'Enter at least one ending.' }) @ArrayMaxSize(MAX_COST_LOOKUP, { message: `Look up at most ${MAX_COST_LOOKUP} endings at a time.` })
+  @Matches(TLD_PATTERN, { each: true, message: 'Enter endings such as com, in or co.in.' })
+  tlds!: string[];
 }

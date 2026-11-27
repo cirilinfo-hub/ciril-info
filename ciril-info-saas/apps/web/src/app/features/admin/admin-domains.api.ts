@@ -56,6 +56,13 @@ export interface TldImportRow {
   costTransfer: number;
 }
 
+export interface PriceSyncStatus {
+  /** The registrar purchase prices come from, or null when it publishes none. */
+  registrar: string | null;
+  daily: boolean;
+  lastRun: { at: string; ok: boolean; changed: number | null; reason: string | null } | null;
+}
+
 export interface TldSkipped {
   tld: string;
   reason: string;
@@ -97,9 +104,9 @@ export class AdminDomainsApi {
       this.http.get<Paged<AdminRegistration>>(this.registrationsBase, { params: { page, pageSize: 20, ...(status ? { status } : {}), ...(search ? { search } : {}), ...(needsAction ? { needsAction: 'true' } : {}) } }),
     );
   }
-  /** Which registrar is connected, and whether it places paid orders by itself. */
+  /** Which registrar is connected, whether it places paid orders by itself, and whose prices can be fetched (or null). */
   registrar() {
-    return firstValueFrom(this.http.get<{ provider: string; automated: boolean }>(`${this.registrationsBase}/registrar`));
+    return firstValueFrom(this.http.get<{ provider: string; automated: boolean; pricing: string | null }>(`${this.registrationsBase}/registrar`));
   }
   retryRegistrar(id: string) {
     return firstValueFrom(this.http.post<{ outcome: { result: 'done' | 'started' | 'manual'; reason?: string }; domain: AdminRegistration }>(`${this.registrationsBase}/${id}/registrar-retry`, {}));
@@ -161,6 +168,18 @@ export class AdminDomainsApi {
   /** One markup over the chosen endings (or every ending matching `search`). */
   bulkPrice(body: TldMarkupInput & { basis: 'COST' | 'CURRENT' } & ({ ids: string[] } | { all: true; search?: string })) {
     return firstValueFrom(this.http.post<{ changed: number; skipped: TldSkipped[] }>(`${this.base}/bulk-price`, body));
+  }
+  /** What the connected registrar charges for these endings ("com, in, co.in"), as rows ready for the import. */
+  /** Whether purchase prices update daily from the registrar, and how the last update went. */
+  priceSync() {
+    return firstValueFrom(this.http.get<PriceSyncStatus>(`${this.base}/price-sync`));
+  }
+  /** Updates the purchase prices from the registrar now. */
+  syncPrices() {
+    return firstValueFrom(this.http.post<{ status: 'done' | 'failed'; registrar: string; checked?: number; changed?: { tld: string }[]; missing?: TldSkipped[]; reason?: string }>(`${this.base}/price-sync`, {}));
+  }
+  registrarCosts(tlds: string) {
+    return firstValueFrom(this.http.get<{ registrar: string; rows: TldImportRow[]; missing: TldSkipped[] }>(`${this.base}/registrar-costs`, { params: { tlds } }));
   }
   /** Purchase prices from the registrar's price sheet. */
   importCosts(body: { rows: TldImportRow[]; markup?: TldMarkupInput; repriceManual: boolean; activate: boolean }) {
