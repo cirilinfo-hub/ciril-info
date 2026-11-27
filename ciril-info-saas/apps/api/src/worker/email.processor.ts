@@ -23,6 +23,7 @@ interface EventJob {
 export class EventsProcessor extends WorkerHost {
   private readonly log = new Logger('Email');
   private readonly from: string;
+  private readonly replyTo: string;
   private readonly sender: EmailSender | null;
 
   constructor(
@@ -32,6 +33,7 @@ export class EventsProcessor extends WorkerHost {
   ) {
     super();
     this.from = config.get('EMAIL_FROM', { infer: true });
+    this.replyTo = config.get('EMAIL_REPLY_TO', { infer: true });
     const provider = config.get('EMAIL_PROVIDER', { infer: true });
     const resendKey = config.get('RESEND_API_KEY', { infer: true });
     this.sender =
@@ -63,7 +65,7 @@ export class EventsProcessor extends WorkerHost {
     const rendered = renderEmail(msg);
 
     if (!this.sender) throw new Error('RESEND_API_KEY is not configured');
-    await this.sender.send({ from: this.from, to: msg.to, subject: rendered.subject, text: rendered.text, html: rendered.html, idempotencyKey: job.data.eventId });
+    await this.sender.send({ from: this.from, to: msg.to, subject: rendered.subject, text: rendered.text, html: rendered.html, replyTo: this.replyTo || undefined, idempotencyKey: job.data.eventId });
     this.log.log({ template: msg.template, eventId: job.data.eventId, provider: this.sender.name }, 'Email sent');
   }
 }

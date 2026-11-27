@@ -306,6 +306,7 @@ Emails (which also adds the MX, SPF and DKIM records). In `.env`:
 ```
 EMAIL_PROVIDER=smtp
 EMAIL_FROM=CirilInfo <noreply@cirilinfo.com>
+EMAIL_REPLY_TO=support@cirilinfo.com
 SMTP_HOST=smtp.hostinger.com
 SMTP_PORT=465
 SMTP_SECURE=true
@@ -313,7 +314,7 @@ SMTP_USER=noreply@cirilinfo.com
 SMTP_PASSWORD=<the mailbox password>
 ```
 
-`EMAIL_FROM` must use the mailbox's own address, or the mail server refuses it. The connection is always encrypted. A
+`EMAIL_FROM` must use the mailbox's own address, or the mail server refuses it. `EMAIL_REPLY_TO` sends customers' replies to a mailbox someone reads. The connection is always encrypted. A
 mailbox can only send so many emails per hour and day; switch to Resend or Amazon SES if you outgrow it. The Launch
 checklist says when the email settings are incomplete, and the API refuses to start in production with Resend chosen but
 no key.

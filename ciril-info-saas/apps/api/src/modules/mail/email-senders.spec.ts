@@ -119,11 +119,12 @@ describe('sending through your own mailbox (SMTP)', () => {
   it('signs in as the mailbox and delivers the message with subject, text and HTML', async () => {
     const smtp = await pretendSmtp(43941, 'mailbox-pass');
     try {
-      await smtpSender(settings).send(email);
+      await smtpSender(settings).send({ ...email, replyTo: 'support@cirilinfo.com' });
       expect(smtp.seen.auth).toBe('noreply@cirilinfo.com:mailbox-pass');
       expect(smtp.seen.from).toContain('no-reply@cirilinfo.com');
       expect(smtp.seen.to).toEqual(['<asha@example.test>']);
       expect(smtp.seen.data).toContain('Subject: Your invoice');
+      expect(smtp.seen.data).toMatch(/^Reply-To: support@cirilinfo.com$/im);
       expect(smtp.seen.data).toMatch(/^X-CirilInfo-Event: evt-123$/im); // header names are case-insensitive
       expect(smtp.seen.data).toMatch(/text\/plain[\s\S]*Hello[\s\S]*text\/html/);
     } finally {

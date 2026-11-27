@@ -49,6 +49,8 @@ export const envSchema = z
 
     EMAIL_PROVIDER: z.enum(['mailpit', 'resend', 'ses', 'smtp']).default('mailpit'),
     EMAIL_FROM: z.string().default('CirilInfo <no-reply@cirilinfo.com>'),
+    /** Where customers' replies go, e.g. support@cirilinfo.com (EMAIL_FROM is often a no-reply mailbox). Empty: replies go to EMAIL_FROM. */
+    EMAIL_REPLY_TO: z.union([z.literal(''), z.email()]).default(''),
     /** mailpit (local catcher) or smtp (your own mailbox's server, e.g. smtp.hostinger.com). */
     SMTP_HOST: z.string().default('localhost'),
     SMTP_PORT: z.coerce.number().int().default(1025),

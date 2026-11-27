@@ -8,6 +8,8 @@ export interface OutgoingEmail {
   subject: string;
   text: string;
   html: string;
+  /** Where replies should go; omitted when empty. */
+  replyTo?: string;
   /** Our outbox event id: a provider that supports it uses it to drop a repeated send. */
   idempotencyKey: string;
 }
@@ -20,7 +22,7 @@ export interface EmailSender {
 /** Local development: an SMTP catcher (Mailpit) that shows every email at http://localhost:8025. */
 export function mailpitSender(host: string, port: number): EmailSender {
   const smtp = nodemailer.createTransport({ host, port, secure: false });
-  return { name: 'mailpit', send: async (e) => void (await smtp.sendMail({ from: e.from, to: e.to, subject: e.subject, text: e.text, html: e.html })) };
+  return { name: 'mailpit', send: async (e) => void (await smtp.sendMail({ from: e.from, to: e.to, subject: e.subject, text: e.text, html: e.html, ...(e.replyTo ? { replyTo: e.replyTo } : {}) })) };
 }
 
 export interface SmtpSettings {
@@ -48,7 +50,7 @@ export function smtpSender(s: SmtpSettings): EmailSender {
   return {
     name: 'smtp',
     async send(e) {
-      await smtp.sendMail({ from: e.from, to: e.to, subject: e.subject, text: e.text, html: e.html, headers: { 'X-CirilInfo-Event': e.idempotencyKey } });
+      await smtp.sendMail({ from: e.from, to: e.to, subject: e.subject, text: e.text, html: e.html, ...(e.replyTo ? { replyTo: e.replyTo } : {}), headers: { 'X-CirilInfo-Event': e.idempotencyKey } });
     },
   };
 }
@@ -61,7 +63,7 @@ export function resendSender(apiKey: string, base = 'https://api.resend.com'): E
       const res = await fetch(`${base}/emails`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'Idempotency-Key': e.idempotencyKey },
-        body: JSON.stringify({ from: e.from, to: [e.to], subject: e.subject, text: e.text, html: e.html }),
+        body: JSON.stringify({ from: e.from, to: [e.to], subject: e.subject, text: e.text, html: e.html, ...(e.replyTo ? { reply_to: e.replyTo } : {}) }),
         signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) throw new Error(`Resend responded ${res.status}`);
@@ -97,6 +99,7 @@ export function sesSender(s: SesSettings): EmailSender {
         new SendEmailCommand({
           FromEmailAddress: e.from,
           Destination: { ToAddresses: [e.to] },
+          ...(e.replyTo ? { ReplyToAddresses: [e.replyTo] } : {}),
           Content: { Simple: { Subject: { Data: e.subject, Charset: 'UTF-8' }, Body: { Text: { Data: e.text, Charset: 'UTF-8' }, Html: { Data: e.html, Charset: 'UTF-8' } } } },
           ...(s.configurationSet ? { ConfigurationSetName: s.configurationSet } : {}),
           EmailTags: [{ Name: 'event', Value: e.idempotencyKey.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 255) || 'none' }],
