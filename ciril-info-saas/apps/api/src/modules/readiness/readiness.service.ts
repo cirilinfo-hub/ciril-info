@@ -61,7 +61,7 @@ export class ReadinessService {
       dns: { provider: this.env('DNS_PROVIDER') },
       registrar: { provider: this.env('REGISTRAR_PROVIDER'), godaddy: { env: this.env('GODADDY_ENV'), keySet: !!this.env('GODADDY_API_KEY') && !!this.env('GODADDY_API_SECRET'), nameserversSet: !!this.env('GODADDY_NAMESERVERS') } },
       cpanel: { hostSet: !!this.env('CPANEL_HOST'), userSet: !!this.env('CPANEL_USER'), tokenSet: !!this.env('CPANEL_API_TOKEN'), tls: this.env('CPANEL_TLS') },
-      email: { provider: this.env('EMAIL_PROVIDER') },
+      email: { provider: this.env('EMAIL_PROVIDER'), configured: this.env('EMAIL_PROVIDER') === 'resend' ? !!this.env('RESEND_API_KEY') : this.env('EMAIL_PROVIDER') === 'smtp' ? !!this.env('SMTP_USER') && !!this.env('SMTP_PASSWORD') : true, smtpHost: this.env('SMTP_HOST') },
       storage: { driver: this.env('STORAGE_DRIVER') },
       virusScan: { mode: this.env('VIRUS_SCAN') },
       errorTrackingSet: !!this.env('SENTRY_DSN'),

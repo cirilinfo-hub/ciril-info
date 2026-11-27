@@ -47,10 +47,18 @@ export const envSchema = z
       .string()
       .refine((v) => Buffer.from(v, 'base64').length === 32, 'must be 32 bytes, base64-encoded'),
 
-    EMAIL_PROVIDER: z.enum(['mailpit', 'resend', 'ses']).default('mailpit'),
+    EMAIL_PROVIDER: z.enum(['mailpit', 'resend', 'ses', 'smtp']).default('mailpit'),
     EMAIL_FROM: z.string().default('CirilInfo <no-reply@cirilinfo.com>'),
+    /** Where customers' replies go, e.g. support@cirilinfo.com (EMAIL_FROM is often a no-reply mailbox). Empty: replies go to EMAIL_FROM. */
+    EMAIL_REPLY_TO: z.union([z.literal(''), z.email()]).default(''),
+    /** mailpit (local catcher) or smtp (your own mailbox's server, e.g. smtp.hostinger.com). */
     SMTP_HOST: z.string().default('localhost'),
     SMTP_PORT: z.coerce.number().int().default(1025),
+    /** EMAIL_PROVIDER=smtp: true = TLS from the start (port 465); false = STARTTLS, which is then required (port 587). */
+    SMTP_SECURE: bool,
+    /** EMAIL_PROVIDER=smtp: the mailbox's address and password. EMAIL_FROM should use the same address. In the server's .env only. */
+    SMTP_USER: z.string().trim().default(''),
+    SMTP_PASSWORD: z.string().default(''),
     /** EMAIL_PROVIDER=resend. In the server's .env only. */
     RESEND_API_KEY: z.string().trim().default(''),
     /** EMAIL_PROVIDER=ses: an IAM key allowed only ses:SendEmail. In the server's .env only. */
@@ -196,6 +204,16 @@ export const envSchema = z
       if (env.NODE_ENV === 'production' && env.GODADDY_API_BASE) {
         ctx.addIssue({ code: 'custom', path: ['GODADDY_API_BASE'], message: 'is for tests only; leave it empty in production' });
       }
+    }
+    if (env.EMAIL_PROVIDER === 'smtp') {
+      for (const key of ['SMTP_USER', 'SMTP_PASSWORD'] as const) {
+        if (!env[key]) ctx.addIssue({ code: 'custom', path: [key], message: 'required when EMAIL_PROVIDER=smtp' });
+      }
+      if (/^(localhost|127\.|::1)/.test(env.SMTP_HOST)) ctx.addIssue({ code: 'custom', path: ['SMTP_HOST'], message: 'set your mail server, for example smtp.hostinger.com' });
+    }
+    // Production must actually be able to send: sign-in needs a verified email address.
+    if (env.NODE_ENV === 'production' && env.EMAIL_PROVIDER === 'resend' && !env.RESEND_API_KEY) {
+      ctx.addIssue({ code: 'custom', path: ['RESEND_API_KEY'], message: 'required when EMAIL_PROVIDER=resend (or use EMAIL_PROVIDER=smtp with your own mailbox)' });
     }
     if (env.EMAIL_PROVIDER === 'ses') {
       for (const key of ['AWS_SES_ACCESS_KEY_ID', 'AWS_SES_SECRET_ACCESS_KEY'] as const) {

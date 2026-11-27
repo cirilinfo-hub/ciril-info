@@ -25,7 +25,7 @@ const prodReal = {
   CPANEL_USER: 'root',
   CPANEL_API_TOKEN: 'token',
   REGISTRAR_PROVIDER: 'resellerclub',
-  EMAIL_PROVIDER: 'resend',
+  EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 're_test',
 };
 
 describe('validateEnv', () => {
@@ -93,7 +93,7 @@ describe('validateEnv: test-only switches', () => {
     expect(() =>
       validateEnv({
         ...base, NODE_ENV: 'production', PAYMENT_PROVIDER: 'razorpay', HOSTING_PROVIDER: 'cpanel',
-        REGISTRAR_PROVIDER: 'resellerclub', EMAIL_PROVIDER: 'resend', THROTTLE_DISABLED: 'true',
+        REGISTRAR_PROVIDER: 'resellerclub', EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 're_test', THROTTLE_DISABLED: 'true',
         RAZORPAY_KEY_ID: 'rzp_live_abc', RAZORPAY_KEY_SECRET: 's', RAZORPAY_WEBHOOK_SECRET: 'w',
       }),
     ).toThrow(/rate limiting cannot be disabled/);
@@ -111,12 +111,12 @@ describe('validateEnv: payment provider', () => {
   it('keeps live and test keys apart', () => {
     const keys = { RAZORPAY_KEY_SECRET: 's', RAZORPAY_WEBHOOK_SECRET: 'w' };
     expect(() => validateEnv({ ...dev, PAYMENT_PROVIDER: 'razorpay', RAZORPAY_KEY_ID: 'rzp_live_a', ...keys })).toThrow(/live key must not be used outside production/);
-    expect(() => validateEnv({ ...base, NODE_ENV: 'production', PAYMENT_PROVIDER: 'razorpay', HOSTING_PROVIDER: 'cpanel', REGISTRAR_PROVIDER: 'x', EMAIL_PROVIDER: 'resend', RAZORPAY_KEY_ID: 'rzp_test_a', ...keys })).toThrow(/production needs a live key/);
+    expect(() => validateEnv({ ...base, NODE_ENV: 'production', PAYMENT_PROVIDER: 'razorpay', HOSTING_PROVIDER: 'cpanel', REGISTRAR_PROVIDER: 'x', EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 're_test', RAZORPAY_KEY_ID: 'rzp_test_a', ...keys })).toThrow(/production needs a live key/);
   });
 
   it('allows a test key in production only with the pre-launch switch, and never mixes it with a live key', () => {
     const keys = { RAZORPAY_KEY_SECRET: 's', RAZORPAY_WEBHOOK_SECRET: 'w' };
-    const prod = { ...base, NODE_ENV: 'production', PAYMENT_PROVIDER: 'razorpay', HOSTING_PROVIDER: 'manual', DNS_PROVIDER: 'none', REGISTRAR_PROVIDER: 'rdap', EMAIL_PROVIDER: 'resend' };
+    const prod = { ...base, NODE_ENV: 'production', PAYMENT_PROVIDER: 'razorpay', HOSTING_PROVIDER: 'manual', DNS_PROVIDER: 'none', REGISTRAR_PROVIDER: 'rdap', EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 're_test' };
     expect(() => validateEnv({ ...prod, RAZORPAY_KEY_ID: 'rzp_test_a', ...keys })).toThrow(/RAZORPAY_TEST_KEYS_IN_PRODUCTION=true allows a test key/);
     expect(validateEnv({ ...prod, RAZORPAY_KEY_ID: 'rzp_test_a', ...keys, RAZORPAY_TEST_KEYS_IN_PRODUCTION: 'true' }).RAZORPAY_TEST_KEYS_IN_PRODUCTION).toBe(true);
     expect(() => validateEnv({ ...prod, RAZORPAY_KEY_ID: 'rzp_live_a', ...keys, RAZORPAY_TEST_KEYS_IN_PRODUCTION: 'true' })).toThrow(/remove this setting now that the live key is in/);
@@ -143,6 +143,21 @@ describe('validateEnv: S3 storage', () => {
     expect(() => validateEnv({ ...base, ...s3, S3_ENDPOINT: 'r2.example.com' })).toThrow(/S3_ENDPOINT/);
     expect(() => validateEnv({ ...prodReal, ...s3, S3_ENDPOINT: 'http://minio.internal:9000' })).toThrow(/HTTPS/);
     expect(() => validateEnv({ ...prodReal, ...s3, S3_ENDPOINT: 'https://acc.r2.cloudflarestorage.com', S3_REGION: 'auto' })).not.toThrow();
+  });
+});
+
+describe('validateEnv: email', () => {
+  const dev = { ...base, NODE_ENV: 'development' };
+  it('your own mailbox (smtp) needs its address, password and a real mail server', () => {
+    expect(() => validateEnv({ ...dev, EMAIL_PROVIDER: 'smtp', SMTP_HOST: 'smtp.hostinger.com' })).toThrow(/SMTP_USER: required when EMAIL_PROVIDER=smtp/);
+    expect(() => validateEnv({ ...dev, EMAIL_PROVIDER: 'smtp', SMTP_USER: 'noreply@cirilinfo.com', SMTP_PASSWORD: 'p' })).toThrow(/SMTP_HOST: set your mail server/);
+    const env = validateEnv({ ...dev, EMAIL_PROVIDER: 'smtp', SMTP_HOST: 'smtp.hostinger.com', SMTP_PORT: '465', SMTP_SECURE: 'true', SMTP_USER: 'noreply@cirilinfo.com', SMTP_PASSWORD: 'p' });
+    expect(env).toMatchObject({ EMAIL_PROVIDER: 'smtp', SMTP_PORT: 465, SMTP_SECURE: true });
+  });
+  it('production refuses Resend without its key, which would leave customers unable to verify and sign in', () => {
+    const prod = { ...base, NODE_ENV: 'production', PAYMENT_PROVIDER: 'razorpay', RAZORPAY_KEY_ID: 'rzp_live_a', RAZORPAY_KEY_SECRET: 's', RAZORPAY_WEBHOOK_SECRET: 'w', HOSTING_PROVIDER: 'manual', DNS_PROVIDER: 'none', REGISTRAR_PROVIDER: 'rdap' };
+    expect(() => validateEnv({ ...prod, EMAIL_PROVIDER: 'resend' })).toThrow(/RESEND_API_KEY: required when EMAIL_PROVIDER=resend/);
+    expect(validateEnv({ ...prod, EMAIL_PROVIDER: 'resend', RESEND_API_KEY: 're_x' }).EMAIL_PROVIDER).toBe('resend');
   });
 });
 
