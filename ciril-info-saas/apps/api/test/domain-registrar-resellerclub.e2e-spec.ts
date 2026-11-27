@@ -6,6 +6,7 @@ import type { PlatformPrisma } from '../src/database/prisma-clients.js';
 import { DomainEventsHandler } from '../src/modules/domains/domain-events.handler.js';
 import { RegistrarError } from '../src/modules/domains/providers/registrar-provider.js';
 import { RegistrarAutomationService } from '../src/modules/domains/registrar-automation.service.js';
+import { TldCostSyncService } from '../src/modules/domains/tld-cost-sync.service.js';
 import { FakeResellerClub } from './support/fake-resellerclub.js';
 import { cleanupUsers, createStaff, createTestApp, customer, platformDb, purgeTestStaffNotices, staffToken } from './utils.js';
 
@@ -25,9 +26,13 @@ describe('Domain registrar: ResellerClub (e2e)', () => {
   let db: PlatformPrisma;
   let events: DomainEventsHandler;
   let automation: RegistrarAutomationService;
+  let priceSync: TldCostSyncService;
   const rc = new FakeResellerClub();
   const tag = randomUUID().slice(0, 6).toLowerCase();
   const tld = `r${tag}x`;
+  /** Two more endings for the price sync: one on a markup, one priced by hand. */
+  const marked = `m${tag}x`;
+  const byHand = `h${tag}x`;
   const emails: string[] = [];
   let alice: Awaited<ReturnType<typeof customer>>;
   let nophone: Awaited<ReturnType<typeof customer>>;
@@ -61,6 +66,7 @@ describe('Domain registrar: ResellerClub (e2e)', () => {
     db = platformDb();
     events = app.get(DomainEventsHandler);
     automation = app.get(RegistrarAutomationService);
+    priceSync = app.get(TldCostSyncService);
     alice = await customer(app, db, 'rc-a');
     nophone = await customer(app, db, 'rc-b');
     const sa = await createStaff(db, 'SUPER_ADMIN', 'rcsa');
@@ -84,7 +90,8 @@ describe('Domain registrar: ResellerClub (e2e)', () => {
     await db.payment.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.invoice.deleteMany({ where: { tenantId: { in: tenantIds } } });
     await db.outboxEvent.deleteMany({ where: { tenantId: { in: tenantIds } } });
-    await db.tldPrice.deleteMany({ where: { tld } });
+    await db.tldPrice.deleteMany({ where: { tld: { in: [tld, marked, byHand] } } });
+    await db.notification.deleteMany({ where: { type: { in: ['domain.prices_updated', 'domain.prices_sync_failed'] } } });
     await cleanupUsers(db, emails);
     await app.close();
     await rc.stop();
@@ -329,5 +336,67 @@ describe('Domain registrar: ResellerClub (e2e)', () => {
       missing: [{ tld: 'zzz', reason: expect.any(String) }],
     });
     await http().get(api('admin/domains/tlds/registrar-costs')).query({ tlds: 'bad ending!' }).set(auth(admin)).expect(400);
+  });
+  describe('daily purchase-price sync', () => {
+    beforeAll(async () => {
+      rc.classKeys.set(marked, 'markkey');
+      rc.costs.set('markkey', { addnewdomain: 100, renewdomain: 200, addtransferdomain: 90 });
+      rc.classKeys.set(byHand, 'handkey');
+      rc.costs.set('handkey', { addnewdomain: 300, renewdomain: 400, addtransferdomain: 300 });
+      await db.tldPrice.create({ data: { tld: marked, registerPrice: '1.00', renewPrice: '1.00', transferPrice: '1.00', costRegister: '1.00', costRenew: '1.00', costTransfer: '1.00', markupType: 'PERCENT', markupValue: '10.00', markupRound: 'NONE' } });
+      await db.tldPrice.create({ data: { tld: byHand, registerPrice: '999.00', renewPrice: '1099.00', transferPrice: '999.00' } });
+      await db.notification.deleteMany({ where: { type: { in: ['domain.prices_updated', 'domain.prices_sync_failed'] } } });
+    });
+    const price = (t: string) => db.tldPrice.findUniqueOrThrow({ where: { tld: t } });
+
+    it('says it runs daily from ResellerClub', async () => {
+      const r = await http().get(api('admin/domains/tlds/price-sync')).set(auth(reader)).expect(200);
+      expect(r.body).toMatchObject({ registrar: 'ResellerClub', daily: true });
+    });
+
+    it('updates purchase prices, re-prices endings on a markup, leaves hand prices alone, and tells staff', async () => {
+      await http().post(api('admin/domains/tlds/price-sync')).set(auth(reader)).expect(403);
+      const r = await http().post(api('admin/domains/tlds/price-sync')).set(auth(admin)).expect(200);
+      expect(r.body.status).toBe('done');
+      expect(r.body.changed).toEqual(expect.arrayContaining([
+        { tld: marked, costBefore: 1, costAfter: 100, priceBefore: 1, priceAfter: 110 },
+        { tld: byHand, costBefore: null, costAfter: 300, priceBefore: 999, priceAfter: 999 },
+      ]));
+      const m = await price(marked);
+      expect([m.costRegister, m.costRenew, m.costTransfer, m.registerPrice, m.renewPrice, m.transferPrice].map(Number)).toEqual([100, 200, 90, 110, 220, 99]);
+      const h = await price(byHand);
+      expect([h.costRegister, h.costRenew, h.costTransfer, h.registerPrice, h.renewPrice].map(Number)).toEqual([300, 400, 300, 999, 1099]);
+      const [notice] = await db.notification.findMany({ where: { type: 'domain.prices_updated' } });
+      expect(notice!.body).toContain(`.${marked}`);
+      expect(await db.auditLog.findFirst({ where: { action: 'tld.cost_sync' }, orderBy: { createdAt: 'desc' } })).toMatchObject({ actorId: expect.any(String) });
+
+      // Nothing new at ResellerClub: nothing changes and nobody is told again.
+      const again = await http().post(api('admin/domains/tlds/price-sync')).set(auth(admin)).expect(200);
+      expect(again.body.changed.filter((c: { tld: string }) => [marked, byHand].includes(c.tld))).toEqual([]);
+      const status = await http().get(api('admin/domains/tlds/price-sync')).set(auth(reader)).expect(200);
+      expect(status.body.lastRun).toMatchObject({ ok: true });
+    });
+
+    it('runs on its own only once a day', async () => {
+      expect(await priceSync.runIfDue()).toEqual({ status: 'skipped', reason: 'ran within the last day' });
+      rc.costs.set('markkey', { addnewdomain: 200, renewdomain: 200, addtransferdomain: 90 });
+      const r = await priceSync.runIfDue(new Date(Date.now() + 24 * 3_600_000));
+      expect(r.status).toBe('done');
+      expect(Number((await price(marked)).registerPrice)).toBe(220);
+    });
+
+    it('tells staff once when ResellerClub cannot be asked, and changes nothing', async () => {
+      rc.rejectAuth = true;
+      const before = await price(marked);
+      const first = await priceSync.run(null);
+      expect(first).toMatchObject({ status: 'failed', reason: expect.stringContaining('refused') });
+      const told = await db.notification.count({ where: { type: 'domain.prices_sync_failed' } });
+      expect(told).toBeGreaterThan(0); // every staff member who manages domains
+      await priceSync.run(null); // fails again the same day
+      expect(await db.notification.count({ where: { type: 'domain.prices_sync_failed' } })).toBe(told); // not told twice
+      expect((await price(marked)).registerPrice.toString()).toBe(before.registerPrice.toString());
+      const status = await http().get(api('admin/domains/tlds/price-sync')).set(auth(reader)).expect(200);
+      expect(status.body.lastRun).toMatchObject({ ok: false, reason: expect.stringContaining('refused') });
+    });
   });
 });

@@ -61,8 +61,14 @@ Report anything that fails with the message shown in Admin > Domains.
 Nothing is saved until you press Import, so you can check the figures and set the markup first. Endings ResellerClub does not
 sell, or has no price for, are listed and left out. If the transfer price is missing, the register price is used.
 
-Endings on a markup follow their purchase price: fetch and import again when ResellerClub changes its prices, and the selling
-prices move with them.
+**Daily update.** Once a day the worker asks ResellerClub for the cost of every ending in your list (samples excepted) and
+stores it as the purchase price. Endings on a markup get new selling prices worked out from it; endings priced by hand keep
+their selling prices and only their purchase price changes. Staff who manage domains get a notice listing what changed, and,
+if ResellerClub cannot be asked, one alert a day with the reason. Admin > Domain prices shows when it last ran and has **Update
+now**. Every run is in the audit log (`tld.cost_sync`, `tld.cost_sync_failed`). Turn it off with `REGISTRAR_PRICE_SYNC=off`.
+
+Prices change on your website the moment the update runs. A customer who already has an unpaid invoice keeps that invoice's
+price.
 
 ## What happens to an order
 

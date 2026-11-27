@@ -133,6 +133,8 @@ export const envSchema = z
     REGISTRAR_NAMESERVERS: z.string().trim().default(''),
     /** The most one ending may cost per year at the registrar, in the registrar account's currency (rupees). Dearer ones go to staff. */
     REGISTRAR_MAX_YEARLY_COST: z.coerce.number().positive().default(5000),
+    /** on: the worker updates the domain price list's purchase prices from the registrar once a day (registrars that publish prices only). */
+    REGISTRAR_PRICE_SYNC: z.enum(['on', 'off']).default('on'),
 
     STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
     STORAGE_LOCAL_DIR: z.string().default('./storage'),

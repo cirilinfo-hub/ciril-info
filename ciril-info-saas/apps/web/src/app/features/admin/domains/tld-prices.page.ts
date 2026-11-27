@@ -8,7 +8,7 @@ import { Field, describedBy } from '../../../design-system/forms/field';
 import { Icon } from '../../../design-system/icon/icon';
 import { PageHead } from '../../../shared/components/page-head';
 import { money } from '../../customer/billing.api';
-import { type AdminTld, AdminDomainsApi, type MarkupType, type Rounding, type TldInput, type TldSkipped } from '../admin-domains.api';
+import { type AdminTld, AdminDomainsApi, type MarkupType, type PriceSyncStatus, type Rounding, type TldInput, type TldSkipped } from '../admin-domains.api';
 import { AdminPage } from '../shared/admin-page';
 import { applyMarkup, markupLabel, parseImport } from './tld-pricing';
 
@@ -48,6 +48,8 @@ const DEFAULT_FETCH = 'com, in, co.in, net, org';
     .preview strong { font-variant-numeric: tabular-nums; }
     .modes { display: flex; flex-wrap: wrap; gap: var(--space-4); }
     ul.skipped { margin: var(--space-2) 0 0; padding-left: 1.25rem; max-height: 10rem; overflow: auto; }
+    .sync { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; margin-bottom: var(--space-4); color: var(--color-text-secondary); }
+    .sync .bad { color: var(--color-text-danger, #b42318); }
     .fetch { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: flex-end; }
     .fetch ci-field { flex: 1 1 280px; }
     textarea.sheet { font-family: var(--font-mono, ui-monospace, monospace); min-height: 10rem; }
@@ -69,6 +71,21 @@ const DEFAULT_FETCH = 'com, in, co.in, net, org';
     }
     @if (error() && !anyDialog(); as e) { <div class="cf-alert cf-alert-error" role="alert"><ci-icon name="error" /><span>{{ error() }}</span></div> }
 
+    @if (sync(); as s) {
+      @if (s.registrar) {
+        <div class="sync" aria-live="polite">
+          <ci-icon name="refresh" [size]="16" />
+          <span>
+            Purchase prices {{ s.daily ? 'update every day' : 'can be updated' }} from {{ s.registrar }}{{ s.daily ? '' : ' (the daily update is switched off)' }}.
+            @if (s.lastRun; as l) {
+              Last update {{ when(l.at) }}:
+              @if (l.ok) { {{ l.changed ? l.changed + (l.changed === 1 ? ' ending changed' : ' endings changed') : 'no changes' }}. } @else { <strong class="bad">failed</strong> ({{ l.reason }}). }
+            } @else { Not updated yet. }
+          </span>
+          @if (canWrite()) { <button type="button" class="cf-btn cf-btn-tertiary cf-btn-sm" [disabled]="busy()" (click)="syncNow()">{{ syncing() ? 'Updating…' : 'Update now' }}</button> }
+        </div>
+      }
+    }
     <div class="bar">
       <div class="search">
         <label for="tld-search" class="cx-sr">Search endings</label>
@@ -351,6 +368,8 @@ export class AdminTldPricesPage extends AdminPage implements OnInit {
   protected readonly registrarPricing = signal<string | null>(null);
   protected readonly fetching = signal(false);
   protected readonly fetchNote = signal<string | null>(null);
+  protected readonly sync = signal<PriceSyncStatus | null>(null);
+  protected readonly syncing = signal(false);
 
   private timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -362,7 +381,29 @@ export class AdminTldPricesPage extends AdminPage implements OnInit {
 
   ngOnInit() {
     if (this.canWrite()) void this.api.registrar().then((r) => this.registrarPricing.set(r.pricing), () => this.registrarPricing.set(null));
+    void this.loadSync();
     return this.load();
+  }
+
+  private async loadSync() {
+    this.sync.set(await this.api.priceSync().catch(() => null));
+  }
+
+  protected when(iso: string) {
+    return new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+  }
+
+  /** Updates the purchase prices from the registrar now; selling prices follow for endings on a markup. */
+  protected async syncNow() {
+    this.syncing.set(true);
+    let r: Awaited<ReturnType<AdminDomainsApi['syncPrices']>> | undefined;
+    const ok = await this.run(async () => void (r = await this.api.syncPrices()));
+    this.syncing.set(false);
+    if (ok && r) {
+      if (r.status === 'failed') this.error.set(`Prices could not be updated from ${r.registrar}: ${r.reason}`);
+      else this.toast.set(`Purchase prices updated from ${r.registrar}: ${r.changed?.length ? `${r.changed.length} ${r.changed.length === 1 ? 'ending' : 'endings'} changed` : 'no changes'}.`);
+      await Promise.all([this.load(), this.loadSync()]);
+    }
   }
 
   /** Asks the registrar what it charges for the endings typed, and fills the price sheet with the answer. */

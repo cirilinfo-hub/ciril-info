@@ -56,6 +56,13 @@ export interface TldImportRow {
   costTransfer: number;
 }
 
+export interface PriceSyncStatus {
+  /** The registrar purchase prices come from, or null when it publishes none. */
+  registrar: string | null;
+  daily: boolean;
+  lastRun: { at: string; ok: boolean; changed: number | null; reason: string | null } | null;
+}
+
 export interface TldSkipped {
   tld: string;
   reason: string;
@@ -163,6 +170,14 @@ export class AdminDomainsApi {
     return firstValueFrom(this.http.post<{ changed: number; skipped: TldSkipped[] }>(`${this.base}/bulk-price`, body));
   }
   /** What the connected registrar charges for these endings ("com, in, co.in"), as rows ready for the import. */
+  /** Whether purchase prices update daily from the registrar, and how the last update went. */
+  priceSync() {
+    return firstValueFrom(this.http.get<PriceSyncStatus>(`${this.base}/price-sync`));
+  }
+  /** Updates the purchase prices from the registrar now. */
+  syncPrices() {
+    return firstValueFrom(this.http.post<{ status: 'done' | 'failed'; registrar: string; checked?: number; changed?: { tld: string }[]; missing?: TldSkipped[]; reason?: string }>(`${this.base}/price-sync`, {}));
+  }
   registrarCosts(tlds: string) {
     return firstValueFrom(this.http.get<{ registrar: string; rows: TldImportRow[]; missing: TldSkipped[] }>(`${this.base}/registrar-costs`, { params: { tlds } }));
   }
