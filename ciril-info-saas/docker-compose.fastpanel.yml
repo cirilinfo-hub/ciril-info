@@ -1,0 +1,11 @@
+# For a server shared with FASTPANEL (see DEPLOYMENT.md, "Sharing the server with FASTPANEL"):
+#   docker compose --env-file .env -f docker-compose.yml -f docker-compose.fastpanel.yml up -d
+# FASTPANEL's nginx owns ports 80 and 443 and forwards cirilinfo.com, www, app, admin and api to the app's nginx, which
+# listens on the host's loopback only and speaks plain HTTP. HTTPS certificates live with the host's nginx.
+
+services:
+  nginx:
+    ports: !override
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./infra/nginx/behind-proxy/cirilinfo.conf:/etc/nginx/conf.d/cirilinfo.conf:ro
