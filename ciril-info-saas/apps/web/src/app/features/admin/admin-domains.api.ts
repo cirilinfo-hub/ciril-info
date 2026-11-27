@@ -11,18 +11,54 @@ export interface AdminTld {
   registerPrice: string;
   renewPrice: string;
   transferPrice: string;
+  /** What the registrar charges us, in rupees; null when not entered. Never shown on the website. */
+  costRegister: string | null;
+  costRenew: string | null;
+  costTransfer: string | null;
+  /** Set: the selling prices are worked out from the costs. Null: priced by hand. */
+  markupType: MarkupType | null;
+  markupValue: string | null;
+  markupRound: Rounding;
   isActive: boolean;
   isFeatured: boolean;
   sortOrder: number;
   isSample: boolean;
 }
 
+export type MarkupType = 'PERCENT' | 'AMOUNT';
+export type Rounding = 'NONE' | 'RUPEE' | 'NINE';
+
+/** Either the three selling prices (by hand), or the three costs with a markup. */
 export interface TldInput {
   tld: string;
-  registerPrice: number;
-  renewPrice: number;
-  transferPrice: number;
-  isFeatured: boolean;
+  registerPrice?: number;
+  renewPrice?: number;
+  transferPrice?: number;
+  costRegister?: number | null;
+  costRenew?: number | null;
+  costTransfer?: number | null;
+  markupType?: MarkupType | null;
+  markupValue?: number;
+  markupRound?: Rounding;
+  isFeatured?: boolean;
+}
+
+export interface TldMarkupInput {
+  markupType: MarkupType;
+  markupValue: number;
+  markupRound: Rounding;
+}
+
+export interface TldImportRow {
+  tld: string;
+  costRegister: number;
+  costRenew: number;
+  costTransfer: number;
+}
+
+export interface TldSkipped {
+  tld: string;
+  reason: string;
 }
 
 export interface AdminRegistration {
@@ -121,5 +157,13 @@ export class AdminDomainsApi {
   }
   update(id: string, body: Partial<Omit<TldInput, 'tld'>> & { isActive?: boolean }) {
     return firstValueFrom(this.http.patch<AdminTld>(`${this.base}/${id}`, body));
+  }
+  /** One markup over the chosen endings (or every ending matching `search`). */
+  bulkPrice(body: TldMarkupInput & { basis: 'COST' | 'CURRENT' } & ({ ids: string[] } | { all: true; search?: string })) {
+    return firstValueFrom(this.http.post<{ changed: number; skipped: TldSkipped[] }>(`${this.base}/bulk-price`, body));
+  }
+  /** Purchase prices from the registrar's price sheet. */
+  importCosts(body: { rows: TldImportRow[]; markup?: TldMarkupInput; repriceManual: boolean; activate: boolean }) {
+    return firstValueFrom(this.http.post<{ created: number; updated: number; skipped: TldSkipped[] }>(`${this.base}/import`, body));
   }
 }
