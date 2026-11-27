@@ -866,6 +866,14 @@ model TldPrice {
   registerPrice Decimal  @map("register_price") @db.Decimal(14, 2)
   renewPrice    Decimal  @map("renew_price") @db.Decimal(14, 2)
   transferPrice Decimal  @map("transfer_price") @db.Decimal(14, 2)
+  /// What the registrar charges us, in rupees (from its price sheet). Optional: an ending can be priced by hand.
+  costRegister  Decimal? @map("cost_register") @db.Decimal(14, 2)
+  costRenew     Decimal? @map("cost_renew") @db.Decimal(14, 2)
+  costTransfer  Decimal? @map("cost_transfer") @db.Decimal(14, 2)
+  /// When set, the three selling prices are worked out from the costs: cost + percent, or cost + rupees. Null = priced by hand.
+  markupType    TldMarkup? @map("markup_type")
+  markupValue   Decimal? @map("markup_value") @db.Decimal(14, 2)
+  markupRound   TldRounding @default(NONE) @map("markup_round")
   isActive      Boolean  @default(true) @map("is_active")
   isFeatured    Boolean  @default(false) @map("is_featured")
   sortOrder     Int      @default(0) @map("sort_order")
@@ -875,6 +883,18 @@ model TldPrice {
 
   @@unique([tld])
   @@map("tld_prices")
+}
+
+enum TldMarkup {
+  PERCENT
+  AMOUNT
+}
+
+/// How a worked-out selling price is rounded up: not at all, to whole rupees, or to end in 9 (e.g. 799).
+enum TldRounding {
+  NONE
+  RUPEE
+  NINE
 }
 
 enum DomainRenewalStatus {

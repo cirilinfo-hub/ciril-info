@@ -65,6 +65,7 @@ test.describe('Domains', () => {
     await add.getByRole('button', { name: 'Add ending' }).click();
     await expect(add.getByText(/ending such as com, in or co\.in/).first()).toBeVisible(); // nothing entered yet
     await add.getByLabel('Ending').fill(`.${tld}`);
+    await add.getByLabel('Type the prices in').check(); // priced by hand; markups are covered below
     await add.getByLabel('Register (₹)').fill('799');
     await add.getByLabel('Renew (₹)').fill('999.50');
     await add.getByLabel('Transfer (₹)').fill('free');
@@ -127,6 +128,35 @@ test.describe('Domains', () => {
     await edit.getByRole('button', { name: 'Save changes' }).click();
     await expect(staff.getByText(`.${tld} was updated.`)).toBeVisible();
     await expect(staff.getByRole('row', { name: new RegExp(`\\.${tld}`) })).toContainText('₹1,099');
+
+    // ── Purchase prices from the registrar's sheet, with a markup ───────────────
+    const imported = `pi${rand()}`;
+    await staff.getByRole('button', { name: 'Import purchase prices' }).click();
+    const imp = staff.getByRole('dialog', { name: 'Import purchase prices' });
+    await imp.getByLabel('Price sheet').fill(`Ending, Register, Renew, Transfer\n.${imported}, 700, 900, 650\n${imported}x, 1, 2`);
+    await expect(imp.getByText('1 ending read; 1 line cannot be read and will be ignored.')).toBeVisible();
+    await imp.getByLabel('Markup (%)').fill('20');
+    await imp.getByLabel('Round up').selectOption({ label: 'To end in 9' });
+    await imp.getByRole('button', { name: 'Import 1 ending' }).click();
+    await expect(staff.getByText(/Purchase prices imported: 1 added \(switched off/)).toBeVisible();
+    await staff.getByRole('searchbox', { name: 'Search endings' }).fill(imported);
+    const irow = staff.getByRole('row', { name: new RegExp(`\\.${imported}`) });
+    await expect(irow).toContainText('₹849'); // 700 + 20% = 840, rounded up to end in 9
+    await expect(irow).toContainText('cost ₹700');
+    await expect(irow).toContainText('+20%');
+    await expect(irow).toContainText('Off');
+
+    // One markup for the selected endings: +₹100 on the purchase price.
+    await irow.getByRole('checkbox', { name: `Select .${imported}` }).check();
+    await staff.getByRole('button', { name: 'Change prices of selected' }).click();
+    const bulk = staff.getByRole('dialog', { name: 'Change prices in bulk' });
+    await bulk.getByLabel('Markup', { exact: true }).selectOption({ label: 'Amount (₹)' });
+    await bulk.getByLabel('Markup (₹)').fill('100');
+    await bulk.getByLabel('Round up').selectOption({ label: 'No rounding' });
+    await bulk.getByRole('button', { name: 'Apply' }).click();
+    await expect(staff.getByText('1 ending was re-priced.')).toBeVisible();
+    await expect(irow).toContainText('₹800');
+    await expect(irow).toContainText('+₹100');
     await ctx.close();
   });
 

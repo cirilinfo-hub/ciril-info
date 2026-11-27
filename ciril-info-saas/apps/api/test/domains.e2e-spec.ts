@@ -77,6 +77,63 @@ describe('Domains (e2e)', () => {
       await http().patch(api(`admin/domains/tlds/${id}`)).set(auth(reader)).send({ isActive: true }).expect(403);
     });
 
+    it('works selling prices out from purchase prices and a markup, and never shows costs publicly', async () => {
+      const bad = await http().post(api('admin/domains/tlds')).set(auth(admin)).send({ tld: tld('mk0'), markupType: 'PERCENT', markupValue: 20 }).expect(400);
+      expect(bad.body.error.code).toBe('COSTS_REQUIRED');
+      await http().post(api('admin/domains/tlds')).set(auth(admin)).send({ tld: tld('mk1') }).expect(400); // no prices, no markup
+      const r = await http().post(api('admin/domains/tlds')).set(auth(admin))
+        .send({ tld: tld('mk'), costRegister: 700, costRenew: 900, costTransfer: 650, markupType: 'PERCENT', markupValue: 20, markupRound: 'NINE' }).expect(201);
+      expect([r.body.registerPrice, r.body.renewPrice, r.body.transferPrice].map(Number)).toEqual([849, 1089, 789]);
+      // New costs re-price it; switching to hand pricing keeps the costs.
+      const id = r.body.id as string;
+      const up = await http().patch(api(`admin/domains/tlds/${id}`)).set(auth(admin)).send({ costRegister: 800 }).expect(200);
+      expect(Number(up.body.registerPrice)).toBe(969);
+      const hand = await http().patch(api(`admin/domains/tlds/${id}`)).set(auth(admin)).send({ markupType: null, registerPrice: 999 }).expect(200);
+      expect(hand.body).toMatchObject({ markupType: null });
+      expect(Number(hand.body.registerPrice)).toBe(999);
+      expect(Number(hand.body.costRegister)).toBe(800);
+      const pub = await http().get(api('public/domains/tlds')).expect(200);
+      expect(JSON.stringify(pub.body)).not.toMatch(/cost|markup/i);
+    });
+
+    it('applies one markup to many endings, skipping those without purchase prices', async () => {
+      const a = await http().post(api('admin/domains/tlds')).set(auth(admin)).send({ tld: tld('bk1'), costRegister: 100, costRenew: 200, costTransfer: 300, markupType: 'AMOUNT', markupValue: 0 }).expect(201);
+      const b = await create(tld('bk2')).expect(201); // hand-priced 799/999/699, no costs
+      const ids = [a.body.id, b.body.id];
+      await http().post(api('admin/domains/tlds/bulk-price')).set(auth(reader)).send({ ids, basis: 'COST', markupType: 'PERCENT', markupValue: 10 }).expect(403);
+      const cost = await http().post(api('admin/domains/tlds/bulk-price')).set(auth(admin)).send({ ids, basis: 'COST', markupType: 'PERCENT', markupValue: 10 }).expect(200);
+      expect(cost.body).toEqual({ changed: 1, skipped: [{ tld: tld('bk2'), reason: expect.any(String) }] });
+      const cur = await http().post(api('admin/domains/tlds/bulk-price')).set(auth(admin)).send({ ids: [b.body.id], basis: 'CURRENT', markupType: 'AMOUNT', markupValue: 100 }).expect(200);
+      expect(cur.body.changed).toBe(1);
+      const list = await http().get(api('admin/domains/tlds')).query({ search: `t${tag}bk` }).set(auth(admin)).expect(200);
+      const by = Object.fromEntries(list.body.data.map((t: { tld: string; registerPrice: string; markupType: string | null }) => [t.tld, t]));
+      expect(Number(by[tld('bk1')].registerPrice)).toBe(110);
+      expect(by[tld('bk1')].markupType).toBe('PERCENT');
+      expect(Number(by[tld('bk2')].registerPrice)).toBe(899);
+      expect(await db.auditLog.count({ where: { action: 'tld.bulk_price', actorId: { not: null } } })).toBeGreaterThan(0);
+    });
+
+    it('imports purchase prices: updates existing endings, adds new ones switched off, skips new ones without a markup', async () => {
+      const rows = [
+        { tld: tld('bk1'), costRegister: 200, costRenew: 200, costTransfer: 200 }, // follows a 10% markup
+        { tld: tld('bk2'), costRegister: 500, costRenew: 500, costTransfer: 500 }, // hand-priced: prices kept
+        { tld: `.${tld('im1').toUpperCase()}`, costRegister: 1000, costRenew: 1100, costTransfer: 900 },
+      ];
+      const none = await http().post(api('admin/domains/tlds/import')).set(auth(admin)).send({ rows }).expect(200);
+      expect(none.body).toMatchObject({ created: 0, updated: 2, skipped: [{ tld: tld('im1') }] });
+      const r = await http().post(api('admin/domains/tlds/import')).set(auth(admin)).send({ rows, markup: { markupType: 'AMOUNT', markupValue: 150, markupRound: 'RUPEE' } }).expect(200);
+      expect(r.body).toMatchObject({ created: 1, updated: 2, skipped: [] });
+      const list = await http().get(api('admin/domains/tlds')).query({ search: `t${tag}` }).set(auth(admin)).expect(200);
+      const by = Object.fromEntries(list.body.data.map((t: { tld: string }) => [t.tld, t]));
+      expect(Number(by[tld('bk1')].registerPrice)).toBe(220);
+      expect(Number(by[tld('bk2')].registerPrice)).toBe(899);
+      expect(Number(by[tld('bk2')].costRegister)).toBe(500);
+      expect(by[tld('im1')]).toMatchObject({ isActive: false, markupType: 'AMOUNT' });
+      expect(Number(by[tld('im1')].registerPrice)).toBe(1150);
+      await http().post(api('admin/domains/tlds/import')).set(auth(admin)).send({ rows: [{ tld: 'a.b.c', costRegister: 1, costRenew: 1, costTransfer: 1 }] }).expect(400);
+      await http().post(api('admin/domains/tlds/import')).set(auth(admin)).send({ rows: [] }).expect(400);
+    });
+
     it('lists and searches', async () => {
       const r = await http().get(api('admin/domains/tlds')).query({ search: `t${tag}` }).set(auth(admin)).expect(200);
       expect(r.body.data.map((t: { tld: string }) => t.tld)).toEqual(expect.arrayContaining([tld('a'), tld('b')]));
