@@ -75,6 +75,12 @@ describe('registrar, email, storage, errors', () => {
   });
   it('flags the local test inbox', () => expect(get(run({ email: { provider: 'mailpit' } }), 'email')).toMatchObject({ status: 'todo', detail: expect.stringContaining('will not receive') }));
   it('flags an email provider that does not exist', () => expect(get(run({ email: { provider: 'postmark' } }), 'email').status).toBe('todo'));
+  it('flags an email provider chosen without its credentials, since nobody could verify and sign in', () => {
+    expect(get(run({ email: { provider: 'resend', configured: false } }), 'email')).toMatchObject({ status: 'todo', detail: expect.stringContaining('RESEND_API_KEY is missing') });
+    expect(get(run({ email: { provider: 'smtp', configured: false } }), 'email')).toMatchObject({ status: 'todo', detail: expect.stringContaining('SMTP_USER or SMTP_PASSWORD') });
+  });
+  it('accepts your own mailbox, naming its server', () =>
+    expect(get(run({ email: { provider: 'smtp', configured: true, smtpHost: 'smtp.hostinger.com' } }), 'email')).toMatchObject({ status: 'ok', detail: expect.stringContaining('smtp.hostinger.com') }));
   it('reports Plesk as connected once its settings are in, and what is missing otherwise', () => {
     expect(get(run({ hosting: { provider: 'plesk', plesk: { hostSet: true, keySet: true, ipSet: true, tls: 'verify' } } }), 'hosting')).toMatchObject({ status: 'ok', detail: expect.stringContaining('Plesk') });
     expect(get(run({ hosting: { provider: 'plesk', plesk: { hostSet: true, keySet: false, ipSet: false, tls: 'verify' } } }), 'hosting')).toMatchObject({ status: 'todo', detail: expect.stringContaining('the API key and the IP address') });

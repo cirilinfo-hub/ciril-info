@@ -23,6 +23,36 @@ export function mailpitSender(host: string, port: number): EmailSender {
   return { name: 'mailpit', send: async (e) => void (await smtp.sendMail({ from: e.from, to: e.to, subject: e.subject, text: e.text, html: e.html })) };
 }
 
+export interface SmtpSettings {
+  host: string;
+  port: number;
+  /** true: TLS from the start (465). false: STARTTLS on 587, required unless `allowPlain` (tests only). */
+  secure: boolean;
+  user: string;
+  password: string;
+  allowPlain?: boolean;
+}
+
+/**
+ * Your own mailbox's SMTP server (for example noreply@cirilinfo.com at smtp.hostinger.com:465). The connection is always
+ * encrypted and the mailbox signs in; mail then carries the domain's own SPF and DKIM. A failure is thrown so the worker
+ * tries again later. Mailbox providers cap how much one mailbox may send per hour or day.
+ */
+export function smtpSender(s: SmtpSettings): EmailSender {
+  const smtp = nodemailer.createTransport({
+    host: s.host, port: s.port, secure: s.secure, requireTLS: !s.secure && !s.allowPlain, ignoreTLS: Boolean(s.allowPlain),
+    auth: { user: s.user, pass: s.password },
+    tls: { minVersion: 'TLSv1.2', servername: s.host },
+    connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 30_000,
+  });
+  return {
+    name: 'smtp',
+    async send(e) {
+      await smtp.sendMail({ from: e.from, to: e.to, subject: e.subject, text: e.text, html: e.html, headers: { 'X-CirilInfo-Event': e.idempotencyKey } });
+    },
+  };
+}
+
 /** Resend's HTTPS API. Its idempotency key makes a retried send go out once. */
 export function resendSender(apiKey: string, base = 'https://api.resend.com'): EmailSender {
   return {

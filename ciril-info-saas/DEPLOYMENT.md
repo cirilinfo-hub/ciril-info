@@ -255,6 +255,69 @@ Practise this once on a spare server before you need it.
 - Apply system updates regularly (`apt update && apt upgrade`) and reboot when asked.
 - Every staff member uses two-step verification (the Launch checklist counts anyone who doesn't).
 
+## Sharing the server with FASTPANEL
+
+The app can run on the same server as FASTPANEL (the panel your customers' websites live on). This is how cirilinfo.com
+runs today. Customer websites then share a machine with your billing system: keep FASTPANEL and the server updated, and
+move the app to its own server once you can.
+
+FASTPANEL's nginx owns ports 80 and 443, so the app sits behind it:
+
+- **The app's nginx** listens on `127.0.0.1:8080` only, in plain HTTP (`docker-compose.fastpanel.yml`, using
+  `infra/nginx/behind-proxy/cirilinfo.conf`). It takes the visitor's address and scheme from FASTPANEL's nginx, so rate
+  limits and sign-in protection still see real visitors.
+- **FASTPANEL's nginx** handles HTTPS for the five names and forwards them there, from
+  `/etc/nginx/sites-enabled/cirilinfo.conf` (`infra/host-nginx/cirilinfo.conf` with `__IPV4__`/`__IPV6__` replaced). It
+  listens on the server's own address and port, exactly like FASTPANEL's sites, or nginx never uses it.
+
+Set up once (after steps 1 to 3 above; Docker and certbot are installed the same way):
+
+```bash
+cd /opt/cirilinfo
+V4=<server IPv4>; V6=<server IPv6>
+mkdir -p /etc/nginx/sites-enabled /var/www/certbot
+sed -e "s/__IPV4__/$V4/g" -e "s/__IPV6__/$V6/g" infra/host-nginx/cirilinfo.conf > /root/cirilinfo.host.conf
+# First only the port-80 block, so certbot can prove the names:
+awk '/^server \{/{n++} n==1' /root/cirilinfo.host.conf > /etc/nginx/sites-enabled/cirilinfo.conf
+nginx -t && systemctl reload nginx
+certbot certonly --webroot -w /var/www/certbot --cert-name cirilinfo.com \
+  -d cirilinfo.com -d www.cirilinfo.com -d app.cirilinfo.com -d admin.cirilinfo.com -d api.cirilinfo.com
+# Then the whole file, and a renewal hook that reloads FASTPANEL's nginx:
+cp /root/cirilinfo.host.conf /etc/nginx/sites-enabled/cirilinfo.conf && nginx -t && systemctl reload nginx
+printf '#!/bin/sh\nnginx -t && systemctl reload nginx\n' > /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+```
+
+From then on, **every `docker compose` command uses both files**:
+
+```bash
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.fastpanel.yml up -d
+```
+
+Always run `nginx -t` before reloading FASTPANEL's nginx: a broken file there takes every website on the server down.
+Connect the panel itself in Admin > Hosting servers as described in HOSTING.md ("FASTPANEL"). The app's containers reach
+it at the server's address on port 8888.
+
+## Email from your own mailbox
+
+Instead of Resend, the app can send from a mailbox on your domain, for example `noreply@cirilinfo.com` made in hPanel >
+Emails (which also adds the MX, SPF and DKIM records). In `.env`:
+
+```
+EMAIL_PROVIDER=smtp
+EMAIL_FROM=CirilInfo <noreply@cirilinfo.com>
+SMTP_HOST=smtp.hostinger.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=noreply@cirilinfo.com
+SMTP_PASSWORD=<the mailbox password>
+```
+
+`EMAIL_FROM` must use the mailbox's own address, or the mail server refuses it. The connection is always encrypted. A
+mailbox can only send so many emails per hour and day; switch to Resend or Amazon SES if you outgrow it. The Launch
+checklist says when the email settings are incomplete, and the API refuses to start in production with Resend chosen but
+no key.
+
 ## What is still done by hand
 
 Domain **registration, renewal and transfer** happen at your registrar (staff are notified and mark each done). Names are checked against the public registry, so searches are real, but no registrar is connected yet.

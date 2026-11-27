@@ -3,7 +3,7 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Job } from 'bullmq';
 import type { Env } from '../config/env.js';
-import { type EmailSender, mailpitSender, resendSender, sesSender } from '../modules/mail/email-senders.js';
+import { type EmailSender, mailpitSender, resendSender, sesSender, smtpSender } from '../modules/mail/email-senders.js';
 import { renderEmail } from '../modules/mail/templates.js';
 import { EMAIL_SEND_EVENT, type EmailMessage } from '../modules/mail/mail.types.js';
 import { DomainEventsHandler } from '../modules/domains/domain-events.handler.js';
@@ -39,6 +39,10 @@ export class EventsProcessor extends WorkerHost {
       : provider === 'ses' ? sesSender({
           region: config.get('AWS_SES_REGION', { infer: true }), accessKeyId: config.get('AWS_SES_ACCESS_KEY_ID', { infer: true }), secretAccessKey: config.get('AWS_SES_SECRET_ACCESS_KEY', { infer: true }),
           configurationSet: config.get('AWS_SES_CONFIGURATION_SET', { infer: true }) || undefined, endpoint: config.get('AWS_SES_ENDPOINT', { infer: true }) || undefined,
+        })
+      : provider === 'smtp' ? smtpSender({
+          host: config.get('SMTP_HOST', { infer: true }), port: config.get('SMTP_PORT', { infer: true }), secure: config.get('SMTP_SECURE', { infer: true }),
+          user: config.get('SMTP_USER', { infer: true }), password: config.get('SMTP_PASSWORD', { infer: true }),
         })
       : resendKey ? resendSender(resendKey) : null;
   }

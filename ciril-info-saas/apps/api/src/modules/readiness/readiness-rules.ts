@@ -24,7 +24,7 @@ export interface ReadinessFacts {
   dns: { provider: string };
   registrar: { provider: string; godaddy?: { env: string; keySet: boolean; nameserversSet: boolean } };
   cpanel: { hostSet: boolean; userSet: boolean; tokenSet: boolean; tls: string };
-  email: { provider: string };
+  email: { provider: string; configured?: boolean; smtpHost?: string };
   storage: { driver: string };
   virusScan?: { mode: string };
   errorTrackingSet: boolean;
@@ -100,11 +100,15 @@ export function evaluateReadiness(f: ReadinessFacts): Check[] {
   add(
     f.email.provider === 'mailpit'
       ? { key: 'email', group: 'Connections', label: 'Email', status: 'todo', detail: 'Emails go to a local test inbox (Mailpit). Customers will not receive sign-in links or invoices. Set up Resend.' }
-      : f.email.provider === 'resend'
-        ? { key: 'email', group: 'Connections', label: 'Email', status: 'ok', detail: 'Emails are sent through Resend.' }
-        : f.email.provider === 'ses'
-          ? { key: 'email', group: 'Connections', label: 'Email', status: 'ok', detail: 'Emails are sent through Amazon SES. Make sure your account is out of the SES sandbox, or only verified addresses receive them.' }
-          : { key: 'email', group: 'Connections', label: 'Email', status: 'todo', detail: `The email provider "${f.email.provider}" is not available. Use Resend or Amazon SES.` },
+      : f.email.configured === false
+        ? { key: 'email', group: 'Connections', label: 'Email', status: 'todo', detail: f.email.provider === 'smtp' ? 'Email is set to your own mailbox, but SMTP_USER or SMTP_PASSWORD is missing. No emails go out, so new customers cannot verify their address and sign in.' : 'Email is set to Resend, but RESEND_API_KEY is missing. No emails go out, so new customers cannot verify their address and sign in.' }
+        : f.email.provider === 'resend'
+          ? { key: 'email', group: 'Connections', label: 'Email', status: 'ok', detail: 'Emails are sent through Resend.' }
+          : f.email.provider === 'smtp'
+            ? { key: 'email', group: 'Connections', label: 'Email', status: 'ok', detail: `Emails are sent from your own mailbox through ${f.email.smtpHost ?? 'its mail server'}. Mailbox providers cap how many emails one mailbox may send per hour and day; switch to Resend or Amazon SES if you outgrow it.` }
+            : f.email.provider === 'ses'
+              ? { key: 'email', group: 'Connections', label: 'Email', status: 'ok', detail: 'Emails are sent through Amazon SES. Make sure your account is out of the SES sandbox, or only verified addresses receive them.' }
+              : { key: 'email', group: 'Connections', label: 'Email', status: 'todo', detail: `The email provider "${f.email.provider}" is not available. Use your own mailbox (smtp), Resend or Amazon SES.` },
   );
   add(
     f.storage.driver === 'local'
